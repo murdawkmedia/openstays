@@ -8,15 +8,26 @@
  * @module
  */
 
+import type * as auth from "../auth.js";
 import type * as availability from "../availability.js";
 import type * as bookings from "../bookings.js";
 import type * as crons from "../crons.js";
 import type * as demo from "../demo.js";
+import type * as email from "../email.js";
+import type * as emailTemplates from "../emailTemplates.js";
 import type * as http from "../http.js";
 import type * as ical from "../ical.js";
+import type * as icalImport from "../icalImport.js";
+import type * as payments_checkout from "../payments/checkout.js";
+import type * as payments_index from "../payments/index.js";
+import type * as payments_square from "../payments/square.js";
+import type * as payments_stripe from "../payments/stripe.js";
+import type * as payments_types from "../payments/types.js";
+import type * as payments_webhooks from "../payments/webhooks.js";
 import type * as promoCodes from "../promoCodes.js";
 import type * as properties from "../properties.js";
 import type * as seed from "../seed.js";
+import type * as staff from "../staff.js";
 
 import type {
   ApiFromModules,
@@ -25,15 +36,26 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  auth: typeof auth;
   availability: typeof availability;
   bookings: typeof bookings;
   crons: typeof crons;
   demo: typeof demo;
+  email: typeof email;
+  emailTemplates: typeof emailTemplates;
   http: typeof http;
   ical: typeof ical;
+  icalImport: typeof icalImport;
+  "payments/checkout": typeof payments_checkout;
+  "payments/index": typeof payments_index;
+  "payments/square": typeof payments_square;
+  "payments/stripe": typeof payments_stripe;
+  "payments/types": typeof payments_types;
+  "payments/webhooks": typeof payments_webhooks;
   promoCodes: typeof promoCodes;
   properties: typeof properties;
   seed: typeof seed;
+  staff: typeof staff;
 }>;
 
 /**

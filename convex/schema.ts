@@ -1,4 +1,5 @@
 import { defineSchema, defineTable } from 'convex/server';
+import { authTables } from '@convex-dev/auth/server';
 import { v } from 'convex/values';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,19 @@ const cancellationPolicySchema = v.array(
 );
 
 export default defineSchema({
+  // Convex Auth tables (users, authSessions, authAccounts, ...). Staff sign in
+  // with email+password; a users row alone grants NOTHING — staff rights come
+  // only from an active staffProfiles row (see convex/staff.ts requireStaff).
+  ...authTables,
+
+  staffProfiles: defineTable({
+    userId: v.id('users'),
+    name: v.string(),
+    role: v.union(v.literal('owner'), v.literal('staff')),
+    active: v.boolean(),
+    createdAt: v.number(),
+  }).index('by_userId', ['userId']),
+
   properties: defineTable({
     name: v.string(),
     slug: v.string(),
@@ -175,6 +189,10 @@ export default defineSchema({
     holdExpiresAt: v.optional(v.number()), // set while status === 'hold'
     source: v.string(), // 'online' | 'front_desk' | 'phone' | 'ical:Airbnb' | 'demo'
     externalUid: v.optional(v.string()), // iCal VEVENT UID for imports
+    // iCal import found this external event overlapping an internal booking's
+    // nights. The import NEVER clobbers internal bookings — it flags instead
+    // and staff resolve on the tape.
+    syncConflict: v.optional(v.boolean()),
     confirmationCode: v.string(), // 'OS-7K3M2Q'
     priceBreakdown: v.optional(priceBreakdownSchema),
     giftCertificateId: v.optional(v.id('giftCertificates')),
