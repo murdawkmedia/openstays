@@ -1,0 +1,349 @@
+import { defineSchema, defineTable } from 'convex/server';
+import { v } from 'convex/values';
+
+// ---------------------------------------------------------------------------
+// OpenStays schema v1.
+// Conventions (binding — see CLAUDE.md):
+// - Money is integer cents. Stay dates are property-local ISO 'YYYY-MM-DD'
+//   strings (lexicographic == chronological). Epoch ms only for instants.
+// - Nights are half-open [checkIn, checkOut).
+// - Every domain table carries propertyId (keeps the multi-org door open).
+// - unitNights rows are written/deleted ONLY inside the same mutation that
+//   changes the owning booking's status. Never touch them elsewhere.
+// ---------------------------------------------------------------------------
+
+const statusHistorySchema = v.array(v.object({ status: v.string(), ts: v.number() }));
+const noteSchema = v.array(v.object({ ts: v.number(), text: v.string(), by: v.string() }));
+
+export const bookingStatus = v.union(
+  v.literal('hold'), // TTL hold, pre-payment
+  v.literal('confirmed'), // paid (deposit or full)
+  v.literal('checked_in'),
+  v.literal('checked_out'),
+  v.literal('cancelled'),
+  v.literal('expired'), // hold TTL lapsed
+  v.literal('no_show'),
+  v.literal('external'), // imported via iCal (Airbnb etc.)
+  v.literal('blocked'), // maintenance / owner block
+  v.literal('payment_conflict'), // payment landed after nights were re-taken
+);
+
+const priceBreakdownSchema = v.object({
+  nightlySubtotalCents: v.number(),
+  addOnSubtotalCents: v.number(),
+  discountCents: v.number(),
+  taxableSubtotalCents: v.number(),
+  gstCents: v.number(),
+  totalCents: v.number(),
+  depositDueCents: v.number(),
+  balanceDueCents: v.number(),
+});
+
+const depositPolicySchema = v.object({
+  type: v.union(v.literal('full'), v.literal('percent'), v.literal('flat'), v.literal('first_night')),
+  value: v.number(),
+});
+
+const cancellationPolicySchema = v.array(
+  v.object({
+    daysBefore: v.number(),
+    refundPercent: v.number(),
+  }),
+);
+
+export default defineSchema({
+  properties: defineTable({
+    name: v.string(),
+    slug: v.string(),
+    timezone: v.string(), // 'America/Edmonton'
+    currency: v.string(), // 'CAD'
+    taxRateBps: v.number(), // 500 = 5% GST
+    gstNumber: v.optional(v.string()),
+    email: v.string(),
+    phone: v.string(),
+    address: v.string(),
+    checkInTime: v.string(), // '16:00'
+    checkOutTime: v.string(), // '11:00'
+    active: v.boolean(),
+  }).index('by_slug', ['slug']),
+
+  unitTypes: defineTable({
+    propertyId: v.id('properties'),
+    name: v.string(),
+    slug: v.string(),
+    kind: v.union(
+      v.literal('room'),
+      v.literal('cabin'),
+      v.literal('site'),
+      v.literal('rv_rental'),
+      v.literal('yurt'),
+      v.literal('geodome'),
+    ),
+    bookingMode: v.union(v.literal('nightly'), v.literal('seasonal')),
+    description: v.string(),
+    photoUrls: v.array(v.string()),
+    maxOccupancy: v.number(),
+    amenities: v.array(v.string()),
+    comingSoon: v.boolean(),
+    sortOrder: v.number(),
+  })
+    .index('by_property', ['propertyId', 'sortOrder'])
+    .index('by_property_slug', ['propertyId', 'slug']),
+
+  units: defineTable({
+    propertyId: v.id('properties'),
+    unitTypeId: v.id('unitTypes'),
+    name: v.string(),
+    slug: v.string(),
+    status: v.union(v.literal('active'), v.literal('coming_soon'), v.literal('offline')),
+    /** Units become bookable online on/after this date; unset = immediately. */
+    bookableFrom: v.optional(v.string()),
+    icalExportToken: v.string(), // long random secret, regenerable
+    icalImports: v.array(
+      v.object({
+        url: v.string(),
+        label: v.string(), // 'Airbnb', 'ResNexus bridge'
+        lastSyncedAt: v.optional(v.number()),
+        lastStatus: v.optional(v.string()),
+      }),
+    ),
+    sortOrder: v.number(),
+  })
+    .index('by_property', ['propertyId', 'sortOrder'])
+    .index('by_type', ['unitTypeId'])
+    .index('by_icalToken', ['icalExportToken']),
+
+  ratePlans: defineTable({
+    propertyId: v.id('properties'),
+    unitTypeId: v.id('unitTypes'),
+    name: v.string(),
+    active: v.boolean(),
+    currency: v.string(),
+    baseNightlyCents: v.number(),
+    weeklyRateCents: v.optional(v.number()),
+    seasons: v.array(
+      v.object({
+        label: v.string(),
+        startDate: v.string(), // inclusive
+        endDate: v.string(), // inclusive
+        nightlyCents: v.number(),
+        minStayNights: v.optional(v.number()),
+      }),
+    ),
+    minStayNights: v.number(),
+    maxStayNights: v.number(),
+    minLeadTimeHours: v.number(),
+    maxAdvanceDays: v.number(),
+    prepBufferNights: v.number(),
+    depositPolicy: depositPolicySchema,
+    cancellationPolicy: cancellationPolicySchema, // sorted descending by daysBefore
+  })
+    .index('by_unitType', ['unitTypeId', 'active'])
+    .index('by_property', ['propertyId']),
+
+  guests: defineTable({
+    propertyId: v.id('properties'),
+    name: v.string(),
+    email: v.string(),
+    phone: v.string(),
+    normalizedEmail: v.string(),
+    normalizedPhone: v.string(),
+    marketingOptIn: v.boolean(),
+    notes: noteSchema,
+  })
+    .index('by_email', ['propertyId', 'normalizedEmail'])
+    .index('by_phone', ['propertyId', 'normalizedPhone']),
+
+  bookings: defineTable({
+    propertyId: v.id('properties'),
+    unitId: v.id('units'),
+    unitTypeId: v.id('unitTypes'),
+    guestId: v.optional(v.id('guests')), // absent for external/blocked
+    ratePlanId: v.optional(v.id('ratePlans')),
+    checkIn: v.string(), // 'YYYY-MM-DD'
+    checkOut: v.string(), // exclusive
+    nights: v.number(),
+    adults: v.number(),
+    children: v.number(),
+    status: bookingStatus,
+    holdExpiresAt: v.optional(v.number()), // set while status === 'hold'
+    source: v.string(), // 'online' | 'front_desk' | 'phone' | 'ical:Airbnb' | 'demo'
+    externalUid: v.optional(v.string()), // iCal VEVENT UID for imports
+    confirmationCode: v.string(), // 'OS-7K3M2Q'
+    priceBreakdown: v.optional(priceBreakdownSchema),
+    giftCertificateId: v.optional(v.id('giftCertificates')),
+    statusHistory: statusHistorySchema,
+    notes: noteSchema,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_unit_checkIn', ['unitId', 'checkIn'])
+    .index('by_status_holdExpires', ['status', 'holdExpiresAt'])
+    .index('by_property_checkIn', ['propertyId', 'checkIn'])
+    .index('by_guest', ['guestId'])
+    .index('by_confirmationCode', ['confirmationCode'])
+    .index('by_unit_externalUid', ['unitId', 'externalUid']),
+
+  // Derived occupancy: one row per blocked unit-night. THE conflict-detection
+  // and calendar-rendering surface. Invariant: a row exists iff an active
+  // booking (hold/confirmed/checked_in/external/blocked) covers that night.
+  unitNights: defineTable({
+    unitId: v.id('units'),
+    date: v.string(), // 'YYYY-MM-DD'
+    bookingId: v.id('bookings'),
+    kind: v.union(v.literal('stay'), v.literal('prep'), v.literal('external'), v.literal('block')),
+  })
+    .index('by_unit_date', ['unitId', 'date'])
+    .index('by_booking', ['bookingId']),
+
+  payments: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.optional(v.id('bookings')),
+    seasonalContractId: v.optional(v.id('seasonalContracts')),
+    provider: v.union(
+      v.literal('stripe'),
+      v.literal('square'),
+      v.literal('manual'),
+      v.literal('gift_certificate'),
+      v.literal('simulated'), // DEMO_MODE only
+    ),
+    manualMethod: v.optional(v.string()), // 'cash' | 'etransfer' | 'pos_terminal' | 'cheque'
+    providerCheckoutId: v.optional(v.string()),
+    providerPaymentId: v.optional(v.string()),
+    amountCents: v.number(),
+    gstCents: v.number(),
+    currency: v.string(),
+    status: v.union(
+      v.literal('pending'),
+      v.literal('paid'),
+      v.literal('failed'),
+      v.literal('refunded'),
+      v.literal('partially_refunded'),
+    ),
+    refunds: v.array(
+      v.object({
+        amountCents: v.number(),
+        providerRefundId: v.optional(v.string()),
+        reason: v.string(),
+        ts: v.number(),
+        by: v.string(),
+      }),
+    ),
+    recordedBy: v.optional(v.string()),
+    createdAt: v.number(),
+    paidAt: v.optional(v.number()),
+  })
+    .index('by_booking', ['bookingId'])
+    .index('by_contract', ['seasonalContractId'])
+    .index('by_provider_checkout', ['provider', 'providerCheckoutId'])
+    .index('by_property_createdAt', ['propertyId', 'createdAt']),
+
+  // Webhook idempotency ledger.
+  webhookEvents: defineTable({
+    provider: v.string(),
+    eventId: v.string(),
+    type: v.string(),
+    bookingId: v.optional(v.id('bookings')),
+    processedAt: v.number(),
+  }).index('by_provider_event', ['provider', 'eventId']),
+
+  addOns: defineTable({
+    propertyId: v.id('properties'),
+    name: v.string(),
+    priceCents: v.number(),
+    taxable: v.boolean(),
+    unitLabel: v.string(), // 'bundle', 'night'
+    appliesTo: v.array(v.id('unitTypes')), // empty = all
+    active: v.boolean(),
+    sortOrder: v.number(),
+  }).index('by_property', ['propertyId', 'active']),
+
+  bookingAddOns: defineTable({
+    bookingId: v.id('bookings'),
+    addOnId: v.id('addOns'),
+    nameSnapshot: v.string(), // price/name frozen at sale time
+    unitPriceCents: v.number(),
+    quantity: v.number(),
+    taxable: v.boolean(),
+    soldAt: v.number(),
+    soldBy: v.optional(v.string()),
+    paymentId: v.optional(v.id('payments')),
+  })
+    .index('by_booking', ['bookingId'])
+    .index('by_addOn', ['addOnId']),
+
+  // Seasonal (long-term site) contracts — skeletal in M0, implemented in M4.
+  seasonalContracts: defineTable({
+    propertyId: v.id('properties'),
+    unitId: v.id('units'),
+    guestId: v.id('guests'),
+    seasonLabel: v.string(), // '2027'
+    startDate: v.string(),
+    endDate: v.string(),
+    totalCents: v.number(),
+    gstCents: v.number(),
+    schedule: v.array(
+      v.object({
+        dueDate: v.string(),
+        amountCents: v.number(),
+        status: v.union(v.literal('due'), v.literal('invoiced'), v.literal('paid'), v.literal('overdue')),
+        paymentId: v.optional(v.id('payments')),
+      }),
+    ),
+    status: v.union(v.literal('draft'), v.literal('active'), v.literal('completed'), v.literal('cancelled')),
+    renewal: v.object({
+      status: v.union(v.literal('none'), v.literal('offered'), v.literal('accepted'), v.literal('declined')),
+      offeredAt: v.optional(v.number()),
+      renewedContractId: v.optional(v.id('seasonalContracts')),
+    }),
+    agreementPdfStorageId: v.optional(v.id('_storage')),
+    statusHistory: statusHistorySchema,
+    notes: noteSchema,
+  })
+    .index('by_unit_season', ['unitId', 'seasonLabel'])
+    .index('by_property_status', ['propertyId', 'status'])
+    .index('by_guest', ['guestId']),
+
+  // Gift certificates — skeletal in M0, redemption wiring lands with M4.
+  giftCertificates: defineTable({
+    propertyId: v.id('properties'),
+    code: v.string(),
+    normalizedCode: v.string(), // uppercase, no spaces
+    initialCents: v.number(),
+    balanceCents: v.number(),
+    status: v.union(v.literal('active'), v.literal('depleted'), v.literal('void')),
+    expiresAt: v.optional(v.number()),
+    recipientName: v.optional(v.string()),
+    source: v.union(v.literal('resnexus_migration'), v.literal('issued')),
+    ledger: v.array(
+      v.object({
+        ts: v.number(),
+        deltaCents: v.number(), // negative = redemption
+        bookingId: v.optional(v.id('bookings')),
+        by: v.string(),
+      }),
+    ),
+  }).index('by_code', ['propertyId', 'normalizedCode']),
+
+  emailLog: defineTable({
+    propertyId: v.id('properties'),
+    to: v.string(),
+    templateKey: v.string(),
+    subject: v.string(),
+    bookingId: v.optional(v.id('bookings')),
+    seasonalContractId: v.optional(v.id('seasonalContracts')),
+    status: v.union(v.literal('queued'), v.literal('sent'), v.literal('failed'), v.literal('logged')),
+    providerMessageId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    ts: v.number(),
+  })
+    .index('by_booking', ['bookingId'])
+    .index('by_ts', ['ts']),
+
+  // Staff auth lands in M1 (Convex Auth). Settings is the kokanee-style
+  // key/value store for non-secret deployment prefs.
+  settings: defineTable({
+    key: v.string(),
+    value: v.string(), // JSON string
+  }).index('by_key', ['key']),
+});

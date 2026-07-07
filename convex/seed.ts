@@ -1,0 +1,213 @@
+import { internalMutation } from './_generated/server';
+import type { MutationCtx } from './_generated/server';
+
+/**
+ * Seed the fictional "Pinewood Flats Campground" — the ONLY inventory that
+ * ever lives in this repo. Real operators load their own inventory as data
+ * in their own deployment (see docs/configuration.md).
+ *
+ * Run with: npx convex run seed:run
+ * Idempotent: skips if the property already exists.
+ */
+export const run = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db
+      .query('properties')
+      .withIndex('by_slug', (q) => q.eq('slug', 'pinewood-flats'))
+      .first();
+    if (existing) return { seeded: false, reason: 'pinewood-flats already exists' };
+    await seedPinewoodFlats(ctx);
+    return { seeded: true };
+  },
+});
+
+export async function seedPinewoodFlats(ctx: MutationCtx): Promise<void> {
+  const propertyId = await ctx.db.insert('properties', {
+    name: 'Pinewood Flats Campground',
+    slug: 'pinewood-flats',
+    timezone: 'America/Edmonton',
+    currency: 'CAD',
+    taxRateBps: 500, // 5% GST
+    gstNumber: '123456789RT0001',
+    email: 'hello@pinewoodflats.example',
+    phone: '555-010-2030',
+    address: '1 Lakeshore Drive, Pinewood, AB',
+    checkInTime: '16:00',
+    checkOutTime: '11:00',
+    active: true,
+  });
+
+  // --- Cabins ---
+  const cabinTypeId = await ctx.db.insert('unitTypes', {
+    propertyId,
+    name: 'Lakeview Cabin',
+    slug: 'lakeview-cabin',
+    kind: 'cabin',
+    bookingMode: 'nightly',
+    description:
+      'A cozy one-bedroom cabin with a loft, kitchenette, and a porch looking over the water. Sleeps four comfortably.',
+    photoUrls: [],
+    maxOccupancy: 4,
+    amenities: ['Kitchenette', 'Loft bedroom', 'Porch', 'Fire pit', 'Lake view'],
+    comingSoon: false,
+    sortOrder: 1,
+  });
+  for (let i = 1; i <= 3; i += 1) {
+    await ctx.db.insert('units', {
+      propertyId,
+      unitTypeId: cabinTypeId,
+      name: `Cabin ${i}`,
+      slug: `cabin-${i}`,
+      status: 'active',
+      icalExportToken: seedToken(`cabin-${i}`),
+      icalImports: [],
+      sortOrder: i,
+    });
+  }
+  await ctx.db.insert('ratePlans', {
+    propertyId,
+    unitTypeId: cabinTypeId,
+    name: 'Standard',
+    active: true,
+    currency: 'CAD',
+    baseNightlyCents: 14_900,
+    weeklyRateCents: 89_400, // 6 nights for 7
+    seasons: [
+      { label: 'Peak summer', startDate: '2026-06-15', endDate: '2026-09-01', nightlyCents: 18_900, minStayNights: 2 },
+    ],
+    minStayNights: 1,
+    maxStayNights: 21,
+    minLeadTimeHours: 0,
+    maxAdvanceDays: 365,
+    prepBufferNights: 0,
+    depositPolicy: { type: 'percent', value: 50 },
+    cancellationPolicy: [
+      { daysBefore: 7, refundPercent: 100 },
+      { daysBefore: 2, refundPercent: 50 },
+      { daysBefore: 0, refundPercent: 0 },
+    ],
+  });
+
+  // --- Yurt ---
+  const yurtTypeId = await ctx.db.insert('unitTypes', {
+    propertyId,
+    name: 'Ridge Yurt',
+    slug: 'ridge-yurt',
+    kind: 'yurt',
+    bookingMode: 'nightly',
+    description:
+      'Canvas-and-timber glamping on the ridge. Woodstove, queen bed, and the best stars on the property.',
+    photoUrls: [],
+    maxOccupancy: 2,
+    amenities: ['Woodstove', 'Queen bed', 'Shared bathhouse', 'Fire pit'],
+    comingSoon: false,
+    sortOrder: 2,
+  });
+  await ctx.db.insert('units', {
+    propertyId,
+    unitTypeId: yurtTypeId,
+    name: 'Yurt 1',
+    slug: 'yurt-1',
+    status: 'active',
+    icalExportToken: seedToken('yurt-1'),
+    icalImports: [],
+    sortOrder: 1,
+  });
+  await ctx.db.insert('ratePlans', {
+    propertyId,
+    unitTypeId: yurtTypeId,
+    name: 'Standard',
+    active: true,
+    currency: 'CAD',
+    baseNightlyCents: 11_900,
+    seasons: [],
+    minStayNights: 1,
+    maxStayNights: 14,
+    minLeadTimeHours: 0,
+    maxAdvanceDays: 365,
+    prepBufferNights: 1, // turnover day between glamping stays
+    depositPolicy: { type: 'first_night', value: 0 },
+    cancellationPolicy: [
+      { daysBefore: 3, refundPercent: 100 },
+      { daysBefore: 0, refundPercent: 0 },
+    ],
+  });
+
+  // --- RV sites (nightly) ---
+  const siteTypeId = await ctx.db.insert('unitTypes', {
+    propertyId,
+    name: 'Full-Hookup RV Site',
+    slug: 'rv-site',
+    kind: 'site',
+    bookingMode: 'nightly',
+    description: '30/50-amp full-hookup pull-through sites under the pines. Fire ring and picnic table at every site.',
+    photoUrls: [],
+    maxOccupancy: 8,
+    amenities: ['50-amp power', 'Water', 'Sewer', 'Fire ring', 'Picnic table'],
+    comingSoon: false,
+    sortOrder: 3,
+  });
+  for (let i = 1; i <= 10; i += 1) {
+    await ctx.db.insert('units', {
+      propertyId,
+      unitTypeId: siteTypeId,
+      name: `Site ${100 + i}`,
+      slug: `site-${100 + i}`,
+      status: 'active',
+      icalExportToken: seedToken(`site-${100 + i}`),
+      icalImports: [],
+      sortOrder: i,
+    });
+  }
+  await ctx.db.insert('ratePlans', {
+    propertyId,
+    unitTypeId: siteTypeId,
+    name: 'Standard',
+    active: true,
+    currency: 'CAD',
+    baseNightlyCents: 6_500,
+    weeklyRateCents: 39_000,
+    seasons: [],
+    minStayNights: 1,
+    maxStayNights: 28,
+    minLeadTimeHours: 0,
+    maxAdvanceDays: 365,
+    prepBufferNights: 0,
+    depositPolicy: { type: 'full', value: 0 },
+    cancellationPolicy: [
+      { daysBefore: 2, refundPercent: 100 },
+      { daysBefore: 0, refundPercent: 0 },
+    ],
+  });
+
+  // --- Add-ons ---
+  await ctx.db.insert('addOns', {
+    propertyId,
+    name: 'Firewood bundle',
+    priceCents: 1_200,
+    taxable: true,
+    unitLabel: 'bundle',
+    appliesTo: [],
+    active: true,
+    sortOrder: 1,
+  });
+  await ctx.db.insert('addOns', {
+    propertyId,
+    name: 'Late checkout (1pm)',
+    priceCents: 2_500,
+    taxable: true,
+    unitLabel: 'stay',
+    appliesTo: [cabinTypeId, yurtTypeId],
+    active: true,
+    sortOrder: 2,
+  });
+}
+
+/**
+ * Deterministic seed tokens so demo iCal URLs are stable across resets.
+ * Real deployments generate cryptographically random tokens (M1 admin UI).
+ */
+function seedToken(slug: string): string {
+  return `demo-${slug}-${'x'.repeat(24)}`;
+}
