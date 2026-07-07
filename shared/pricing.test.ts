@@ -118,7 +118,7 @@ describe('GST rounding', () => {
     expect(price.totalCents).toBe(10_000 + 2_900 + 620);
   });
 
-  it('total always equals subtotal - discount + gst, to the cent', () => {
+  it('total always equals subtotal - promo + gst, to the cent', () => {
     for (const nightly of [3_333, 9_999, 12_501, 14_900]) {
       for (const nights of [1, 2, 3, 7, 13]) {
         const plan = { ...basePlan, baseNightlyCents: nightly, weeklyRateCents: undefined };
@@ -130,10 +130,124 @@ describe('GST rounding', () => {
           taxRateBps: 500,
         });
         expect(price.totalCents).toBe(
-          price.nightlySubtotalCents + price.addOnSubtotalCents - price.discountCents + price.gstCents,
+          price.nightlySubtotalCents + price.addOnSubtotalCents - price.promoDiscountCents + price.gstCents,
         );
       }
     }
+  });
+});
+
+describe('promo codes (pre-tax price reduction)', () => {
+  it('percent promo discounts the pre-tax base; GST is charged on the discounted amount', () => {
+    // $100/night × 2 = $200; 20% off = $40 off; GST 5% on $160 = $8; total $168.
+    const price = computePrice({
+      ratePlan: basePlan,
+      checkIn: '2026-07-01',
+      checkOut: '2026-07-03',
+      addOns: [],
+      taxRateBps: 500,
+      promo: { kind: 'percent', valueBps: 2_000 },
+    });
+    expect(price.promoDiscountCents).toBe(4_000);
+    expect(price.taxableSubtotalCents).toBe(16_000);
+    expect(price.gstCents).toBe(800);
+    expect(price.totalCents).toBe(16_800);
+  });
+
+  it('fixed promo caps at the eligible subtotal (never negative totals)', () => {
+    const price = computePrice({
+      ratePlan: basePlan,
+      checkIn: '2026-07-01',
+      checkOut: '2026-07-02',
+      addOns: [],
+      taxRateBps: 500,
+      promo: { kind: 'fixed', valueCents: 999_999 },
+    });
+    expect(price.promoDiscountCents).toBe(10_000);
+    expect(price.taxableSubtotalCents).toBe(0);
+    expect(price.gstCents).toBe(0);
+    expect(price.totalCents).toBe(0);
+  });
+
+  it('fixed promo across mixed taxable/non-taxable items allocates proportionally', () => {
+    // Night $100 (taxable) + non-taxable add-on $100 → subtotal $200, taxable $100.
+    // $50 fixed promo → taxable share = 50 × (100/200) = $25 → taxable base $75.
+    const price = computePrice({
+      ratePlan: basePlan,
+      checkIn: '2026-07-01',
+      checkOut: '2026-07-02',
+      addOns: [{ name: 'Donation', unitPriceCents: 10_000, quantity: 1, taxable: false }],
+      taxRateBps: 500,
+      promo: { kind: 'fixed', valueCents: 5_000 },
+    });
+    expect(price.promoDiscountCents).toBe(5_000);
+    expect(price.taxableSubtotalCents).toBe(7_500);
+    expect(price.gstCents).toBe(375);
+    expect(price.totalCents).toBe(20_000 - 5_000 + 375);
+  });
+
+  it('percent promo rounds to the cent on odd bases', () => {
+    // $33.33 night, 15% (1500 bps) = 499.95¢ → 500¢.
+    const plan = { ...basePlan, baseNightlyCents: 3_333 };
+    const price = computePrice({
+      ratePlan: plan,
+      checkIn: '2026-07-01',
+      checkOut: '2026-07-02',
+      addOns: [],
+      taxRateBps: 500,
+      promo: { kind: 'percent', valueBps: 1_500 },
+    });
+    expect(price.promoDiscountCents).toBe(500);
+  });
+});
+
+describe('gift certificates (post-tax payment method)', () => {
+  it('GST is charged on the FULL amount; the certificate pays down the total', () => {
+    // $100/night × 2 = $200; GST $10 → invoice total $210. $50 gift cert →
+    // net due $160. GST is NOT reduced by the certificate.
+    const price = computePrice({
+      ratePlan: basePlan,
+      checkIn: '2026-07-01',
+      checkOut: '2026-07-03',
+      addOns: [],
+      taxRateBps: 500,
+      giftBalanceCents: 5_000,
+    });
+    expect(price.gstCents).toBe(1_000);
+    expect(price.totalCents).toBe(21_000);
+    expect(price.giftCertAppliedCents).toBe(5_000);
+    expect(price.depositDueCents + price.balanceDueCents).toBe(16_000);
+  });
+
+  it('gift certificate caps at the invoice total', () => {
+    const price = computePrice({
+      ratePlan: basePlan,
+      checkIn: '2026-07-01',
+      checkOut: '2026-07-02',
+      addOns: [],
+      taxRateBps: 500,
+      giftBalanceCents: 999_999,
+    });
+    expect(price.totalCents).toBe(10_500);
+    expect(price.giftCertAppliedCents).toBe(10_500);
+    expect(price.depositDueCents).toBe(0);
+    expect(price.balanceDueCents).toBe(0);
+  });
+
+  it('promo and gift certificate stack in the right order (promo pre-tax, cert post-tax)', () => {
+    // $200 − 20% promo = $160; GST $8 → total $168; $100 cert → $68 due.
+    const price = computePrice({
+      ratePlan: basePlan,
+      checkIn: '2026-07-01',
+      checkOut: '2026-07-03',
+      addOns: [],
+      taxRateBps: 500,
+      promo: { kind: 'percent', valueBps: 2_000 },
+      giftBalanceCents: 10_000,
+    });
+    expect(price.totalCents).toBe(16_800);
+    expect(price.giftCertAppliedCents).toBe(10_000);
+    expect(price.depositDueCents + price.balanceDueCents).toBe(6_800);
   });
 });
 

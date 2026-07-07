@@ -76,3 +76,12 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
 - 2026-07-08: M0 scope = schema v1 + hold/expiry/conflict core + simulated
   demo payment path + seed (Pinewood Flats) + minimal public booking flow.
   Staff auth deferred to M1 with the real payment providers.
+- 2026-07-08: Promo codes added to schema v1 pre-commit (no migration).
+  BINDING accounting rule: promo code = PRE-tax price reduction (GST on the
+  discounted base, allocated proportionally across taxable/non-taxable
+  items); gift certificate = POST-tax payment method (GST on the full
+  amount). `priceBreakdown.promoDiscountCents` and `.giftCertAppliedCents`
+  are separate fields — never conflate them. Redemption lifecycle
+  reserved→applied|released keeps usage caps transactionally accurate;
+  discounts snapshot onto the booking (editing a code never rewrites
+  history, same principle as bookingAddOns.nameSnapshot).

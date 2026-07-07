@@ -2,6 +2,23 @@
 
 ## Unreleased (M0)
 
+- Promo codes, Shopify-style: percent or fixed-amount, active windows,
+  total-usage caps, once-per-customer, minimum spend, unit-type scoping.
+  Redemptions are reserved at hold time, applied on confirmation, and
+  released (with the usage slot returned) on expiry or cancellation — all
+  inside the same serializable transactions that move the booking. Discounts
+  are snapshotted onto the booking so editing a code never rewrites history.
+- Accounting distinction enforced in the price breakdown: a promo code is a
+  **pre-tax price reduction** (GST is charged on the discounted base) while a
+  gift certificate is a **post-tax payment method** (GST on the full amount,
+  certificate pays down the total). Deposits compute on total − gift cert.
+- Public booking flow (Pinewood Flats demo): property → stay → date-range
+  picker with live availability → add-ons → discount code with live preview →
+  guest details → hold → simulated demo payment → reactive confirmation page;
+  manage/cancel by confirmation code + email; admin booking tape (auth in M1).
+- VitePress docs site (quickstart, configuration, self-hosting, concepts,
+  roadmap) and GitHub Actions CI + Pages workflows.
+
 - Schema v1: properties, unit types (nightly + seasonal modes), units,
   rate plans (seasons, min/max stay, lead time, prep buffers, deposit +
   cancellation policies), guests, bookings (10-state lifecycle), derived

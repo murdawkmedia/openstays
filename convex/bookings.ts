@@ -41,6 +41,7 @@ export const createHold = mutation({
       marketingOptIn: v.boolean(),
     }),
     addOns: v.array(v.object({ addOnId: v.id('addOns'), quantity: v.number() })),
+    promoCode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const unit = await ctx.db.get(args.unitId);
@@ -146,17 +147,80 @@ export const createHold = mutation({
         quantity: line.quantity,
       });
     }
+    const addOnPriceLines = addOnLines.map((l) => ({
+      name: l.addOn.name,
+      unitPriceCents: l.addOn.priceCents,
+      quantity: l.quantity,
+      taxable: l.addOn.taxable,
+    }));
+
+    // Promo validation (Shopify-style): existence, active, window, unit-type
+    // scope, minimum spend, total-usage cap, once-per-guest. All checks and
+    // the reservation below run in this same serializable transaction, so
+    // caps stay accurate under concurrency.
+    let promoDoc = null;
+    if (args.promoCode !== undefined && args.promoCode.trim() !== '') {
+      const normalizedCode = args.promoCode.trim().toUpperCase();
+      promoDoc = await ctx.db
+        .query('promoCodes')
+        .withIndex('by_code', (q) =>
+          q.eq('propertyId', unit.propertyId).eq('normalizedCode', normalizedCode),
+        )
+        .first();
+      const now = Date.now();
+      if (!promoDoc || !promoDoc.active) {
+        throw new ConvexError({ code: 'PROMO_INVALID', message: 'That code is not valid.' });
+      }
+      if (
+        (promoDoc.startsAt !== undefined && now < promoDoc.startsAt) ||
+        (promoDoc.endsAt !== undefined && now > promoDoc.endsAt)
+      ) {
+        throw new ConvexError({ code: 'PROMO_INVALID', message: 'That code is not active right now.' });
+      }
+      if (promoDoc.appliesToUnitTypes.length > 0 && !promoDoc.appliesToUnitTypes.includes(unit.unitTypeId)) {
+        throw new ConvexError({ code: 'PROMO_INVALID', message: 'That code does not apply to this unit.' });
+      }
+      if (promoDoc.maxRedemptions !== undefined && promoDoc.redemptionCount >= promoDoc.maxRedemptions) {
+        throw new ConvexError({ code: 'PROMO_EXHAUSTED', message: 'That code has been fully redeemed.' });
+      }
+      if (promoDoc.oncePerGuest) {
+        const prior = await ctx.db
+          .query('promoRedemptions')
+          .withIndex('by_promo_email', (q) =>
+            q.eq('promoCodeId', promoDoc!._id).eq('normalizedEmail', normalizedEmail),
+          )
+          .collect();
+        if (prior.some((r) => r.status !== 'released')) {
+          throw new ConvexError({ code: 'PROMO_ALREADY_USED', message: 'That code was already used with this email.' });
+        }
+      }
+      if (promoDoc.minSubtotalCents !== undefined) {
+        const preview = computePrice({
+          ratePlan,
+          checkIn: args.checkIn,
+          checkOut: args.checkOut,
+          addOns: addOnPriceLines,
+          taxRateBps: property.taxRateBps,
+        });
+        const subtotal = preview.nightlySubtotalCents + preview.addOnSubtotalCents;
+        if (subtotal < promoDoc.minSubtotalCents) {
+          throw new ConvexError({
+            code: 'PROMO_MIN_SPEND',
+            message: 'The booking subtotal is below the minimum for that code.',
+          });
+        }
+      }
+    }
+
     const price = computePrice({
       ratePlan,
       checkIn: args.checkIn,
       checkOut: args.checkOut,
-      addOns: addOnLines.map((l) => ({
-        name: l.addOn.name,
-        unitPriceCents: l.addOn.priceCents,
-        quantity: l.quantity,
-        taxable: l.addOn.taxable,
-      })),
+      addOns: addOnPriceLines,
       taxRateBps: property.taxRateBps,
+      promo: promoDoc
+        ? { kind: promoDoc.kind, valueBps: promoDoc.valueBps, valueCents: promoDoc.valueCents }
+        : undefined,
     });
 
     // 5. Insert booking + occupancy rows atomically (same transaction).
@@ -178,11 +242,26 @@ export const createHold = mutation({
       source: 'online',
       confirmationCode,
       priceBreakdown: price,
+      promoCodeId: promoDoc?._id,
+      promoCodeSnapshot: promoDoc?.code,
       statusHistory: [{ status: 'hold', ts: now }],
       notes: [],
       createdAt: now,
       updatedAt: now,
     });
+    if (promoDoc) {
+      // Reserve the redemption; confirm flips it to 'applied', expiry/cancel
+      // release it and give the usage slot back.
+      await ctx.db.insert('promoRedemptions', {
+        promoCodeId: promoDoc._id,
+        bookingId,
+        normalizedEmail,
+        discountCents: price.promoDiscountCents,
+        status: 'reserved',
+        ts: now,
+      });
+      await ctx.db.patch(promoDoc._id, { redemptionCount: promoDoc.redemptionCount + 1 });
+    }
     for (const date of enumerateNights(args.checkIn, blockedUntil)) {
       await ctx.db.insert('unitNights', {
         unitId: args.unitId,
@@ -221,6 +300,35 @@ async function releaseNights(ctx: MutationCtx, bookingId: Id<'bookings'>): Promi
   for (const night of nights) await ctx.db.delete(night._id);
 }
 
+/** Flip a booking's reserved redemption to applied (payment confirmed). */
+async function applyPromoRedemption(ctx: MutationCtx, bookingId: Id<'bookings'>): Promise<void> {
+  const redemptions = await ctx.db
+    .query('promoRedemptions')
+    .withIndex('by_booking', (q) => q.eq('bookingId', bookingId))
+    .collect();
+  for (const redemption of redemptions) {
+    if (redemption.status === 'reserved') {
+      await ctx.db.patch(redemption._id, { status: 'applied', ts: Date.now() });
+    }
+  }
+}
+
+/** Release a booking's promo redemption and give the usage slot back. */
+async function releasePromoRedemption(ctx: MutationCtx, bookingId: Id<'bookings'>): Promise<void> {
+  const redemptions = await ctx.db
+    .query('promoRedemptions')
+    .withIndex('by_booking', (q) => q.eq('bookingId', bookingId))
+    .collect();
+  for (const redemption of redemptions) {
+    if (redemption.status === 'released') continue;
+    await ctx.db.patch(redemption._id, { status: 'released', ts: Date.now() });
+    const promo = await ctx.db.get(redemption.promoCodeId);
+    if (promo) {
+      await ctx.db.patch(promo._id, { redemptionCount: Math.max(0, promo.redemptionCount - 1) });
+    }
+  }
+}
+
 export const expireHolds = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -231,6 +339,7 @@ export const expireHolds = internalMutation({
       .take(50);
     for (const booking of stale) {
       await releaseNights(ctx, booking._id);
+      await releasePromoRedemption(ctx, booking._id);
       await ctx.db.patch(booking._id, {
         status: 'expired',
         holdExpiresAt: undefined,
@@ -271,6 +380,7 @@ export const confirmSimulated = mutation({
       createdAt: now,
       paidAt: now,
     });
+    await applyPromoRedemption(ctx, booking._id);
     await ctx.db.patch(booking._id, {
       status: 'confirmed',
       holdExpiresAt: undefined,
@@ -324,6 +434,7 @@ export const cancelByGuest = mutation({
 
     const now = Date.now();
     await releaseNights(ctx, booking._id);
+    await releasePromoRedemption(ctx, booking._id);
     await ctx.db.patch(booking._id, {
       status: 'cancelled',
       holdExpiresAt: undefined,
@@ -374,6 +485,7 @@ export const byConfirmationCode = query({
       children: booking.children,
       holdExpiresAt: booking.holdExpiresAt,
       priceBreakdown: booking.priceBreakdown,
+      promoCode: booking.promoCodeSnapshot,
       unitName: unit?.name ?? '',
       unitTypeName: unitType?.name ?? '',
       addOns: addOns.map((a) => ({

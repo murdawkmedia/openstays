@@ -17,6 +17,8 @@ export const reset = internalMutation({
       'bookingAddOns',
       'payments',
       'webhookEvents',
+      'promoRedemptions',
+      'promoCodes',
       'bookings',
       'guests',
       'giftCertificates',

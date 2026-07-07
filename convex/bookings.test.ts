@@ -244,6 +244,171 @@ describe('guest cancellation', () => {
   });
 });
 
+describe('promo code lifecycle', () => {
+  async function seedPromo(
+    t: ReturnType<typeof convexTest>,
+    fx: { propertyId: Id<'properties'> },
+    overrides: Partial<{
+      kind: 'percent' | 'fixed';
+      valueBps: number;
+      valueCents: number;
+      maxRedemptions: number;
+      oncePerGuest: boolean;
+      minSubtotalCents: number;
+      active: boolean;
+      endsAt: number;
+    }> = {},
+  ) {
+    return await t.run(async (ctx) =>
+      ctx.db.insert('promoCodes', {
+        propertyId: fx.propertyId,
+        code: 'WELCOME10',
+        normalizedCode: 'WELCOME10',
+        kind: overrides.kind ?? 'percent',
+        valueBps: overrides.valueBps ?? 1_000,
+        valueCents: overrides.valueCents,
+        oncePerGuest: overrides.oncePerGuest ?? false,
+        maxRedemptions: overrides.maxRedemptions,
+        minSubtotalCents: overrides.minSubtotalCents,
+        endsAt: overrides.endsAt,
+        appliesToUnitTypes: [],
+        active: overrides.active ?? true,
+        redemptionCount: 0,
+        createdAt: Date.now(),
+      }),
+    );
+  }
+
+  it('applies a percent promo pre-tax and snapshots it on the booking', async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seedFixture(t);
+    await seedPromo(t, fx); // 10% off
+    const hold = await t.mutation(api.bookings.createHold, {
+      ...holdArgs(fx, D(10), D(12)),
+      promoCode: 'welcome10 ', // case/whitespace-insensitive
+    });
+    // 2 nights × $100 = $200; 10% off = $20; GST on $180 = $9; total $189.
+    expect(hold.price.promoDiscountCents).toBe(2_000);
+    expect(hold.price.gstCents).toBe(900);
+    expect(hold.price.totalCents).toBe(18_900);
+
+    const view = await t.query(api.bookings.byConfirmationCode, { code: hold.confirmationCode });
+    expect(view?.promoCode).toBe('WELCOME10');
+  });
+
+  it('rejects inactive, expired, and unknown codes', async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seedFixture(t);
+    await seedPromo(t, fx, { active: false });
+    await expect(
+      t.mutation(api.bookings.createHold, { ...holdArgs(fx, D(10), D(12)), promoCode: 'WELCOME10' }),
+    ).rejects.toThrow(/PROMO_INVALID|not valid/);
+    await expect(
+      t.mutation(api.bookings.createHold, { ...holdArgs(fx, D(10), D(12)), promoCode: 'NOPE' }),
+    ).rejects.toThrow(/PROMO_INVALID|not valid/);
+  });
+
+  it('enforces the total-usage cap transactionally and releases slots on expiry', async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const fx = await seedFixture(t);
+      await seedPromo(t, fx, { maxRedemptions: 1 });
+
+      await t.mutation(api.bookings.createHold, {
+        ...holdArgs(fx, D(10), D(12)),
+        promoCode: 'WELCOME10',
+      });
+      // Cap hit while the first hold reserves the slot.
+      await expect(
+        t.mutation(api.bookings.createHold, {
+          ...holdArgs(fx, D(20), D(22), 'other@example.com'),
+          promoCode: 'WELCOME10',
+        }),
+      ).rejects.toThrow(/PROMO_EXHAUSTED|fully redeemed/);
+
+      // Expire the hold → slot comes back.
+      vi.setSystemTime(Date.now() + 36 * 60 * 1000);
+      await t.mutation(internal.bookings.expireHolds, {});
+      const retry = await t.mutation(api.bookings.createHold, {
+        ...holdArgs(fx, D(20), D(22), 'other@example.com'),
+        promoCode: 'WELCOME10',
+      });
+      expect(retry.price.promoDiscountCents).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('enforces once-per-guest across reserved and applied redemptions', async () => {
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = convexTest(schema, modules);
+    const fx = await seedFixture(t);
+    await seedPromo(t, fx, { oncePerGuest: true });
+
+    const first = await t.mutation(api.bookings.createHold, {
+      ...holdArgs(fx, D(10), D(12)),
+      promoCode: 'WELCOME10',
+    });
+    await t.mutation(api.bookings.confirmSimulated, { bookingId: first.bookingId });
+
+    await expect(
+      t.mutation(api.bookings.createHold, {
+        ...holdArgs(fx, D(20), D(22)), // same guest email
+        promoCode: 'WELCOME10',
+      }),
+    ).rejects.toThrow(/PROMO_ALREADY_USED|already used/);
+
+    // A different guest is fine.
+    const other = await t.mutation(api.bookings.createHold, {
+      ...holdArgs(fx, D(20), D(22), 'other@example.com'),
+      promoCode: 'WELCOME10',
+    });
+    expect(other.price.promoDiscountCents).toBeGreaterThan(0);
+  });
+
+  it('enforces minimum spend against the pre-promo subtotal', async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seedFixture(t);
+    await seedPromo(t, fx, { minSubtotalCents: 25_000 });
+    await expect(
+      t.mutation(api.bookings.createHold, { ...holdArgs(fx, D(10), D(12)), promoCode: 'WELCOME10' }),
+    ).rejects.toThrow(/PROMO_MIN_SPEND|below the minimum/);
+    const ok = await t.mutation(api.bookings.createHold, {
+      ...holdArgs(fx, D(10), D(13)), // 3 nights = $300 ≥ $250
+      promoCode: 'WELCOME10',
+    });
+    expect(ok.price.promoDiscountCents).toBe(3_000);
+  });
+
+  it('cancellation releases the redemption and decrements the count', async () => {
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = convexTest(schema, modules);
+    const fx = await seedFixture(t);
+    const promoId = await seedPromo(t, fx, { maxRedemptions: 1 });
+
+    const hold = await t.mutation(api.bookings.createHold, {
+      ...holdArgs(fx, D(30), D(32)),
+      promoCode: 'WELCOME10',
+    });
+    await t.mutation(api.bookings.confirmSimulated, { bookingId: hold.bookingId });
+    await t.mutation(api.bookings.cancelByGuest, {
+      confirmationCode: hold.confirmationCode,
+      email: 'guest@example.com',
+    });
+
+    const promo = await t.run(async (ctx) => ctx.db.get(promoId));
+    expect(promo?.redemptionCount).toBe(0);
+    const redemptions = await t.run(async (ctx) =>
+      ctx.db
+        .query('promoRedemptions')
+        .withIndex('by_booking', (q) => q.eq('bookingId', hold.bookingId))
+        .collect(),
+    );
+    expect(redemptions.every((r) => r.status === 'released')).toBe(true);
+  });
+});
+
 describe('unitNights invariant', () => {
   it('active bookings own exactly their stay+prep rows; released on expiry', async () => {
     vi.useFakeTimers();

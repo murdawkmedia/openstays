@@ -14,6 +14,7 @@ import type * as crons from "../crons.js";
 import type * as demo from "../demo.js";
 import type * as http from "../http.js";
 import type * as ical from "../ical.js";
+import type * as promoCodes from "../promoCodes.js";
 import type * as properties from "../properties.js";
 import type * as seed from "../seed.js";
 
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   demo: typeof demo;
   http: typeof http;
   ical: typeof ical;
+  promoCodes: typeof promoCodes;
   properties: typeof properties;
   seed: typeof seed;
 }>;

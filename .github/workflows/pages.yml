@@ -1,0 +1,99 @@
+name: Deploy Pages (docs + demo)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # ── Docs (VitePress) → published at the site root ──────────────────────
+      - name: Build docs
+        run: npm run docs:build
+
+      - name: Assemble Pages artifact — docs at root
+        run: |
+          mkdir -p _site
+          cp -r docs/.vitepress/dist/. _site/
+
+      # ── Demo app → published under /openstays/demo/ ─────────────────────────
+      # Guarded: if the maintainer hasn't provisioned a public demo Convex
+      # deployment yet (repo variable DEMO_CONVEX_URL unset), skip the real
+      # app build and publish a placeholder instead of failing the whole run.
+      - name: Build demo app
+        if: ${{ vars.DEMO_CONVEX_URL != '' }}
+        env:
+          VITE_BASE: /openstays/demo/
+          VITE_CONVEX_URL: ${{ vars.DEMO_CONVEX_URL }}
+        run: npm run build
+
+      - name: Assemble demo app into artifact
+        if: ${{ vars.DEMO_CONVEX_URL != '' }}
+        run: |
+          mkdir -p _site/demo
+          cp -r dist/. _site/demo/
+          # SPA fallback: GitHub Pages has no server-side rewrites, so a
+          # direct load of a client-routed path (e.g. /openstays/demo/book)
+          # 404s unless we serve index.html for it too.
+          cp _site/demo/index.html _site/demo/404.html
+
+      - name: Publish placeholder if demo deployment isn't provisioned yet
+        if: ${{ vars.DEMO_CONVEX_URL == '' }}
+        run: |
+          mkdir -p _site/demo
+          cat > _site/demo/index.html <<'EOF'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <title>OpenStays demo</title>
+            </head>
+            <body>
+              <p>Demo deployment coming online soon.</p>
+            </body>
+          </html>
+          EOF
+          cp _site/demo/index.html _site/demo/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      # Optional: once a public demo Convex deployment exists, the maintainer
+      # can enable this step (and set the DEMO_CONVEX_DEPLOY_KEY secret) to
+      # push Convex functions to it on every deploy, in lockstep with the
+      # frontend build above.
+      # - name: Deploy Convex functions to the demo deployment
+      #   env:
+      #     CONVEX_DEPLOY_KEY: ${{ secrets.DEMO_CONVEX_DEPLOY_KEY }}
+      #   run: npx convex deploy
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -28,14 +28,19 @@ export const bookingStatus = v.union(
   v.literal('payment_conflict'), // payment landed after nights were re-taken
 );
 
+// Accounting distinction (binding): a PROMO CODE is a pre-tax price
+// reduction — GST is charged on the discounted base, like any merchant
+// discount. A GIFT CERTIFICATE is a post-tax payment method — GST is charged
+// on the full amount and the certificate pays down the total.
 const priceBreakdownSchema = v.object({
   nightlySubtotalCents: v.number(),
   addOnSubtotalCents: v.number(),
-  discountCents: v.number(),
-  taxableSubtotalCents: v.number(),
-  gstCents: v.number(),
-  totalCents: v.number(),
-  depositDueCents: v.number(),
+  promoDiscountCents: v.number(), // pre-tax reduction
+  taxableSubtotalCents: v.number(), // (taxable items − promo allocation)
+  gstCents: v.number(), // single rounding on the discounted taxable base
+  totalCents: v.number(), // subtotals − promo + gst (the invoice total)
+  giftCertAppliedCents: v.number(), // post-tax payment
+  depositDueCents: v.number(), // computed on total − giftCertApplied
   balanceDueCents: v.number(),
 });
 
@@ -172,6 +177,8 @@ export default defineSchema({
     confirmationCode: v.string(), // 'OS-7K3M2Q'
     priceBreakdown: v.optional(priceBreakdownSchema),
     giftCertificateId: v.optional(v.id('giftCertificates')),
+    promoCodeId: v.optional(v.id('promoCodes')),
+    promoCodeSnapshot: v.optional(v.string()), // code text frozen at booking time
     statusHistory: statusHistorySchema,
     notes: noteSchema,
     createdAt: v.number(),
@@ -303,6 +310,39 @@ export default defineSchema({
     .index('by_unit_season', ['unitId', 'seasonLabel'])
     .index('by_property_status', ['propertyId', 'status'])
     .index('by_guest', ['guestId']),
+
+  // Promo codes — Shopify-style pre-tax discounts. Usage caps stay accurate
+  // under concurrency because reserve/apply/release all happen inside the
+  // same serializable mutations that move the booking.
+  promoCodes: defineTable({
+    propertyId: v.id('properties'),
+    code: v.string(),
+    normalizedCode: v.string(), // uppercase, trimmed
+    kind: v.union(v.literal('percent'), v.literal('fixed')),
+    valueBps: v.optional(v.number()), // percent: basis points (2000 = 20%)
+    valueCents: v.optional(v.number()), // fixed: cents off
+    description: v.optional(v.string()),
+    startsAt: v.optional(v.number()), // active window (epoch ms)
+    endsAt: v.optional(v.number()),
+    maxRedemptions: v.optional(v.number()),
+    oncePerGuest: v.boolean(),
+    minSubtotalCents: v.optional(v.number()),
+    appliesToUnitTypes: v.array(v.id('unitTypes')), // empty = all
+    active: v.boolean(),
+    redemptionCount: v.number(), // maintained transactionally
+    createdAt: v.number(),
+  }).index('by_code', ['propertyId', 'normalizedCode']),
+
+  promoRedemptions: defineTable({
+    promoCodeId: v.id('promoCodes'),
+    bookingId: v.id('bookings'),
+    normalizedEmail: v.string(),
+    discountCents: v.number(),
+    status: v.union(v.literal('reserved'), v.literal('applied'), v.literal('released')),
+    ts: v.number(),
+  })
+    .index('by_promo_email', ['promoCodeId', 'normalizedEmail'])
+    .index('by_booking', ['bookingId']),
 
   // Gift certificates — skeletal in M0, redemption wiring lands with M4.
   giftCertificates: defineTable({

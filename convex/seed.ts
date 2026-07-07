@@ -181,6 +181,21 @@ export async function seedPinewoodFlats(ctx: MutationCtx): Promise<void> {
     ],
   });
 
+  // --- Promo code (demo) ---
+  await ctx.db.insert('promoCodes', {
+    propertyId,
+    code: 'WELCOME10',
+    normalizedCode: 'WELCOME10',
+    kind: 'percent',
+    valueBps: 1_000, // 10% off, pre-tax
+    description: 'Welcome discount — 10% off your first stay',
+    oncePerGuest: true,
+    appliesToUnitTypes: [],
+    active: true,
+    redemptionCount: 0,
+    createdAt: Date.now(),
+  });
+
   // --- Add-ons ---
   await ctx.db.insert('addOns', {
     propertyId,

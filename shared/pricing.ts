@@ -47,14 +47,28 @@ export interface AddOnLine {
   taxable: boolean;
 }
 
+export interface PromoLike {
+  kind: 'percent' | 'fixed';
+  valueBps?: number; // percent: basis points (2000 = 20%)
+  valueCents?: number; // fixed: cents off
+}
+
+/**
+ * Accounting distinction (binding — see CLAUDE.md):
+ * - A PROMO CODE is a pre-tax price reduction. GST is charged on the
+ *   discounted base, exactly like any merchant discount in Canada.
+ * - A GIFT CERTIFICATE is a post-tax payment method. GST is charged on the
+ *   full (post-promo) amount; the certificate pays down the total.
+ */
 export interface PriceBreakdown {
   nightlySubtotalCents: number;
   addOnSubtotalCents: number;
-  discountCents: number;
-  taxableSubtotalCents: number;
-  gstCents: number;
-  totalCents: number;
-  depositDueCents: number;
+  promoDiscountCents: number; // pre-tax reduction
+  taxableSubtotalCents: number; // (taxable items − promo allocation)
+  gstCents: number; // single rounding on the discounted taxable base
+  totalCents: number; // subtotals − promo + gst (the invoice total)
+  giftCertAppliedCents: number; // post-tax payment
+  depositDueCents: number; // computed on total − giftCertApplied
   balanceDueCents: number;
 }
 
@@ -179,14 +193,27 @@ export interface ComputePriceInput {
   checkOut: string;
   addOns: AddOnLine[];
   taxRateBps: number; // 500 = 5% GST
+  /** Pre-validated promo (scope/window/caps checked by the caller). */
+  promo?: PromoLike;
   giftBalanceCents?: number;
+}
+
+/** Discount a promo grants against an eligible pre-tax subtotal. Never negative. */
+export function computePromoDiscountCents(promo: PromoLike, eligibleSubtotalCents: number): number {
+  if (eligibleSubtotalCents <= 0) return 0;
+  if (promo.kind === 'percent') {
+    const bps = Math.max(0, Math.min(10_000, promo.valueBps ?? 0));
+    return Math.round((eligibleSubtotalCents * bps) / 10_000);
+  }
+  return Math.max(0, Math.min(promo.valueCents ?? 0, eligibleSubtotalCents));
 }
 
 /**
  * Authoritative price computation.
  * GST is rounded ONCE on the aggregate taxable base (CRA-consistent).
- * Gift-certificate discount applies to the pre-tax subtotal, capped at the
- * available balance; GST is charged on the discounted taxable base.
+ * Promo codes reduce the PRE-tax base (allocated proportionally across
+ * taxable / non-taxable items so the taxable base shrinks correctly).
+ * Gift certificates apply POST-tax as a payment against the total.
  */
 export function computePrice(input: ComputePriceInput): PriceBreakdown {
   const nights = enumerateNights(input.checkIn, input.checkOut);
@@ -224,58 +251,68 @@ export function computePrice(input: ComputePriceInput): PriceBreakdown {
   const addOnSubtotalCents = taxableAddOns + nonTaxableAddOns;
 
   const preDiscountSubtotal = nightlySubtotalCents + addOnSubtotalCents;
-  const discountCents = Math.min(input.giftBalanceCents ?? 0, preDiscountSubtotal);
 
-  // Discount reduces the taxable base proportionally across taxable amounts.
+  // Promo: pre-tax reduction on the whole booking subtotal (unit-type scope
+  // eligibility is validated by the caller before passing `promo` in).
+  const promoDiscountCents = input.promo
+    ? computePromoDiscountCents(input.promo, preDiscountSubtotal)
+    : 0;
+
+  // Allocate the promo proportionally so the taxable base shrinks correctly
+  // when the booking mixes taxable and non-taxable items.
   const preDiscountTaxable = nightlySubtotalCents + taxableAddOns;
-  const taxableShareOfDiscount =
+  const taxableShareOfPromo =
     preDiscountSubtotal === 0
       ? 0
-      : Math.round((discountCents * preDiscountTaxable) / preDiscountSubtotal);
-  const taxableSubtotalCents = Math.max(0, preDiscountTaxable - taxableShareOfDiscount);
+      : Math.round((promoDiscountCents * preDiscountTaxable) / preDiscountSubtotal);
+  const taxableSubtotalCents = Math.max(0, preDiscountTaxable - taxableShareOfPromo);
 
   const gstCents = Math.round((taxableSubtotalCents * input.taxRateBps) / 10_000);
-  const totalCents = preDiscountSubtotal - discountCents + gstCents;
+  const totalCents = preDiscountSubtotal - promoDiscountCents + gstCents;
+
+  // Gift certificate: post-tax payment against the invoice total.
+  const giftCertAppliedCents = Math.max(0, Math.min(input.giftBalanceCents ?? 0, totalCents));
+  const netDueCents = totalCents - giftCertAppliedCents;
 
   const depositDueCents = computeDeposit(
     input.ratePlan,
-    totalCents,
+    netDueCents,
     input.checkIn,
-    input.checkOut,
     input.taxRateBps,
   );
 
   return {
     nightlySubtotalCents,
     addOnSubtotalCents,
-    discountCents,
+    promoDiscountCents,
     taxableSubtotalCents,
     gstCents,
     totalCents,
+    giftCertAppliedCents,
     depositDueCents,
-    balanceDueCents: totalCents - depositDueCents,
+    balanceDueCents: netDueCents - depositDueCents,
   };
 }
 
+/** Deposit is computed on the net amount due (total − gift cert applied). */
 function computeDeposit(
   ratePlan: RatePlanLike,
-  totalCents: number,
+  netDueCents: number,
   checkIn: string,
-  _checkOut: string,
   taxRateBps: number,
 ): number {
   const policy = ratePlan.depositPolicy;
   switch (policy.type) {
     case 'full':
-      return totalCents;
+      return netDueCents;
     case 'percent':
-      return Math.min(totalCents, Math.round((totalCents * policy.value) / 100));
+      return Math.min(netDueCents, Math.round((netDueCents * policy.value) / 100));
     case 'flat':
-      return Math.min(totalCents, policy.value);
+      return Math.min(netDueCents, policy.value);
     case 'first_night': {
       const firstNight = nightlyRateCents(ratePlan, checkIn);
       const withTax = firstNight + Math.round((firstNight * taxRateBps) / 10_000);
-      return Math.min(totalCents, withTax);
+      return Math.min(netDueCents, withTax);
     }
   }
 }
