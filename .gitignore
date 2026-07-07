@@ -1,4 +1,5 @@
 node_modules/
+.convex/
 dist/
 dist-docs/
 docs/.vitepress/cache/
