@@ -66,6 +66,20 @@ v1 does NOT include OTA channel management (Airbnb/Booking.com APIs are
 partner-gated). v1 distribution = direct bookings + per-unit iCal in/out.
 Don't promise otherwise anywhere — docs, UI copy, commit messages.
 
+## Known limitations (documented, accepted for now)
+
+- **Email aliasing** defeats once-per-guest and the per-email hold cap
+  (`sam+x@`, gmail dots). Normalization is trim+lowercase only — industry
+  standard; canonicalization is a possible later hardening.
+- **Min lead time is day-granular**: `minLeadTimeHours` is enforced as
+  `ceil(hours/24)` whole days from the property-local calendar date, not a
+  clock-instant comparison. A "24-hour notice" rule admits a late-night
+  booking for tomorrow. Instant-based enforcement is an M1 candidate.
+- **Gift-certificate fields are dormant until M4**: `computePrice` supports
+  `giftBalanceCents` → `giftCertAppliedCents`, but `createHold` must never
+  pass it until the atomic gift-cert ledger debit ships in the same mutation
+  (M4). Wiring the input without the debit is a money leak.
+
 ## Decision log
 
 - 2026-07-08: Project created. Convex chosen for serializable mutations
@@ -76,6 +90,12 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
 - 2026-07-08: M0 scope = schema v1 + hold/expiry/conflict core + simulated
   demo payment path + seed (Pinewood Flats) + minimal public booking flow.
   Staff auth deferred to M1 with the real payment providers.
+- 2026-07-08: Adversarial review (M0 close) found 2 criticals, both fixed:
+  (1) payment rows now record only the GST contained in THAT payment
+  (tax-inclusive extraction), never the invoice's full GST; (2) an APPLIED
+  promo redemption stays consumed forever — cancellation of a confirmed
+  booking does NOT free once-per-guest slots or reopen usage caps; only
+  unconsumed (reserved) holds release. 14 adversarial tests added.
 - 2026-07-08: Promo codes added to schema v1 pre-commit (no migration).
   BINDING accounting rule: promo code = PRE-tax price reduction (GST on the
   discounted base, allocated proportionally across taxable/non-taxable

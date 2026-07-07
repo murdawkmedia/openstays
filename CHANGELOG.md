@@ -2,6 +2,12 @@
 
 ## Unreleased (M0)
 
+- Adversarial money-math review (14 attack tests added; 2 criticals fixed):
+  payment records now carry only the GST contained in that payment
+  (tax-inclusive extraction) instead of the full invoice GST; applied promo
+  redemptions stay consumed after cancellation — no more book→cancel loops
+  to re-redeem once-per-guest codes or reopen capped codes.
+
 - Promo codes, Shopify-style: percent or fixed-amount, active windows,
   total-usage caps, once-per-customer, minimum spend, unit-type scoping.
   Redemptions are reserved at hold time, applied on confirmation, and

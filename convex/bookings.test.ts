@@ -381,7 +381,7 @@ describe('promo code lifecycle', () => {
     expect(ok.price.promoDiscountCents).toBe(3_000);
   });
 
-  it('cancellation releases the redemption and decrements the count', async () => {
+  it('an APPLIED redemption stays consumed when the confirmed booking cancels', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
     const t = convexTest(schema, modules);
     const fx = await seedFixture(t);
@@ -392,6 +392,33 @@ describe('promo code lifecycle', () => {
       promoCode: 'WELCOME10',
     });
     await t.mutation(api.bookings.confirmSimulated, { bookingId: hold.bookingId });
+    await t.mutation(api.bookings.cancelByGuest, {
+      confirmationCode: hold.confirmationCode,
+      email: 'guest@example.com',
+    });
+
+    // The discount was consumed by a confirmed booking: cancellation must NOT
+    // hand the usage slot back (adversarial review findings 2 & 3).
+    const promo = await t.run(async (ctx) => ctx.db.get(promoId));
+    expect(promo?.redemptionCount).toBe(1);
+    const redemptions = await t.run(async (ctx) =>
+      ctx.db
+        .query('promoRedemptions')
+        .withIndex('by_booking', (q) => q.eq('bookingId', hold.bookingId))
+        .collect(),
+    );
+    expect(redemptions.every((r) => r.status === 'applied')).toBe(true);
+  });
+
+  it('a RESERVED redemption is released when an unpaid hold is cancelled', async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seedFixture(t);
+    const promoId = await seedPromo(t, fx, { maxRedemptions: 1 });
+
+    const hold = await t.mutation(api.bookings.createHold, {
+      ...holdArgs(fx, D(30), D(32)),
+      promoCode: 'WELCOME10',
+    });
     await t.mutation(api.bookings.cancelByGuest, {
       confirmationCode: hold.confirmationCode,
       email: 'guest@example.com',

@@ -313,14 +313,22 @@ async function applyPromoRedemption(ctx: MutationCtx, bookingId: Id<'bookings'>)
   }
 }
 
-/** Release a booking's promo redemption and give the usage slot back. */
+/**
+ * Release a booking's promo redemption and give the usage slot back —
+ * but ONLY for redemptions still in 'reserved' (unconsumed holds that
+ * expired or were abandoned). An 'applied' redemption was consumed by a
+ * confirmed booking and stays consumed forever, even if that booking is
+ * later cancelled: otherwise a guest could loop book→cancel to re-redeem a
+ * once-per-guest code indefinitely, and capped codes would over-discount
+ * past their cap. (Adversarial review findings 2 & 3.)
+ */
 async function releasePromoRedemption(ctx: MutationCtx, bookingId: Id<'bookings'>): Promise<void> {
   const redemptions = await ctx.db
     .query('promoRedemptions')
     .withIndex('by_booking', (q) => q.eq('bookingId', bookingId))
     .collect();
   for (const redemption of redemptions) {
-    if (redemption.status === 'released') continue;
+    if (redemption.status !== 'reserved') continue; // applied = consumed; released = already handled
     await ctx.db.patch(redemption._id, { status: 'released', ts: Date.now() });
     const promo = await ctx.db.get(redemption.promoCodeId);
     if (promo) {
@@ -368,13 +376,19 @@ export const confirmSimulated = mutation({
       throw new ConvexError({ code: 'HOLD_NOT_ACTIVE', message: 'This booking is no longer holdable.' });
     }
     const now = Date.now();
+    const property = await ctx.db.get(booking.propertyId);
+    const taxRateBps = property?.taxRateBps ?? 0;
+    const amountCents = booking.priceBreakdown?.depositDueCents ?? 0;
     await ctx.db.insert('payments', {
       propertyId: booking.propertyId,
       bookingId: booking._id,
       provider: 'simulated',
-      amountCents: booking.priceBreakdown?.depositDueCents ?? 0,
-      gstCents: booking.priceBreakdown?.gstCents ?? 0,
-      currency: 'CAD',
+      amountCents,
+      // GST contained in THIS payment (tax-inclusive extraction) — never the
+      // invoice's full GST, or partial-deposit payments overstate remittance.
+      // (Adversarial review finding 1.)
+      gstCents: Math.round((amountCents * taxRateBps) / (10_000 + taxRateBps)),
+      currency: property?.currency ?? 'CAD',
       status: 'paid',
       refunds: [],
       createdAt: now,
