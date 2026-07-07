@@ -22,7 +22,39 @@ export function AppLayout() {
         <Outlet />
       </main>
       <footer className="border-t border-stone-200 py-6 text-center text-xs text-stone-400">
-        Built with OpenStays — an open-source booking engine.
+        <p>
+          Powered by <span className="font-semibold text-stone-500">OpenStays</span> — an open-source
+          booking engine built by{' '}
+          <a
+            href="https://www.sebahub.com"
+            target="_blank"
+            rel="noreferrer"
+            className="font-semibold text-emerald-700 hover:text-emerald-800"
+          >
+            SebaHub
+          </a>
+        </p>
+        <p className="mt-1.5 space-x-3">
+          <Link to="/about" className="hover:text-stone-600">
+            About
+          </Link>
+          <a
+            href="https://github.com/murdawkmedia/openstays"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-stone-600"
+          >
+            GitHub
+          </a>
+          <a
+            href="https://murdawkmedia.github.io/openstays/"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-stone-600"
+          >
+            Docs
+          </a>
+        </p>
       </footer>
     </div>
   );

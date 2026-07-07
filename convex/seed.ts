@@ -29,6 +29,7 @@ export async function seedPinewoodFlats(ctx: MutationCtx): Promise<void> {
     timezone: 'America/Edmonton',
     currency: 'CAD',
     taxRateBps: 500, // 5% GST
+    taxLabel: 'GST',
     gstNumber: '123456789RT0001',
     email: 'hello@pinewoodflats.example',
     phone: '555-010-2030',

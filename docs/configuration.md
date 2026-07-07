@@ -33,9 +33,10 @@ than one — `propertyId` is on every table below). Key fields:
 |---|---|
 | `slug` | URL-safe identifier, unique per deployment |
 | `timezone` | IANA zone, e.g. `'America/Edmonton'` — this is what "today" means for lead-time and cancellation-window math |
-| `currency` | `'CAD'`, etc. |
+| `currency` | `'CAD'` (default — OpenStays is built by a Canadian company), `'USD'`, or `'EUR'`. Set per property; every guest-facing price formats in it. Other valid ISO codes also work — these three are the curated options in the settings page. |
 | `taxRateBps` | Tax rate in basis points; `500` = 5% GST |
-| `gstNumber` | Optional, shown on receipts |
+| `taxLabel` | Display label for the tax line: `'GST'` (default for Canada), `'VAT'`, `'Sales Tax'`… |
+| `gstNumber` | Optional tax registration number, shown on receipts |
 | `checkInTime` / `checkOutTime` | Display-only, `'16:00'` / `'11:00'` |
 | `active` | If `false`, the property stops accepting new bookings |
 

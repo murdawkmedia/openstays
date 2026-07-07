@@ -12,7 +12,7 @@ import { StayDateRangePicker } from '../components/StayDateRangePicker';
 import { AddOnPicker } from '../components/AddOnPicker';
 import { GuestForm, type GuestFormValue } from '../components/GuestForm';
 import { PriceBreakdownView } from '../components/PriceBreakdownView';
-import { formatCad } from '../lib/money';
+import { formatMoney } from '../lib/money';
 import { todayIso } from '../lib/dates';
 import { NotFoundPage } from './NotFoundPage';
 
@@ -215,7 +215,7 @@ export function UnitTypePage() {
           </div>
         ) : null}
         {fromPriceCents !== null ? (
-          <p className="mt-4 text-lg font-semibold text-emerald-800">From {formatCad(fromPriceCents)}/night</p>
+          <p className="mt-4 text-lg font-semibold text-emerald-800">From {formatMoney(fromPriceCents, detail.property.currency)}/night</p>
         ) : null}
       </div>
 
@@ -241,6 +241,7 @@ export function UnitTypePage() {
             <div className="card p-6">
               <AddOnPicker
                 addOns={addOns}
+                currency={detail.property.currency}
                 selected={addOnQuantities}
                 onChange={(addOnId, quantity) =>
                   setAddOnQuantities((prev) => ({ ...prev, [addOnId]: quantity }))
@@ -275,7 +276,7 @@ export function UnitTypePage() {
                 promoPreview?.valid ? (
                   promoMinSpendShortfall !== null ? (
                     <p className="mt-2 text-sm text-amber-700">
-                      {promoPreview.code} needs a subtotal of at least {formatCad(promoMinSpendShortfall)} — add nights or extras to use it.
+                      {promoPreview.code} needs a subtotal of at least {formatMoney(promoMinSpendShortfall, detail.property.currency)} — add nights or extras to use it.
                     </p>
                   ) : (
                     <p className="mt-2 text-sm text-emerald-700">
@@ -299,7 +300,7 @@ export function UnitTypePage() {
             {pricePreview ? (
               <div className="card p-6">
                 <h2 className="mb-4 text-lg font-semibold text-stone-900">Price preview</h2>
-                <PriceBreakdownView price={pricePreview} nights={nights} />
+                <PriceBreakdownView price={pricePreview} nights={nights} currency={detail.property.currency} taxLabel={detail.property.taxLabel} />
               </div>
             ) : null}
 

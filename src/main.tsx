@@ -12,6 +12,8 @@ import { CheckoutPage } from './pages/CheckoutPage';
 import { ConfirmationPage } from './pages/ConfirmationPage';
 import { ManageBookingPage } from './pages/ManageBookingPage';
 import { AdminTapePage } from './pages/AdminTapePage';
+import { AdminSettingsPage } from './pages/AdminSettingsPage';
+import { AboutPage } from './pages/AboutPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
@@ -38,7 +40,9 @@ createRoot(rootElement).render(
             <Route path="/checkout/:bookingId" element={<CheckoutPage />} />
             <Route path="/confirmation/:code" element={<ConfirmationPage />} />
             <Route path="/manage/:code" element={<ManageBookingPage />} />
+            <Route path="/about" element={<AboutPage />} />
             <Route path="/admin" element={<AdminTapePage />} />
+            <Route path="/admin/settings" element={<AdminSettingsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

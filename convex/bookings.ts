@@ -485,11 +485,14 @@ export const byConfirmationCode = query({
     if (!booking) return null;
     const unit = await ctx.db.get(booking.unitId);
     const unitType = await ctx.db.get(booking.unitTypeId);
+    const property = await ctx.db.get(booking.propertyId);
     const addOns = await ctx.db
       .query('bookingAddOns')
       .withIndex('by_booking', (q) => q.eq('bookingId', booking._id))
       .collect();
     return {
+      currency: property?.currency ?? 'CAD',
+      taxLabel: property?.taxLabel,
       status: booking.status,
       confirmationCode: booking.confirmationCode,
       checkIn: booking.checkIn,

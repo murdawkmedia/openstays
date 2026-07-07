@@ -2,6 +2,17 @@
 
 ## Unreleased (M0)
 
+- Multi-currency: CAD by default, USD and EUR offered out of the box.
+  Currency is per-property; all guest-facing prices format via
+  `formatMoney(cents, currency)`. New `taxLabel` property field ('GST'
+  default, 'VAT'/'Sales Tax' for other markets). Pricing math itself is
+  currency-agnostic (integer cents).
+- Settings page (`/admin/settings`): per-property configuration snapshot
+  (currency, tax, timezone, check-in/out, contact) — read-only until staff
+  auth lands in M1 — plus About/credits.
+- Branding: "built by SebaHub" (www.sebahub.com) in the app footer, new
+  public `/about` page, README, and docs footer.
+
 - Adversarial money-math review (14 attack tests added; 2 criticals fixed):
   payment records now carry only the GST contained in that payment
   (tax-inclusive extraction) instead of the full invoice GST; applied promo

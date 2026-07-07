@@ -81,7 +81,7 @@ export function ConfirmationPage() {
 
         {booking.priceBreakdown ? (
           <div className="mt-6 border-t border-stone-200 pt-6 text-left">
-            <PriceBreakdownView price={booking.priceBreakdown} nights={booking.nights} />
+            <PriceBreakdownView price={booking.priceBreakdown} nights={booking.nights} currency={booking.currency} taxLabel={booking.taxLabel} />
           </div>
         ) : null}
 

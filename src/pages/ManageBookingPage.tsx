@@ -5,7 +5,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Spinner } from '../components/Spinner';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
-import { formatCad } from '../lib/money';
+import { formatMoney } from '../lib/money';
 import { formatDisplayDate } from '../lib/dates';
 import { NotFoundPage } from './NotFoundPage';
 
@@ -71,7 +71,7 @@ export function ManageBookingPage() {
           <div className="mt-6 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             <p className="font-medium">Booking cancelled.</p>
             <p className="mt-1">
-              Paid: {formatCad(result.paidCents)} · Refund: {formatCad(result.refundCents)}
+              Paid: {formatMoney(result.paidCents, booking?.currency)} · Refund: {formatMoney(result.refundCents, booking?.currency)}
             </p>
           </div>
         ) : cancellable ? (

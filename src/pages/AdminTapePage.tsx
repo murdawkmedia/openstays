@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from 'convex/react';
 import { ShieldAlert } from 'lucide-react';
 
@@ -40,7 +41,12 @@ export function AdminTapePage() {
         Staff auth arrives in M1. This page is unauthenticated for now.
       </div>
 
-      <h1 className="mb-4 text-2xl font-semibold text-stone-900">Booking tape</h1>
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-stone-900">Booking tape</h1>
+        <Link to="/admin/settings" className="text-sm text-stone-500 hover:text-stone-800">
+          Settings →
+        </Link>
+      </div>
 
       {properties === undefined ? (
         <Spinner label="Loading properties…" />

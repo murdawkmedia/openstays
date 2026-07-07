@@ -90,6 +90,13 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
 - 2026-07-08: M0 scope = schema v1 + hold/expiry/conflict core + simulated
   demo payment path + seed (Pinewood Flats) + minimal public booking flow.
   Staff auth deferred to M1 with the real payment providers.
+- 2026-07-08: Multi-currency (Tim): CAD default, USD/EUR curated in
+  settings (`shared/currency.ts` SUPPORTED_CURRENCIES). Currency lives on
+  the property and flows through query payloads; pricing math stays
+  currency-agnostic integer cents; `formatMoney(cents, currency)` is the
+  only formatter. `taxLabel` (default 'GST') labels the tax line. Branding
+  (Tim): "built by SebaHub" + www.sebahub.com in app footer, /about,
+  /admin/settings, README, docs footer.
 - 2026-07-08: Adversarial review (M0 close) found 2 criticals, both fixed:
   (1) payment rows now record only the GST contained in THAT payment
   (tax-inclusive extraction), never the invoice's full GST; (2) an APPLIED

@@ -23,6 +23,8 @@ export const bySlug = query({
       email: property.email,
       phone: property.phone,
       address: property.address,
+      currency: property.currency,
+      taxLabel: property.taxLabel,
       checkInTime: property.checkInTime,
       checkOutTime: property.checkOutTime,
       unitTypes: unitTypes
@@ -39,6 +41,33 @@ export const bySlug = query({
           comingSoon: t.comingSoon,
         })),
     };
+  },
+});
+
+/**
+ * Configuration snapshot for the settings page. Read-only and non-secret;
+ * editing arrives with staff auth in M1.
+ */
+export const configList = query({
+  args: {},
+  handler: async (ctx) => {
+    const properties = await ctx.db.query('properties').collect();
+    return properties.map((p) => ({
+      propertyId: p._id,
+      name: p.name,
+      slug: p.slug,
+      active: p.active,
+      timezone: p.timezone,
+      currency: p.currency,
+      taxRateBps: p.taxRateBps,
+      taxLabel: p.taxLabel,
+      gstNumber: p.gstNumber,
+      email: p.email,
+      phone: p.phone,
+      address: p.address,
+      checkInTime: p.checkInTime,
+      checkOutTime: p.checkOutTime,
+    }));
   },
 });
 
@@ -82,7 +111,14 @@ export const unitTypeBySlug = query({
       .collect();
 
     return {
-      property: { propertyId: property._id, name: property.name, slug: property.slug, taxRateBps: property.taxRateBps },
+      property: {
+        propertyId: property._id,
+        name: property.name,
+        slug: property.slug,
+        taxRateBps: property.taxRateBps,
+        taxLabel: property.taxLabel,
+        currency: property.currency,
+      },
       unitType: {
         unitTypeId: unitType._id,
         name: unitType.name,

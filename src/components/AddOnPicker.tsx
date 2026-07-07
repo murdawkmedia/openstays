@@ -1,4 +1,4 @@
-import { formatCad } from '../lib/money';
+import { formatMoney } from '../lib/money';
 
 export interface AddOnOption {
   addOnId: string;
@@ -11,10 +11,11 @@ export interface AddOnPickerProps {
   addOns: AddOnOption[];
   selected: Record<string, number>; // addOnId -> quantity
   onChange: (addOnId: string, quantity: number) => void;
+  currency?: string;
 }
 
 /** Checkbox + quantity stepper for each available add-on. */
-export function AddOnPicker({ addOns, selected, onChange }: AddOnPickerProps) {
+export function AddOnPicker({ addOns, selected, onChange, currency = 'CAD' }: AddOnPickerProps) {
   if (addOns.length === 0) return null;
 
   return (
@@ -35,7 +36,7 @@ export function AddOnPicker({ addOns, selected, onChange }: AddOnPickerProps) {
               <span>
                 {addOn.name}{' '}
                 <span className="text-stone-400">
-                  ({formatCad(addOn.priceCents)} / {addOn.unitLabel})
+                  ({formatMoney(addOn.priceCents, currency)} / {addOn.unitLabel})
                 </span>
               </span>
             </label>

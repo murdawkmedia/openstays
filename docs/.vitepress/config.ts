@@ -40,7 +40,8 @@ export default defineConfig({
     socialLinks: [{ icon: 'github', link: 'https://github.com/murdawkmedia/openstays' }],
 
     footer: {
-      message: 'Released under the MIT License.',
+      message:
+        'Released under the MIT License. Built by <a href="https://www.sebahub.com" target="_blank" rel="noreferrer">SebaHub</a> — Seba Beach, Alberta, Canada.',
       copyright: 'Copyright © Murdawk Media',
     },
 

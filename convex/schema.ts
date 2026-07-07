@@ -61,9 +61,10 @@ export default defineSchema({
     name: v.string(),
     slug: v.string(),
     timezone: v.string(), // 'America/Edmonton'
-    currency: v.string(), // 'CAD'
+    currency: v.string(), // 'CAD' default; 'USD'/'EUR' offered in settings (shared/currency.ts)
     taxRateBps: v.number(), // 500 = 5% GST
-    gstNumber: v.optional(v.string()),
+    taxLabel: v.optional(v.string()), // display label: 'GST' (default), 'VAT', 'Sales Tax'
+    gstNumber: v.optional(v.string()), // tax registration number shown on receipts
     email: v.string(),
     phone: v.string(),
     address: v.string(),
