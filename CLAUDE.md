@@ -90,6 +90,16 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
 - 2026-07-08: M0 scope = schema v1 + hold/expiry/conflict core + simulated
   demo payment path + seed (Pinewood Flats) + minimal public booking flow.
   Staff auth deferred to M1 with the real payment providers.
+- 2026-07-08: E-signing direction (Tim): seasonal-contract agreements (M4)
+  get a pluggable signing step — built-in default (client-side pdf-lib +
+  signature canvas, the proven kokanee-crm flow, works offline on a staff
+  device) and an OPTIONAL DocuSeal integration
+  (github.com/docusealco/docuseal) for remote email-based signing with
+  audit trails. DocuSeal is AGPL but runs as a SEPARATE self-hosted
+  service consumed over HTTP API + webhooks — no license contamination of
+  this MIT codebase (we integrate, never vendor its code). Same
+  provider-interface philosophy as payments. Killer use case: emailing
+  ~215 seasonal renewal agreements instead of clipboard signatures.
 - 2026-07-08: Multi-currency (Tim): CAD default, USD/EUR curated in
   settings (`shared/currency.ts` SUPPORTED_CURRENCIES). Currency lives on
   the property and flows through query payloads; pricing math stays
