@@ -38,6 +38,25 @@ function webhookRoute(provider: 'stripe' | 'square', path: string) {
 webhookRoute('stripe', '/webhooks/stripe');
 webhookRoute('square', '/webhooks/square');
 
+/**
+ * Channel manager (Channex) webhook — a low-latency NUDGE to poll the booking
+ * revisions feed, NOT a data source (Channex webhooks are out-of-order and
+ * unsigned). We validate the optional shared secret, then schedule a feed pull
+ * and return 200 immediately. All real ingest happens behind the pull feed.
+ */
+http.route({
+  path: '/webhooks/channex',
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    const headers: Record<string, string> = {};
+    request.headers.forEach((value, key) => {
+      headers[key.toLowerCase()] = value;
+    });
+    const result = await ctx.runAction(internal.channel.ingest.handleWebhookNudge, { headers });
+    return new Response(null, { status: result.status });
+  }),
+});
+
 // HTTP API v1 (M1.5) — key-authenticated automation surface. One dispatcher
 // handles all /api/v1/* paths and methods; see convex/apiV1.ts.
 import { handle as apiV1Handle } from './apiV1';

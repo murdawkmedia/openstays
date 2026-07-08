@@ -306,6 +306,20 @@ export const createHold = mutation({
       });
     }
 
+    // Occupancy just changed — push updated availability to the channel manager
+    // immediately so OTAs can't oversell this unit. Only schedule when the
+    // property is actually connected (one indexed read): keeps unconnected
+    // deployments (and tests) free of a per-hold no-op action.
+    const channel = await ctx.db
+      .query('channelSync')
+      .withIndex('by_property', (q) => q.eq('propertyId', unit.propertyId))
+      .unique();
+    if (channel?.enabled) {
+      await ctx.scheduler.runAfter(0, internal.channel.ari.pushAriForProperty, {
+        propertyId: unit.propertyId,
+      });
+    }
+
     return {
       bookingId,
       confirmationCode,

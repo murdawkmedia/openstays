@@ -100,6 +100,9 @@ export default defineSchema({
     checkInTime: v.string(), // '16:00'
     checkOutTime: v.string(), // '11:00'
     active: v.boolean(),
+    // Channel manager (Channex) mapping — the Channex Property UUID this maps
+    // to. Unset = not connected. Dormant until set + CHANNEX_API_KEY present.
+    channexPropertyId: v.optional(v.string()),
   }).index('by_slug', ['slug']),
 
   unitTypes: defineTable({
@@ -121,6 +124,9 @@ export default defineSchema({
     amenities: v.array(v.string()),
     comingSoon: v.boolean(),
     sortOrder: v.number(),
+    // Channex Room Type UUID. Channex tracks availability as a COUNT per room
+    // type per night; OpenStays pushes (active units − occupied units) here.
+    channexRoomTypeId: v.optional(v.string()),
   })
     .index('by_property', ['propertyId', 'sortOrder'])
     .index('by_property_slug', ['propertyId', 'slug']),
@@ -172,6 +178,9 @@ export default defineSchema({
     prepBufferNights: v.number(),
     depositPolicy: depositPolicySchema,
     cancellationPolicy: cancellationPolicySchema, // sorted descending by daysBefore
+    // Channex Rate Plan UUID (belongs to exactly one Channex room type).
+    // OpenStays pushes per-night rates + restrictions here.
+    channexRatePlanId: v.optional(v.string()),
   })
     .index('by_unitType', ['unitTypeId', 'active'])
     .index('by_property', ['propertyId']),
@@ -204,9 +213,14 @@ export default defineSchema({
     holdExpiresAt: v.optional(v.number()), // set while status === 'hold'
     source: v.string(), // 'online' | 'front_desk' | 'phone' | 'ical:Airbnb' | 'demo'
     externalUid: v.optional(v.string()), // iCal VEVENT UID for imports
-    // iCal import found this external event overlapping an internal booking's
-    // nights. The import NEVER clobbers internal bookings — it flags instead
-    // and staff resolve on the tape.
+    // Channex booking unique id for OTA reservations ingested via the channel
+    // manager (source 'channel:<ota>'). Distinct from iCal's externalUid so the
+    // two ingest paths never collide.
+    channelBookingId: v.optional(v.string()),
+    // iCal import / channel ingest found this external event overlapping an
+    // internal booking's nights. The import NEVER clobbers internal bookings —
+    // it flags instead and staff resolve on the tape. (An OTA channelBookingId
+    // conflict is an oversell to escalate immediately.)
     syncConflict: v.optional(v.boolean()),
     confirmationCode: v.string(), // 'OS-7K3M2Q'
     priceBreakdown: v.optional(priceBreakdownSchema),
@@ -223,7 +237,8 @@ export default defineSchema({
     .index('by_property_checkIn', ['propertyId', 'checkIn'])
     .index('by_guest', ['guestId'])
     .index('by_confirmationCode', ['confirmationCode'])
-    .index('by_unit_externalUid', ['unitId', 'externalUid']),
+    .index('by_unit_externalUid', ['unitId', 'externalUid'])
+    .index('by_channelBooking', ['channelBookingId']),
 
   // Derived occupancy: one row per blocked unit-night. THE conflict-detection
   // and calendar-rendering surface. Invariant: a row exists iff an active
@@ -413,6 +428,32 @@ export default defineSchema({
   })
     .index('by_booking', ['bookingId'])
     .index('by_ts', ['ts']),
+
+  // ── Channel manager (Channex) — availability-critical, dormant until a
+  // property is mapped + CHANNEX_API_KEY is set. See convex/channel/**. ──────
+
+  // Per-property channel sync state. One row per property once connected.
+  channelSync: defineTable({
+    propertyId: v.id('properties'),
+    provider: v.string(), // 'channex'
+    enabled: v.boolean(), // operator toggle; false = built but paused
+    dirtySince: v.optional(v.number()), // set on occupancy change; cleared after a push
+    lastAriPushAt: v.optional(v.number()),
+    lastFullSyncAt: v.optional(v.number()),
+    lastBookingPollAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+  }).index('by_property', ['propertyId']),
+
+  // Channel sync history (ARI pushes, booking ingests, acks, errors) — the
+  // observability surface for the admin Channels page. Append-only.
+  channelSyncLog: defineTable({
+    propertyId: v.id('properties'),
+    provider: v.string(),
+    kind: v.string(), // 'ari_push' | 'booking_ingest' | 'ack' | 'object_sync' | 'error'
+    ok: v.boolean(),
+    detail: v.string(),
+    ts: v.number(),
+  }).index('by_property_ts', ['propertyId', 'ts']),
 
   // Staff auth lands in M1 (Convex Auth). Settings is the kokanee-style
   // key/value store for non-secret deployment prefs.
