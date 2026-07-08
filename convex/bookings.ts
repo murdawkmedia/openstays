@@ -3,6 +3,7 @@ import { internalMutation, internalQuery, mutation, query } from './_generated/s
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { internal } from './_generated/api';
+import { markPropertyDirtyInline } from './channel/ari';
 import {
   addDays,
   computePrice,
@@ -306,10 +307,19 @@ export const createHold = mutation({
       });
     }
 
-    // Occupancy just changed — push updated availability to the channel manager
-    // immediately so OTAs can't oversell this unit. Only schedule when the
-    // property is actually connected (one indexed read): keeps unconnected
-    // deployments (and tests) free of a per-hold no-op action.
+    // Occupancy just DECREASED (a unit-night is now blocked) — the
+    // oversell-critical direction. Two things happen, both gated on a connected
+    // + enabled channelSync row (one indexed read via the inline helper; no-op
+    // for unconnected deployments and tests):
+    //  1. Mark the property dirty INLINE (the correctness backbone): the 1-min
+    //     flush cron is the single retry-safe pusher, so a 429/failure on the
+    //     immediate push below is retried instead of silently lost, and bursts
+    //     of holds in a minute coalesce into one push.
+    //  2. ALSO schedule an immediate push so OTAs see the lowered count within
+    //     seconds, not up to a minute — the oversell window matters on a
+    //     decrement. We gate this on channelSync.enabled so we never schedule a
+    //     no-op action on an unconnected deployment.
+    await markPropertyDirtyInline(ctx, unit.propertyId);
     const channel = await ctx.db
       .query('channelSync')
       .withIndex('by_property', (q) => q.eq('propertyId', unit.propertyId))
@@ -424,6 +434,9 @@ export const expireHolds = internalMutation({
       .query('bookings')
       .withIndex('by_status_holdExpires', (q) => q.eq('status', 'hold').lt('holdExpiresAt', now))
       .take(50);
+    // Properties whose occupancy freed up — mark each dirty ONCE after the loop
+    // (markPropertyDirtyInline is idempotent, but this avoids N redundant reads).
+    const touchedProperties = new Set<Id<'properties'>>();
     for (const booking of stale) {
       await releaseNights(ctx, booking._id);
       await releasePromoRedemption(ctx, booking._id);
@@ -433,6 +446,15 @@ export const expireHolds = internalMutation({
         statusHistory: [...booking.statusHistory, { status: 'expired', ts: now }],
         updatedAt: now,
       });
+      touchedProperties.add(booking.propertyId);
+    }
+    // Occupancy INCREASED (nights freed) — mark dirty so the 1-min flush cron
+    // pushes the corrected higher count. No immediate push: this is an
+    // undersell direction (freeing inventory can never cause a double-sale), so
+    // the ≤1-min flush latency is acceptable and we avoid per-expiry scheduler
+    // churn on the 2-min cron.
+    for (const propertyId of touchedProperties) {
+      await markPropertyDirtyInline(ctx, propertyId);
     }
     return { expired: stale.length };
   },
@@ -541,6 +563,10 @@ export const cancelByGuest = mutation({
       statusHistory: [...booking.statusHistory, { status: 'cancelled', ts: now }],
       updatedAt: now,
     });
+    // Occupancy INCREASED (nights freed) — mark dirty so the 1-min flush cron
+    // pushes the corrected higher count to OTAs. Undersell direction, so the
+    // 1-min flush (not an immediate push) is the right trigger.
+    await markPropertyDirtyInline(ctx, booking.propertyId);
 
     // Refund execution. Real providers (stripe/square) refund out-of-band via a
     // scheduled action (actions can call the provider over the network; a
@@ -637,6 +663,7 @@ export const repairUnitNights = internalMutation({
 
     let rebuilt = 0;
     const bookings = await ctx.db.query('bookings').collect();
+    const touchedProperties = new Set<Id<'properties'>>();
     for (const booking of bookings) {
       if (!(ACTIVE_KINDS as readonly string[]).includes(booking.status)) continue;
       const ratePlan = booking.ratePlanId ? await ctx.db.get(booking.ratePlanId) : null;
@@ -658,6 +685,13 @@ export const repairUnitNights = internalMutation({
         });
         rebuilt += 1;
       }
+      touchedProperties.add(booking.propertyId);
+    }
+    // A full occupancy rebuild can change any property's pushed counts — mark
+    // every property with active bookings dirty so the 1-min flush reconciles
+    // OTAs to the repaired state. Idempotent + no-op for unconnected properties.
+    for (const propertyId of touchedProperties) {
+      await markPropertyDirtyInline(ctx, propertyId);
     }
     return { rebuilt };
   },
@@ -1076,6 +1110,20 @@ export const confirmFromPayment = internalMutation({
         statusHistory: [...booking.statusHistory, { status: 'confirmed', ts: now }],
         updatedAt: now,
       });
+      // Occupancy just DECREASED again (fresh unitNights re-block the stay on a
+      // paid, confirmed booking) — oversell-critical, exactly like createHold.
+      // Mark dirty inline (retry-safe backbone) AND schedule an immediate push
+      // so an OTA can't sell the unit-night this paying guest just re-acquired.
+      await markPropertyDirtyInline(ctx, booking.propertyId);
+      const channel = await ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', booking.propertyId))
+        .unique();
+      if (channel?.enabled) {
+        await ctx.scheduler.runAfter(0, internal.channel.ari.pushAriForProperty, {
+          propertyId: booking.propertyId,
+        });
+      }
       await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
         bookingId: booking._id,
         kind: 'confirmation',

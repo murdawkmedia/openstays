@@ -245,7 +245,7 @@ describe('ingestRevision — modification & cancellation', () => {
 });
 
 describe('ingestRevision — unmapped room type', () => {
-  it('returns unmapped without throwing and creates no booking', async () => {
+  it('returns unmapped without throwing, creates no booking, and does NOT burn idempotency', async () => {
     const t = makeT();
     await seed(t);
     const result = await t.mutation(
@@ -253,15 +253,126 @@ describe('ingestRevision — unmapped room type', () => {
       newRev({ roomTypeId: 'chx-rt-UNKNOWN' }),
     );
     expect(result.outcome).toBe('unmapped');
+    // The unmapped room type id is surfaced so the action can alert on it.
+    expect(result.roomTypeId).toBe('chx-rt-UNKNOWN');
     const bookings = await bookingsFor(t, 'bk-1');
     expect(bookings).toHaveLength(0);
 
-    // A retry of the same unmapped revision is a cheap idempotent no-op.
+    // CRITICAL (adversarial-review fix): an unmapped revision must NOT record a
+    // webhookEvents idempotency row, so re-delivery re-attempts the mapping
+    // instead of short-circuiting to 'duplicate'. Otherwise, once the operator
+    // maps the room type, the already-arrived (acked) sale would be permanently
+    // lost. A re-delivery while still unmapped therefore returns 'unmapped'
+    // again (never 'duplicate').
     const retry = await t.mutation(
       internal.channel.ingest.ingestRevision,
       newRev({ roomTypeId: 'chx-rt-UNKNOWN' }),
     );
-    expect(retry.outcome).toBe('duplicate');
+    expect(retry.outcome).toBe('unmapped');
+    // No idempotency ledger row was written for the real revision id.
+    const ledger = await t.run(async (ctx) =>
+      ctx.db
+        .query('webhookEvents')
+        .withIndex('by_provider_event', (q) => q.eq('provider', 'channex').eq('eventId', 'rev-1'))
+        .collect(),
+    );
+    expect(ledger).toHaveLength(0);
+  });
+
+  it('re-ingests and creates the booking once the room type is later mapped', async () => {
+    const t = makeT();
+    const fx = await seed(t);
+
+    // Poll while unmapped → no booking, un-acked (returns 'unmapped').
+    const first = await t.mutation(
+      internal.channel.ingest.ingestRevision,
+      newRev({ roomTypeId: 'chx-rt-LATER' }),
+    );
+    expect(first.outcome).toBe('unmapped');
+    expect(await bookingsFor(t, 'bk-1')).toHaveLength(0);
+
+    // Operator maps the room type to the seeded Cabin unit type.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(fx.unitTypeId, { channexRoomTypeId: 'chx-rt-LATER' });
+    });
+
+    // Re-delivery now ingests the sale (no idempotency row blocked it).
+    const second = await t.mutation(
+      internal.channel.ingest.ingestRevision,
+      newRev({ roomTypeId: 'chx-rt-LATER' }),
+    );
+    expect(second.outcome).toBe('created');
+    const bookings = await bookingsFor(t, 'bk-1');
+    expect(bookings).toHaveLength(1);
+    expect(bookings[0].status).toBe('external');
+  });
+
+  it('syncBookingRevisions does NOT ack an unmapped revision and schedules a one-time staff alert', async () => {
+    vi.stubEnv('CHANNEX_API_KEY', 'test-key');
+    vi.stubEnv('DEMO_MODE', 'true'); // sendStaffAlert degrades to an emailLog row
+    const t = makeT();
+    await seed(t);
+
+    const acked: string[] = [];
+    const feedItem = {
+      id: 'rev-unmapped-1',
+      booking_id: 'bk-unmapped-1',
+      status: 'new',
+      ota_name: 'Airbnb',
+      arrival_date: D(10),
+      departure_date: D(12),
+      amount: '250.00',
+      currency: 'CAD',
+      customer: { name: 'Grace', surname: 'Hopper' },
+      rooms: [{ room_type_id: 'chx-rt-NOT-MAPPED', occupancy: { adults: 2, children: 0 } }],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const u = String(url);
+        if (u.includes('/booking_revisions/feed')) {
+          return new Response(JSON.stringify({ data: [feedItem], meta: { total_pages: 1 } }), {
+            status: 200,
+          });
+        }
+        if (u.includes('/ack') && init?.method === 'POST') {
+          const m = u.match(/booking_revisions\/([^/]+)\/ack/);
+          if (m) acked.push(decodeURIComponent(m[1]));
+          return new Response('{}', { status: 200 });
+        }
+        return new Response(JSON.stringify({ meta: { warnings: [] } }), { status: 200 });
+      }),
+    );
+
+    await t.action(internal.channel.ingest.syncBookingRevisions, {});
+
+    // Un-acked — the sale stays in the feed until the room type is mapped.
+    expect(acked).toHaveLength(0);
+    // No booking created (unmapped).
+    expect(await bookingsFor(t, 'bk-unmapped-1')).toHaveLength(0);
+
+    await drainAll();
+
+    // A one-time staff alert was scheduled (emailLog row in DEMO).
+    const alerts = await t.run(async (ctx) =>
+      ctx.db.query('emailLog').filter((q) => q.eq(q.field('templateKey'), 'staff_alert')).collect(),
+    );
+    expect(alerts.length).toBeGreaterThanOrEqual(1);
+    expect(alerts.some((a) => a.subject.includes('chx-rt-NOT-MAPPED'))).toBe(true);
+
+    // A syncLog row records the unmapped booking for the Channels page.
+    const logs = await t.run(async (ctx) => ctx.db.query('channelSyncLog').collect());
+    expect(logs.some((l) => l.detail.includes('UNMAPPED') && l.detail.includes('chx-rt-NOT-MAPPED'))).toBe(true);
+
+    // The alert is ONE-TIME: a second poll of the same still-unmapped revision
+    // does not schedule another alert (guarded by the unmapped-alert marker).
+    const alertsBefore = alerts.length;
+    await t.action(internal.channel.ingest.syncBookingRevisions, {});
+    await drainAll();
+    const alertsAfter = await t.run(async (ctx) =>
+      ctx.db.query('emailLog').filter((q) => q.eq(q.field('templateKey'), 'staff_alert')).collect(),
+    );
+    expect(alertsAfter.length).toBe(alertsBefore);
   });
 });
 
@@ -413,7 +524,7 @@ describe('syncBookingRevisions — ack ordering (ack only AFTER durable write)',
 });
 
 describe('handleWebhookNudge', () => {
-  it('rejects a wrong shared secret without scheduling a poll (still 200)', async () => {
+  it('rejects a wrong shared secret without scheduling a poll OR writing a log row (still 200)', async () => {
     vi.stubEnv('CHANNEX_API_KEY', 'test-key');
     vi.stubEnv('CHANNEX_WEBHOOK_SECRET', 'sekret');
     const t = makeT();
@@ -422,12 +533,38 @@ describe('handleWebhookNudge', () => {
       headers: { 'x-channex-webhook-secret': 'WRONG' },
     });
     expect(res.status).toBe(200);
-    // No syncBookingRevisions scheduled (a rejected nudge logs instead).
+    // No syncBookingRevisions scheduled (fail closed).
     const scheduled = await t.run(async (ctx) =>
       ctx.db.system.query('_scheduled_functions').collect(),
     );
     const polls = scheduled.filter((j) => JSON.stringify(j.name ?? '').includes('syncBookingRevisions'));
     expect(polls).toHaveLength(0);
+    // And NO channelSyncLog row (adversarial-review fix): rejected-nudge logging
+    // was itself an unauthenticated unbounded-write amplifier — it is now dropped.
+    const logs = await t.run(async (ctx) => ctx.db.query('channelSyncLog').collect());
+    expect(logs).toHaveLength(0);
+    await drainAll();
+  });
+
+  it('with NO secret configured, does NOT schedule a poll and writes no rows (fail closed)', async () => {
+    // CHANNEX_API_KEY may be set (live deployment) but the OPTIONAL secret unset.
+    vi.stubEnv('CHANNEX_API_KEY', 'test-key');
+    // (CHANNEX_WEBHOOK_SECRET intentionally not stubbed → unset)
+    const t = makeT();
+    await seed(t);
+    const res = await t.action(internal.channel.ingest.handleWebhookNudge, {
+      headers: {},
+    });
+    expect(res.status).toBe(200);
+    // An unauthenticated caller can never make us hit Channex or write rows: the
+    // 2-min poll cron is authoritative; the nudge only exists behind a secret.
+    const scheduled = await t.run(async (ctx) =>
+      ctx.db.system.query('_scheduled_functions').collect(),
+    );
+    const polls = scheduled.filter((j) => JSON.stringify(j.name ?? '').includes('syncBookingRevisions'));
+    expect(polls).toHaveLength(0);
+    const logs = await t.run(async (ctx) => ctx.db.query('channelSyncLog').collect());
+    expect(logs).toHaveLength(0);
     await drainAll();
   });
 
@@ -445,6 +582,12 @@ describe('handleWebhookNudge', () => {
       headers: { 'x-channex-webhook-secret': 'sekret' },
     });
     expect(res.status).toBe(200);
+    // The poll WAS scheduled (authenticated).
+    const scheduled = await t.run(async (ctx) =>
+      ctx.db.system.query('_scheduled_functions').collect(),
+    );
+    const polls = scheduled.filter((j) => JSON.stringify(j.name ?? '').includes('syncBookingRevisions'));
+    expect(polls.length).toBeGreaterThanOrEqual(1);
     await drainAll();
   });
 });

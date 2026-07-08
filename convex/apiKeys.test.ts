@@ -133,6 +133,51 @@ describe('demo.reset clears apiKeys', () => {
     // The apiKeys table was wiped, so the key no longer verifies.
     expect(await t.query(internal.apiKeys.verifyKey, { keyHash })).toBeNull();
   });
+
+  it('demo-created channelSync + channelSyncLog rows do not survive a nightly reset', async () => {
+    // Under DEMO_MODE an anonymous visitor can create a channelSync row (the
+    // admin gate() short-circuits before auth). Those rows — and any sync-log
+    // noise — must be wiped by the nightly reset, not accumulate across resets.
+    // (Adversarial review 2026-07-08.)
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      const propertyId = await ctx.db.insert('properties', {
+        name: 'Demo Grounds',
+        slug: 'demo-grounds',
+        timezone: 'America/Edmonton',
+        currency: 'CAD',
+        taxRateBps: 500,
+        email: 'd@example.com',
+        phone: '555',
+        address: '1 Demo Rd',
+        checkInTime: '16:00',
+        checkOutTime: '11:00',
+        active: true,
+        channexPropertyId: 'attacker-supplied-uuid',
+      });
+      await ctx.db.insert('channelSync', {
+        propertyId,
+        provider: 'channex',
+        enabled: true,
+      });
+      await ctx.db.insert('channelSyncLog', {
+        propertyId,
+        provider: 'channex',
+        kind: 'ari_push',
+        ok: true,
+        detail: 'seeded log row',
+        ts: Date.now(),
+      });
+    });
+
+    await t.mutation(internal.demo.reset, {});
+
+    const syncRows = await t.run(async (ctx) => ctx.db.query('channelSync').collect());
+    const logRows = await t.run(async (ctx) => ctx.db.query('channelSyncLog').collect());
+    expect(syncRows).toHaveLength(0);
+    expect(logRows).toHaveLength(0);
+  });
 });
 
 describe('listApiKeys', () => {

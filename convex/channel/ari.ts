@@ -2,6 +2,7 @@ import { v } from 'convex/values';
 import { internalAction, internalMutation, internalQuery } from '../_generated/server';
 import { internal } from '../_generated/api';
 import type { Id } from '../_generated/dataModel';
+import type { MutationCtx } from '../_generated/server';
 import { enumerateNights, nightlyRateCents, todayInTimezone } from '../../shared/pricing';
 import { centsToDecimalString, channexProvider } from './channex';
 import { channelConfigured, CHANNEL_HORIZON_DAYS } from './index';
@@ -81,7 +82,23 @@ export const computeAriForProperty = internalQuery({
         .withIndex('by_type', (q) => q.eq('unitTypeId', unitType._id))
         .collect();
       const activeUnits = units.filter((u) => u.status === 'active');
-      const activeCount = activeUnits.length;
+
+      // Per-date count of units that are BOTH active AND sellable on that date.
+      // A unit with bookableFrom set only becomes sellable on/after that date —
+      // before then, createHold rejects direct bookings with UNIT_NOT_YET_BOOKABLE
+      // (bookings.ts), so it must NOT be advertised to OTAs as available either,
+      // or an OTA guest could book a unit-night the property has deliberately
+      // kept closed AND (on a night where the not-yet-open unit is the "extra"
+      // inventory) inflate the room-type count into a real oversell. So we count
+      // active units PER DATE, matching the createHold guard.
+      const activeByDate = new Map<string, number>();
+      for (const date of dates) {
+        let count = 0;
+        for (const unit of activeUnits) {
+          if (!unit.bookableFrom || date >= unit.bookableFrom) count += 1;
+        }
+        activeByDate.set(date, count);
+      }
 
       // Per-date occupied count. For each unit, ONE indexed range read over the
       // whole window (by_unit_date), then bump a per-date counter for every
@@ -107,6 +124,7 @@ export const computeAriForProperty = internalQuery({
       }
 
       for (const date of dates) {
+        const activeCount = activeByDate.get(date) ?? 0;
         const occupied = occupiedByDate.get(date) ?? 0;
         const free = Math.max(0, activeCount - occupied);
         availability.push({ roomTypeId, date, availability: free });
@@ -123,13 +141,26 @@ export const computeAriForProperty = internalQuery({
     const restrictions: RestrictionRowOut[] = [];
     for (const plan of mappedPlans) {
       const ratePlanId = plan.channexRatePlanId!;
+      // Currency safety: we push `rate` as a BARE decimal string with no currency
+      // field, so Channex applies the number in whatever currency its rate plan
+      // was configured with. If our rate plan's currency doesn't match the
+      // property currency (they should match by construction — a rate plan
+      // belongs to one property), we can't be sure the number lands in the right
+      // currency, and a mismatch would silently sell at the wrong price (e.g.
+      // '129.00' meant as CAD applied as EUR). Defensively OMIT `rate` on a
+      // mismatch (still push minStay restrictions so availability logic holds);
+      // pricing then falls back to whatever Channex already has, rather than us
+      // overwriting it with a face-value number in the wrong currency.
+      const currencyMatches = plan.currency === property.currency;
       for (const date of dates) {
-        const rateCents = nightlyRateCents(plan, date);
         const row: RestrictionRowOut = {
           ratePlanId,
           date,
-          rate: centsToDecimalString(rateCents),
         };
+        if (currencyMatches) {
+          const rateCents = nightlyRateCents(plan, date);
+          row.rate = centsToDecimalString(rateCents);
+        }
         // Only send minStayArrival when it constrains (> 1). Channex treats a
         // missing key as "no change"; sending min_stay_arrival:1 every night is
         // noise (and would override a channel-side default of 1 harmlessly, but
@@ -238,21 +269,53 @@ export const pushAriForProperty = internalAction({
 });
 
 /**
+ * Mark a property's channel availability dirty (occupancy changed), callable
+ * INLINE from inside any mutation that inserts/deletes unitNights. This is a
+ * plain async helper (NOT a Convex function) so a booking/ingest/iCal mutation
+ * can call it directly in the same serializable transaction as the occupancy
+ * change — no scheduler hop, no separate mutation.
+ *
+ * Behavior: read channelSync by_property. If a row exists AND is enabled AND
+ * dirtySince is unset, stamp dirtySince = now. Otherwise (no row / disabled /
+ * already dirty) it does NOTHING and writes nothing — so unconnected
+ * deployments and tests without a channelSync row stay completely clean (no
+ * scheduled work, no teardown surprises).
+ *
+ * The 1-min 'channex ari flush' cron (listSyncTargets → pushAriForProperty) is
+ * the single retry-safe pusher that consumes dirtySince. Callers that need the
+ * OTA-facing count updated FAST (oversell-critical decrements — createHold,
+ * channel-booking ingest) ALSO schedule an immediate pushAriForProperty; the
+ * inline dirty-mark is the correctness backbone (coalescing + 429 retry), the
+ * immediate push is a latency optimization on top.
+ *
+ * Idempotent: safe to call once per property per mutation even when many
+ * bookings/units across the same property changed (e.g. expireHolds/syncAll).
+ */
+export async function markPropertyDirtyInline(
+  ctx: MutationCtx,
+  propertyId: Id<'properties'>,
+): Promise<void> {
+  const row = await ctx.db
+    .query('channelSync')
+    .withIndex('by_property', (q) => q.eq('propertyId', propertyId))
+    .unique();
+  if (!row || !row.enabled) return;
+  if (row.dirtySince === undefined) {
+    await ctx.db.patch(row._id, { dirtySince: Date.now() });
+  }
+}
+
+/**
  * Mark a property's channel availability dirty (occupancy changed). Cheap: sets
  * channelSync.dirtySince if unset. Scheduled (runAfter 0) from booking-status
  * mutations. No-op if the property has no channelSync row (not connected).
+ * Thin Convex-function wrapper around markPropertyDirtyInline for callers that
+ * can only reach the dirty-mark via the scheduler.
  */
 export const markDirty = internalMutation({
   args: { propertyId: v.id('properties') },
   handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query('channelSync')
-      .withIndex('by_property', (q) => q.eq('propertyId', args.propertyId))
-      .unique();
-    if (!row || !row.enabled) return;
-    if (row.dirtySince === undefined) {
-      await ctx.db.patch(row._id, { dirtySince: Date.now() });
-    }
+    await markPropertyDirtyInline(ctx, args.propertyId);
   },
 });
 

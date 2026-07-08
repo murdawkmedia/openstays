@@ -8,6 +8,7 @@ import { internal } from '../_generated/api';
 import type { Id } from '../_generated/dataModel';
 import schema from '../schema';
 import { addDays, todayInTimezone } from '../../shared/pricing';
+import { markPropertyDirtyInline } from './ari';
 
 // Absolute-from-project-root glob: from a nested test dir, a `../**` relative
 // glob does NOT re-capture sibling channel modules in Vite, so convex-test
@@ -268,6 +269,129 @@ describe('computeAriForProperty', () => {
     const rows = ari!.restrictions.filter((r) => r.ratePlanId === 'chx-rp-standard');
     expect(rows[0].rate).toBe('100.00');
     expect(rows[0].minStayArrival).toBeUndefined();
+  });
+
+  it('excludes a not-yet-bookable unit from the free count until its bookableFrom date', async () => {
+    // MEDIUM fix: a unit whose bookableFrom is in the future must NOT be
+    // advertised to OTAs as available before then (matching the createHold
+    // guard) — otherwise an OTA could sell a unit-night the property kept closed
+    // and, on a night where it's the extra inventory, cause a real oversell.
+    const t = makeT();
+    const fx = await seed(t);
+    // Cabin 2 doesn't open for stays until D(3).
+    await t.run(async (ctx) => {
+      await ctx.db.patch(fx.unitBId, { bookableFrom: D(3) });
+    });
+
+    const ari = await t.query(internal.channel.ari.computeAriForProperty, {
+      propertyId: fx.propertyId,
+      horizonDays: 5,
+    });
+    const byDate = new Map(
+      ari!.availability.filter((r) => r.roomTypeId === 'chx-rt-cabin').map((r) => [r.date, r.availability]),
+    );
+    // Before bookableFrom: only Cabin 1 counts → availability 1.
+    expect(byDate.get(D(0))).toBe(1);
+    expect(byDate.get(D(2))).toBe(1);
+    // On/after bookableFrom: both cabins count → availability 2.
+    expect(byDate.get(D(3))).toBe(2);
+    expect(byDate.get(D(4))).toBe(2);
+  });
+
+  it('omits the rate (but keeps minStay) when the rate plan currency does not match the property currency', async () => {
+    // MEDIUM fix: we push `rate` as a bare decimal with no currency field, so a
+    // currency mismatch would silently sell at the wrong price. Defensively omit
+    // the rate on a mismatch rather than push a face-value number in the wrong
+    // currency.
+    const t = makeT();
+    const fx = await seed(t, { minStay: 2 });
+    // Property is CAD (from seed); flip the rate plan to EUR → mismatch.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(fx.ratePlanId, { currency: 'EUR' });
+    });
+
+    const ari = await t.query(internal.channel.ari.computeAriForProperty, {
+      propertyId: fx.propertyId,
+      horizonDays: 2,
+    });
+    const rows = ari!.restrictions.filter((r) => r.ratePlanId === 'chx-rp-standard');
+    expect(rows).toHaveLength(2);
+    // Rate omitted on mismatch…
+    expect(rows[0].rate).toBeUndefined();
+    // …but minStay restrictions still push (availability semantics preserved).
+    expect(rows[0].minStayArrival).toBe(2);
+  });
+});
+
+describe('markPropertyDirtyInline (inline dirty-mark helper)', () => {
+  it('no-ops with no channelSync row (unconnected deployment stays clean)', async () => {
+    const t = makeT();
+    const fx = await seed(t); // no channelSync row seeded
+    await t.run(async (ctx) => {
+      await markPropertyDirtyInline(ctx, fx.propertyId);
+    });
+    const sync = await t.run(async (ctx) =>
+      ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+        .unique(),
+    );
+    expect(sync).toBeNull(); // nothing created
+  });
+
+  it('no-ops on a disabled channelSync row', async () => {
+    const t = makeT();
+    const fx = await seed(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert('channelSync', {
+        propertyId: fx.propertyId,
+        provider: 'channex',
+        enabled: false,
+      });
+    });
+    await t.run(async (ctx) => {
+      await markPropertyDirtyInline(ctx, fx.propertyId);
+    });
+    const sync = await t.run(async (ctx) =>
+      ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+        .unique(),
+    );
+    expect(sync?.dirtySince).toBeUndefined(); // disabled → not marked
+  });
+
+  it('stamps dirtySince on an enabled row and is idempotent (does not overwrite)', async () => {
+    const t = makeT();
+    const fx = await seed(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert('channelSync', {
+        propertyId: fx.propertyId,
+        provider: 'channex',
+        enabled: true,
+      });
+    });
+    await t.run(async (ctx) => {
+      await markPropertyDirtyInline(ctx, fx.propertyId);
+    });
+    const first = await t.run(async (ctx) =>
+      (await ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+        .unique())!.dirtySince,
+    );
+    expect(first).toBeGreaterThan(0);
+    // A second call must NOT overwrite the original dirtySince (coalescing).
+    await t.run(async (ctx) => {
+      await markPropertyDirtyInline(ctx, fx.propertyId);
+    });
+    const second = await t.run(async (ctx) =>
+      (await ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+        .unique())!.dirtySince,
+    );
+    expect(second).toBe(first);
   });
 });
 

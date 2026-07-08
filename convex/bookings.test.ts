@@ -554,3 +554,166 @@ describe('unitNights invariant', () => {
     expect(rows).toHaveLength(4);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Channel (Channex) dirty-marking wiring. Every mutation that changes occupancy
+// on a CONNECTED + enabled property must route through markPropertyDirtyInline
+// so the 1-min flush cron pushes the corrected count to OTAs. These are the
+// regression guards for the CRITICAL oversell findings (occupancy changes were
+// invisible to Channex until the ~24h nightly resync). CHANNEX_API_KEY is left
+// unset, so the immediate pushAriForProperty action scheduled on decrements is
+// a drained no-op (channelConfigured() is false) — we assert on dirtySince, the
+// retry-safe correctness backbone, which is set regardless.
+// ---------------------------------------------------------------------------
+describe('channel dirty-marking on occupancy changes', () => {
+  // Schema-typed handle so `.withIndex('by_property')` resolves the real
+  // (non-system) index instead of falling back to SystemIndexes.
+  type T = ReturnType<typeof makeT>;
+  /** Connect + enable the fixture property for channel sync. */
+  async function connectChannel(t: T, propertyId: Id<'properties'>) {
+    await t.run(async (ctx) => {
+      await ctx.db.patch(propertyId, { channexPropertyId: 'chx-prop-1' });
+      await ctx.db.insert('channelSync', {
+        propertyId,
+        provider: 'channex',
+        enabled: true,
+      });
+    });
+  }
+  async function dirtySinceOf(t: T, propertyId: Id<'properties'>) {
+    return await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', propertyId))
+        .unique();
+      return row?.dirtySince;
+    });
+  }
+
+  it('createHold marks the property dirty AND schedules an immediate push (decrement)', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    await connectChannel(t, fx.propertyId);
+
+    await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
+
+    // dirtySince set (correctness backbone).
+    expect(await dirtySinceOf(t, fx.propertyId)).toBeGreaterThan(0);
+    // An immediate pushAriForProperty was scheduled (latency optimization).
+    const scheduled = await t.run(async (ctx) =>
+      ctx.db.system.query('_scheduled_functions').collect(),
+    );
+    const pushes = scheduled.filter((j) => JSON.stringify(j.name ?? '').includes('pushAriForProperty'));
+    expect(pushes.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('createHold on an UNconnected property is a no-op (no channelSync row created)', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t); // no channelSync
+    await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
+    const sync = await t.run(async (ctx) =>
+      ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+        .unique(),
+    );
+    expect(sync).toBeNull();
+  });
+
+  it('expireHolds marks the property dirty (increment / undersell)', async () => {
+    vi.useFakeTimers();
+    try {
+      const t = makeT();
+      const fx = await seedFixture(t);
+      await connectChannel(t, fx.propertyId);
+      await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
+      // Clear the createHold dirty flag to isolate expiry's own mark.
+      await t.run(async (ctx) => {
+        const row = await ctx.db
+          .query('channelSync')
+          .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+          .unique();
+        await ctx.db.patch(row!._id, { dirtySince: undefined });
+      });
+
+      vi.setSystemTime(Date.now() + 36 * 60 * 1000);
+      const result = await t.mutation(internal.bookings.expireHolds, {});
+      expect(result.expired).toBe(1);
+      expect(await dirtySinceOf(t, fx.propertyId)).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancelByGuest marks the property dirty (increment / undersell)', async () => {
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = makeT();
+    const fx = await seedFixture(t);
+    await connectChannel(t, fx.propertyId);
+    const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(30), D(32)));
+    await t.mutation(api.bookings.confirmSimulated, { bookingId: hold.bookingId });
+    // Clear dirty from create/confirm to isolate cancellation's mark.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+        .unique();
+      await ctx.db.patch(row!._id, { dirtySince: undefined });
+    });
+
+    await t.mutation(api.bookings.cancelByGuest, {
+      confirmationCode: hold.confirmationCode,
+      email: 'guest@example.com',
+    });
+    expect(await dirtySinceOf(t, fx.propertyId)).toBeGreaterThan(0);
+  });
+
+  it('confirmFromPayment expired→re-acquire marks dirty AND schedules an immediate push (re-decrement)', async () => {
+    vi.useFakeTimers();
+    try {
+      const t = makeT();
+      const fx = await seedFixture(t, { prepBufferNights: 1 });
+      await connectChannel(t, fx.propertyId);
+      const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
+      await t.mutation(internal.bookings.recordPendingPayment, {
+        bookingId: hold.bookingId,
+        provider: 'stripe',
+        providerCheckoutId: 'cs_reacq',
+        amountCents: hold.price.totalCents,
+        currency: 'CAD',
+      });
+
+      // Expire the hold (frees nights), then clear dirty to isolate re-acquire.
+      vi.setSystemTime(Date.now() + 36 * 60 * 1000);
+      await t.mutation(internal.bookings.expireHolds, {});
+      await t.run(async (ctx) => {
+        const row = await ctx.db
+          .query('channelSync')
+          .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+          .unique();
+        await ctx.db.patch(row!._id, { dirtySince: undefined });
+      });
+
+      // Late payment re-acquires the free nights → occupancy DECREASES again.
+      const res = await t.mutation(internal.bookings.confirmFromPayment, {
+        provider: 'stripe',
+        eventId: 'evt_reacq',
+        eventType: 'payment_succeeded',
+        checkoutId: 'cs_reacq',
+        providerPaymentId: 'pi_reacq',
+        amountCents: hold.price.totalCents,
+        currency: 'CAD',
+      });
+      expect(res.outcome).toBe('confirmed');
+      expect(await dirtySinceOf(t, fx.propertyId)).toBeGreaterThan(0);
+
+      const scheduled = await t.run(async (ctx) =>
+        ctx.db.system.query('_scheduled_functions').collect(),
+      );
+      const pushes = scheduled.filter((j) => JSON.stringify(j.name ?? '').includes('pushAriForProperty'));
+      expect(pushes.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

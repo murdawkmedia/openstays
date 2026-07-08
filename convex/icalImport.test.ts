@@ -352,6 +352,81 @@ describe('applyUnitImport', () => {
     });
     expect(result.inserted).toBe(0);
   });
+
+  it('marks the property channel-dirty after occupancy changes on a connected property (CRITICAL: iCal→ARI)', async () => {
+    // Regression guard for the CRITICAL cross-channel oversell: an iCal-imported
+    // Airbnb booking blocks a unit-night here, so Channex MUST be told the
+    // lowered count. applyUnitImport now marks the property dirty so the 1-min
+    // 'channex ari flush' cron pushes the corrected availability (previously the
+    // whole iCal path was invisible to Channex until the ~24h nightly resync).
+    const t = convexTest(schema, modules);
+    const fx = await seedUnit(t);
+    // Connect + enable the property for channel sync.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(fx.propertyId, { channexPropertyId: 'chx-prop-1' });
+      await ctx.db.insert('channelSync', {
+        propertyId: fx.propertyId,
+        provider: 'channex',
+        enabled: true,
+      });
+    });
+
+    await t.mutation(internal.icalImport.applyUnitImport, {
+      unitId: fx.unitId,
+      label: 'Airbnb',
+      events: [{ uid: 'evt-dirty@airbnb.com', startDate: '2026-07-15', endDate: '2026-07-18' }],
+    });
+
+    const sync = await t.run(async (ctx) =>
+      ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+        .unique(),
+    );
+    expect(sync?.dirtySince).toBeGreaterThan(0);
+
+    // listSyncTargets (what the flush cron consumes) now includes this property.
+    const targets = await t.query(internal.channel.ari.listSyncTargets, {});
+    expect(targets).toContain(fx.propertyId);
+  });
+
+  it('does NOT mark dirty when a re-import changes nothing (no redundant push)', async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seedUnit(t);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(fx.propertyId, { channexPropertyId: 'chx-prop-1' });
+      await ctx.db.insert('channelSync', {
+        propertyId: fx.propertyId,
+        provider: 'channex',
+        enabled: true,
+      });
+    });
+    const events = [{ uid: 'evt-1@airbnb.com', startDate: '2026-07-15', endDate: '2026-07-18' }];
+    // First import marks dirty…
+    await t.mutation(internal.icalImport.applyUnitImport, { unitId: fx.unitId, label: 'Airbnb', events });
+    // …clear the flag as a push would…
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+        .unique();
+      await ctx.db.patch(row!._id, { dirtySince: undefined });
+    });
+    // …then a no-op re-import must NOT re-dirty the property.
+    const result = await t.mutation(internal.icalImport.applyUnitImport, {
+      unitId: fx.unitId,
+      label: 'Airbnb',
+      events,
+    });
+    expect(result).toEqual({ inserted: 0, updated: 0, removed: 0, conflicts: 0 });
+    const sync = await t.run(async (ctx) =>
+      ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', fx.propertyId))
+        .unique(),
+    );
+    expect(sync?.dirtySince).toBeUndefined();
+  });
 });
 
 describe('syncAll', () => {

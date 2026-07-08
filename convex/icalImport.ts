@@ -4,6 +4,7 @@ import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { parseIcs } from '../shared/ical';
+import { markPropertyDirtyInline } from './channel/ari';
 
 /**
  * iCal calendar IMPORT (M1, builder E) — pulls external calendars (a direct
@@ -165,6 +166,11 @@ export const applyUnitImport = internalMutation({
 
     const seenUids = new Set<string>();
     const now = Date.now();
+    // Track whether ANY unitNights row was inserted/deleted this invocation.
+    // Note: the syncConflict re-evaluation branch below rewrites nights without
+    // bumping `updated`, so we can't rely on the counters alone to decide
+    // whether to mark the property dirty.
+    let nightsChanged = false;
 
     for (const event of args.events) {
       seenUids.add(event.uid);
@@ -173,6 +179,7 @@ export const applyUnitImport = internalMutation({
       if (!existing) {
         const conflict = await insertExternalBooking(ctx, unit, source, event, now);
         inserted += 1;
+        nightsChanged = true;
         if (conflict) conflicts += 1;
         continue;
       }
@@ -182,11 +189,13 @@ export const applyUnitImport = internalMutation({
       if (existing.checkIn !== event.startDate || existing.checkOut !== event.endDate) {
         const conflict = await rewriteExternalNights(ctx, existing, event, now);
         updated += 1;
+        nightsChanged = true;
         if (conflict) conflicts += 1;
       } else if (existing.syncConflict) {
         // Dates unchanged but still flagged — re-evaluate in case the
         // internal booking that caused the conflict has since freed up.
         const conflict = await rewriteExternalNights(ctx, existing, event, now);
+        nightsChanged = true;
         if (conflict) conflicts += 1;
       }
     }
@@ -201,6 +210,20 @@ export const applyUnitImport = internalMutation({
         updatedAt: now,
       });
       removed += 1;
+      nightsChanged = true;
+    }
+
+    // If this feed changed occupancy for the unit (a new external booking, a
+    // date rewrite, a conflict re-evaluation, or a cancellation freed/blocked
+    // nights), mark the unit's property dirty so the 1-min 'channex ari flush'
+    // cron pushes the corrected count to OTAs. Without this, an iCal-imported
+    // Airbnb booking (occupancy UP) leaves Channex advertising the pre-import
+    // HIGHER count until the nightly full resync (~24h) — a cross-channel
+    // oversell window. No-op unless the property has an enabled channelSync row
+    // (unconnected deployments and tests stay clean). Once per property per
+    // invocation (idempotent anyway).
+    if (nightsChanged) {
+      await markPropertyDirtyInline(ctx, unit.propertyId);
     }
 
     return { inserted, updated, removed, conflicts };

@@ -4,6 +4,7 @@ import { internal } from '../_generated/api';
 import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { channelConfigured, getChannelProvider } from './index';
+import { markPropertyDirtyInline } from './ari';
 
 // ---------------------------------------------------------------------------
 // Booking ingest (M6-prep) — Channex → OpenStays inbound. The PULL feed is
@@ -53,7 +54,7 @@ export const syncBookingRevisions = internalAction({
     const touchedProperties = new Set<Id<'properties'>>();
 
     for (const revision of revisions) {
-      let result: { outcome: string; propertyId?: Id<'properties'> };
+      let result: { outcome: string; propertyId?: Id<'properties'>; roomTypeId?: string };
       try {
         result = await ctx.runMutation(internal.channel.ingest.ingestRevision, {
           revisionId: revision.revisionId,
@@ -80,9 +81,26 @@ export const syncBookingRevisions = internalAction({
         continue;
       }
 
-      // Ack AFTER the durable write. A duplicate/unmapped/oversell still acks
-      // (the write, or the decision that there's nothing to write, is durable).
-      // Only a THROW above skips the ack.
+      // UNMAPPED (adversarial review fix): a confirmed OTA sale for a room type
+      // the operator hasn't mapped yet. Do NOT ack — leave it in the feed so it
+      // re-ingests once the room type is mapped (acking would burn the only
+      // delivery and silently LOSE the sale). Emit a one-time staff alert + log
+      // so the operator knows to map the room type. Then move on WITHOUT acking.
+      if (result.outcome === 'unmapped') {
+        await ctx.runMutation(internal.channel.ingest.alertUnmappedRevision, {
+          revisionId: revision.revisionId,
+          roomTypeId: result.roomTypeId ?? revision.roomTypeId,
+          otaName: revision.otaName,
+          arrivalDate: revision.arrivalDate,
+          departureDate: revision.departureDate,
+          guestName: revision.guestName,
+        });
+        continue;
+      }
+
+      // Ack AFTER the durable write. A duplicate/oversell/cancelled/created/
+      // modified still acks (the write, or the decision that there's nothing to
+      // write, is durable). Only a THROW above or the UNMAPPED case skips it.
       try {
         await provider.ackBookingRevision(revision.revisionId);
       } catch {
@@ -136,7 +154,7 @@ export const ingestRevision = internalMutation({
   handler: async (
     ctx,
     args,
-  ): Promise<{ outcome: IngestOutcome; propertyId?: Id<'properties'> }> => {
+  ): Promise<{ outcome: IngestOutcome; propertyId?: Id<'properties'>; roomTypeId?: string }> => {
     const now = Date.now();
 
     // (1) IDEMPOTENCY FIRST: check-and-insert on (provider 'channex',
@@ -156,32 +174,27 @@ export const ingestRevision = internalMutation({
 
     // (2) Map roomTypeId → unitType (by channexRoomTypeId). There is no
     //     dedicated index for channexRoomTypeId; unitTypes per deployment are
-    //     few, so a full scan + filter is fine. Unmapped → log + 'unmapped',
-    //     NO throw (a throw would re-loop the feed forever). We STILL record the
-    //     webhookEvent so a retry of an unmapped revision is a cheap no-op, and
-    //     STILL ack (staff must map the room in the Channex dashboard).
+    //     few, so a full scan + filter is fine.
+    //
+    //     UNMAPPED handling (adversarial review fix): a room type the operator
+    //     has not yet mapped means we can't seat this CONFIRMED OTA sale. We do
+    //     NOT throw (a throw would re-loop the whole feed and starve later
+    //     revisions), but critically we DO NOT record a webhookEvents
+    //     idempotency row and we return 'unmapped' so that syncBookingRevisions
+    //     does NOT ack it. The revision stays in the feed and re-appears on the
+    //     next poll; once the operator maps the room type, that re-delivery
+    //     re-runs this handler past the mapping check and finally creates the
+    //     booking. (If we recorded the idempotency row here — the old behavior —
+    //     the post-mapping re-delivery would short-circuit to 'duplicate' at
+    //     step (1) and the sale would be permanently lost.) The action layer
+    //     emits a one-time staff alert + syncLog per revision (it can attribute
+    //     against connected properties; here we have no propertyId to log
+    //     against). TRADEOFF: an unmapped revision is re-fetched every 2-min
+    //     poll until mapped (bounded re-delivery, never lost) — the correct
+    //     safety posture for a confirmed sale we can't yet place.
     const unitType = await findUnitTypeByChannexRoom(ctx, args.roomTypeId);
     if (!unitType) {
-      await ctx.db.insert('webhookEvents', {
-        provider: 'channex',
-        eventId: args.revisionId,
-        type: `booking_${args.status}`,
-        processedAt: now,
-      });
-      // Best-effort: attribute the log to a property if we can find one via the
-      // existing channel booking; otherwise we can't log against a property.
-      const existingForLog = await findExistingChannelBooking(ctx, args.bookingId);
-      if (existingForLog) {
-        await ctx.db.insert('channelSyncLog', {
-          propertyId: existingForLog.propertyId,
-          provider: 'channex',
-          kind: 'booking_ingest',
-          ok: false,
-          detail: `UNMAPPED room_type ${args.roomTypeId} (revision ${args.revisionId}, OTA ${args.otaName}) — map it in the Channex dashboard`,
-          ts: now,
-        });
-      }
-      return { outcome: 'unmapped' };
+      return { outcome: 'unmapped', roomTypeId: args.roomTypeId };
     }
     const propertyId = unitType.propertyId;
 
@@ -203,6 +216,15 @@ export const ingestRevision = internalMutation({
 
     // ── CANCELLED: cancel the existing booking + free its nights. If we've
     //    never seen this booking, there's nothing to cancel (record + noop).
+    //    NOTE (defensive): findExistingChannelBooking returns the SINGLE live
+    //    row for a channelBookingId, and the idempotency + modification/reinstate
+    //    paths guarantee at most one live row per channelBookingId ever exists
+    //    (a second 'new' for an existing id routes to the modification branch,
+    //    not a create). So cancelling that one row is correct. The only way two
+    //    live rows could coexist is a revision-id/booking-id mis-map upstream or
+    //    a manual data-repair inserting a duplicate — states the normal flow
+    //    prevents; we accept the single-row cancel rather than scanning + looping
+    //    all rows on every cancel.
     if (args.status === 'cancelled') {
       if (!existing) {
         await recordEvent();
@@ -216,6 +238,9 @@ export const ingestRevision = internalMutation({
         updatedAt: now,
       });
       await recordEvent(existing._id);
+      // Occupancy changed (nights freed) — mark dirty so the flush cron pushes
+      // the corrected count even if the action-level immediate push is lost.
+      await markPropertyDirtyInline(ctx, propertyId);
       return { outcome: 'cancelled', propertyId };
     }
 
@@ -261,6 +286,9 @@ export const ingestRevision = internalMutation({
         await recordEvent(existing._id);
         await logOversell(ctx, propertyId, args);
         await scheduleStaffAlert(ctx, propertyId, args, existing.confirmationCode);
+        // Nights were freed (old ones deleted; none re-inserted on oversell) —
+        // mark dirty so the corrected count is pushed.
+        await markPropertyDirtyInline(ctx, propertyId);
         return { outcome: 'oversell', propertyId };
       }
       await ctx.db.patch(existing._id, {
@@ -287,6 +315,10 @@ export const ingestRevision = internalMutation({
         });
       }
       await recordEvent(existing._id);
+      // Occupancy changed (nights rewritten) — mark dirty (oversell-critical if
+      // the modification extends the stay). The action also schedules an
+      // immediate push; the inline mark is the retry-safe backbone.
+      await markPropertyDirtyInline(ctx, propertyId);
       return { outcome: 'modified', propertyId };
     }
 
@@ -307,6 +339,18 @@ export const ingestRevision = internalMutation({
       // unitId), so use any active unit of the type as the nominal owner but
       // write NO unitNights (so it never clobbers the internal booking that
       // owns those nights). Flag syncConflict, log, alert.
+      //
+      // NOTE (intentional): this syncConflict oversell booking deliberately has
+      // ZERO unitNights, so availability math (computeAriForProperty is
+      // unitNights-derived) is NOT corrupted — the free count correctly stays at
+      // its floor and we never re-sell into it. The tradeoff is that a by-unit
+      // tape query will show this booking pinned to the `nominalUnit` with no
+      // backing nights. That is cosmetic only: the booking is already flagged
+      // (syncConflict=true) and staff are alerted, so the tape should surface it
+      // via the flag (ideally an "unassigned / needs resolution" tray) rather
+      // than trusting the nominal unit. assignFreeUnit only returns null when
+      // EVERY unit conflicts on these nights, so nominalUnit is never a unit that
+      // is genuinely free for the stay — no availability-mislead vector.
       const nominalUnit = await anyActiveUnitOfType(ctx, unitType._id);
       const bookingId = await ctx.db.insert('bookings', {
         propertyId,
@@ -332,6 +376,9 @@ export const ingestRevision = internalMutation({
       await recordEvent(bookingId);
       await logOversell(ctx, propertyId, args);
       await scheduleStaffAlert(ctx, propertyId, args, `EXT-${channelCode(args.bookingId)}`);
+      // No unitNights were written (oversell), so availability math is unchanged,
+      // but mark dirty for parity/robustness (idempotent, no-op if unconnected).
+      await markPropertyDirtyInline(ctx, propertyId);
       return { outcome: 'oversell', propertyId };
     }
 
@@ -365,6 +412,10 @@ export const ingestRevision = internalMutation({
       });
     }
     await recordEvent(bookingId);
+    // Occupancy DECREASED (new external booking blocks nights) — oversell-
+    // critical. Mark dirty inline (retry-safe backbone); the action also
+    // schedules an immediate push per touched property (latency optimization).
+    await markPropertyDirtyInline(ctx, propertyId);
     return { outcome: 'created', propertyId };
   },
 });
@@ -387,18 +438,31 @@ export const ingestRevision = internalMutation({
 export const handleWebhookNudge = internalAction({
   args: { headers: v.record(v.string(), v.string()) },
   handler: async (ctx, args): Promise<{ status: number }> => {
+    // FAIL CLOSED (adversarial review fix). The /webhooks/channex endpoint is
+    // public and unauthenticated. A nudge is a pure OPTIMIZATION — it only
+    // shaves latency off the authoritative 2-min poll cron, which alone
+    // guarantees delivery. So the ONLY situation in which we do work off an
+    // inbound request is when a shared secret is configured AND the caller
+    // presents it correctly. In every other case we return 200 and do NOTHING
+    // (no scheduled poll, no DB write) — an unauthenticated caller can never
+    // make us hit Channex's API or write rows.
     const secret = process.env.CHANNEX_WEBHOOK_SECRET;
-    if (secret) {
-      const provided =
-        args.headers['x-channex-webhook-secret'] ?? args.headers['x-channex-webhook-secret'.toLowerCase()];
-      if (provided !== secret) {
-        // Rejected nudge — do NOT schedule a poll off an unauthenticated nudge,
-        // but still 200 (the 2-min poll cron catches everything anyway). Log it.
-        await ctx.runMutation(internal.channel.ingest.logRejectedNudge, {});
-        return { status: 200 };
-      }
+    if (!secret) {
+      // No secret configured → the nudge cannot be authenticated at all. Do NOT
+      // schedule a poll and do NOT log; the 2-min poll cron is authoritative.
+      return { status: 200 };
     }
-    // Authenticated (or no secret configured) → schedule a feed pull and return.
+    const provided =
+      args.headers['x-channex-webhook-secret'] ??
+      args.headers['x-channex-webhook-secret'.toLowerCase()];
+    if (provided !== secret) {
+      // Mismatch/missing header → drop silently. We do NOT write a
+      // rejected-nudge log row: that logging was itself an unauthenticated
+      // unbounded-write amplifier (one row per connected property per hostile
+      // POST). Returning a bare 200 with no side effect removes the sink.
+      return { status: 200 };
+    }
+    // Authenticated → schedule a feed pull and return.
     await ctx.scheduler.runAfter(0, internal.channel.ingest.syncBookingRevisions, {});
     return { status: 200 };
   },
@@ -418,22 +482,76 @@ export const stampBookingPoll = internalMutation({
   },
 });
 
-/** Append a channelSyncLog note that an unauthenticated webhook nudge arrived. */
-export const logRejectedNudge = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    // No property context on a rejected nudge; log against every connected
-    // property so it's visible on the admin page (there are few properties).
-    const rows = await ctx.db.query('channelSync').collect();
+/**
+ * Emit a ONE-TIME staff alert + syncLog for an unmapped OTA booking revision.
+ *
+ * Idempotency: an unmapped revision is intentionally re-fetched on every 2-min
+ * poll (we never ack it, so it re-appears until the room type is mapped). We
+ * must alert only ONCE, not every poll, or a single unmapped booking would spam
+ * the operator's inbox and grow channelSyncLog unboundedly. We guard on a
+ * DEDICATED marker webhookEvents row keyed `unmapped-alert:<revisionId>` — a
+ * separate namespace from the real revision idempotency key (which we must NOT
+ * write, or the post-mapping re-delivery would short-circuit to 'duplicate' and
+ * lose the sale). First sighting → write marker + log + alert; later sightings →
+ * marker exists → no-op.
+ *
+ * We have no propertyId for an unmapped room type, so we attribute the log +
+ * email against every connected channelSync property (few per deployment), the
+ * same way the operator's Channels page surfaces other channel events.
+ */
+export const alertUnmappedRevision = internalMutation({
+  args: {
+    revisionId: v.string(),
+    roomTypeId: v.string(),
+    otaName: v.string(),
+    arrivalDate: v.string(),
+    departureDate: v.string(),
+    guestName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const markerId = `unmapped-alert:${args.revisionId}`;
+    const prior = await ctx.db
+      .query('webhookEvents')
+      .withIndex('by_provider_event', (q) =>
+        q.eq('provider', 'channex').eq('eventId', markerId),
+      )
+      .first();
+    if (prior) return; // already alerted for this revision — stay quiet.
+
     const now = Date.now();
+    await ctx.db.insert('webhookEvents', {
+      provider: 'channex',
+      eventId: markerId,
+      type: 'unmapped_alert',
+      processedAt: now,
+    });
+
+    const detail =
+      `UNMAPPED OTA booking — room_type ${args.roomTypeId} (revision ${args.revisionId}, ` +
+      `OTA ${args.otaName}, ${args.arrivalDate}..${args.departureDate}) is not mapped to a ` +
+      `unit type. The sale is NOT lost — it re-delivers every poll and will be ingested once ` +
+      `you map room type ${args.roomTypeId} in the Channels settings. Map it to accept it.`;
+
+    const rows = await ctx.db.query('channelSync').collect();
     for (const row of rows) {
       await ctx.db.insert('channelSyncLog', {
         propertyId: row.propertyId,
         provider: 'channex',
-        kind: 'error',
+        kind: 'booking_ingest',
         ok: false,
-        detail: 'Rejected webhook nudge: x-channex-webhook-secret mismatch (poll cron still authoritative)',
+        detail,
         ts: now,
+      });
+      await ctx.scheduler.runAfter(0, internal.email.sendStaffAlert, {
+        propertyId: row.propertyId,
+        subject: `Unmapped OTA booking (${args.otaName}) — map room type ${args.roomTypeId} to accept it`,
+        body:
+          `An OTA (${args.otaName}) confirmed a booking for ${args.guestName} arriving ` +
+          `${args.arrivalDate} and departing ${args.departureDate}, but its Channex room type ` +
+          `(${args.roomTypeId}) is not yet mapped to a unit type in OpenStays, so we can't place ` +
+          `it. The booking is NOT lost: it re-delivers on every booking-feed poll and will be ` +
+          `ingested automatically once you map room type ${args.roomTypeId} to a unit type in ` +
+          `the Channels settings. Please map it to accept this reservation.`,
       });
     }
   },

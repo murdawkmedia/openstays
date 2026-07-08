@@ -47,6 +47,17 @@ data in a private deployment — never in this repo).
     checkout, confirmation, manage-booking, admin pages — all deep-linkable;
     builds ship an SPA fallback so cold loads never 404. New UI surfaces must
     keep this guarantee.
+13. **Every mutation that inserts or deletes unitNights rows MUST call
+    `markPropertyDirtyInline(ctx, propertyId)`** (convex/channel/ari.ts)
+    after the change — that stamp is what makes the 1-minute channel-manager
+    flush push corrected availability to OTAs. Missing it = a stale count on
+    Booking.com/Airbnb until the nightly resync = cross-channel overselling.
+    Oversell-critical DECREMENTS (new hold, OTA booking ingest) additionally
+    schedule an immediate enabled-gated pushAriForProperty; increments
+    (expiry, cancellation) may rely on the flush cron. The helper no-ops when
+    the property has no enabled channelSync row, so unconnected deployments
+    and tests are unaffected. (Adversarial review 2026-07-08 — both Channex
+    CRITICALs were violations of this.)
 
 ## Review policy
 
@@ -126,6 +137,24 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   promo redemption stays consumed forever — cancellation of a confirmed
   booking does NOT free once-per-guest slots or reopen usage caps; only
   unconsumed (reserved) holds release. 14 adversarial tests added.
+- 2026-07-08 (M6-prep): Channex channel-manager BAKED IN, dormant until
+  CHANNEX_API_KEY + a mapped property (Tim: "bake in Channex and get it
+  ready"). ChannelManagerProvider mirrors PaymentProvider; built against the
+  researched real Channex API (user-api-key auth; separate /availability +
+  /restrictions ARI endpoints; availability = COUNT per room type per night;
+  bookings via the mandatory pull+ack revisions feed — webhooks are unsigned,
+  out-of-order NUDGES only; oversell prevention is the PMS's job; 10 req/min/
+  property; 200-with-warnings ≠ applied). Unit→count translation: free =
+  active-and-bookable units − occupied (unitNights of any kind). Its
+  adversarial review confirmed 2 CRITICALs (iCal imports and everything
+  outside createHold never marked dirty → up-to-24h stale counts = oversell)
+  → fixed via binding convention #13 (uniform occupancy→dirty→1-min-flush,
+  retry-safe on 429/warnings) + unmapped OTA bookings are never acked until
+  the room type is mapped (never lose a sale) + the unauthenticated webhook
+  nudge fails closed. Go-live still requires: Channex account, staging
+  certification (live screenshare), OTA mapping in the Channex dashboard —
+  all operator steps; TODO(channex-cert) markers name every unconfirmed API
+  detail to verify then.
 - 2026-07-08 (M1.5): automation surface shipped — apiKeys ('osk_' tokens,
   SHA-256 at rest, owner-minted, scoped read/write, soft-revoke), /api/v1/*
   HTTP surface (bearer auth, scope enforcement, delegates to the same domain

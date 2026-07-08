@@ -36,6 +36,16 @@ export const reset = internalMutation({
       // DEMO_MODE, so without this wipe a demo key would be a permanent
       // credential surviving every nightly reset. (Adversarial review 2026-07-08.)
       'apiKeys',
+      // Channel sync state + history must also NOT outlive a reset. Under
+      // DEMO_MODE the admin gate() short-circuits before auth, so an anonymous
+      // demo visitor can call setPropertyChannel and create a channelSync row
+      // pointing channexPropertyId at an arbitrary UUID. The re-seed replaces the
+      // properties rows, but without wiping these two tables the orphaned
+      // channelSync / channelSyncLog rows would accumulate forever across nightly
+      // resets — and would be a latent real-push hazard if CHANNEX_API_KEY were
+      // ever set on a demo deployment. (Adversarial review 2026-07-08.)
+      'channelSync',
+      'channelSyncLog',
     ] as const;
     for (const table of tables) {
       const rows = await ctx.db.query(table).collect();
