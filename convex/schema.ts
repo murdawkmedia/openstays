@@ -71,6 +71,21 @@ export default defineSchema({
     createdAt: v.number(),
   }).index('by_userId', ['userId']),
 
+  // Machine credentials for the HTTP API v1 / CLI / MCP surface (M1.5).
+  // The raw token ('osk_...') is shown ONCE at creation and never stored —
+  // only its SHA-256 hex. Scope 'write' implies 'read'. Automations use
+  // these; they never hold a staff login or a deploy key.
+  apiKeys: defineTable({
+    name: v.string(), // human label, e.g. 'NAS runner (read-only)'
+    keyHash: v.string(), // SHA-256 hex of the full token
+    prefix: v.string(), // 'osk_ab12cd34' — display/identification only
+    scope: v.union(v.literal('read'), v.literal('write')),
+    active: v.boolean(),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+  }).index('by_keyHash', ['keyHash']),
+
   properties: defineTable({
     name: v.string(),
     slug: v.string(),

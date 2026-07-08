@@ -24,6 +24,9 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Same npm major as generated the lock — see ci.yml for the rationale.
+      - run: npm install -g npm@11
+
       - run: npm ci
 
       # ── Docs (VitePress) → published at the site root ──────────────────────

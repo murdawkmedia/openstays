@@ -19,6 +19,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      # package-lock.json is generated with npm 11, whose arborist prunes
+      # optional peer subtrees (e.g. @docsearch/react's react<19 peers) that
+      # npm 10's `npm ci` then reports as "missing from lock file". Pin the
+      # same npm major here so validation matches generation.
+      - run: npm install -g npm@11
+
       - run: npm ci
 
       - run: npm run typecheck

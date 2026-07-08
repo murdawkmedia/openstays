@@ -38,6 +38,12 @@ function webhookRoute(provider: 'stripe' | 'square', path: string) {
 webhookRoute('stripe', '/webhooks/stripe');
 webhookRoute('square', '/webhooks/square');
 
+// HTTP API v1 (M1.5) — key-authenticated automation surface. One dispatcher
+// handles all /api/v1/* paths and methods; see convex/apiV1.ts.
+import { handle as apiV1Handle } from './apiV1';
+http.route({ pathPrefix: '/api/v1/', method: 'GET', handler: apiV1Handle });
+http.route({ pathPrefix: '/api/v1/', method: 'POST', handler: apiV1Handle });
+
 /**
  * Per-unit iCal export: GET /ical/u/<token>.ics
  * Day-1 differentiator — lets external calendars (direct Airbnb listings,
