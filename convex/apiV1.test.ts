@@ -429,6 +429,58 @@ describe('GET read routes', () => {
 });
 
 describe('POST write routes', () => {
+  it('hold with a malformed body returns a clean 400, not a 500', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    const writeToken = await seedKey(t, 'write');
+    // addOns omitted entirely is FINE (defaults to []). The real failures:
+    // missing required ids / bad date / missing guest → 400 INVALID_BODY,
+    // never an opaque 500 ArgumentValidationError leak.
+    const missingUnit = await t.fetch('/api/v1/bookings/hold', {
+      method: 'POST',
+      headers: { ...bearer(writeToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ratePlanId: fx.ratePlanId,
+        checkIn: D(10),
+        checkOut: D(12),
+        adults: 2,
+        guest: { name: 'G', email: 'g@example.com', phone: '780', marketingOptIn: false },
+      }),
+    });
+    expect(missingUnit.status).toBe(400);
+    expect(((await jsonOf(missingUnit)).error as { code: string }).code).toBe('INVALID_BODY');
+
+    const badDate = await t.fetch('/api/v1/bookings/hold', {
+      method: 'POST',
+      headers: { ...bearer(writeToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        unitId: fx.unitId,
+        ratePlanId: fx.ratePlanId,
+        checkIn: 'Sept 10',
+        checkOut: D(12),
+        adults: 2,
+        guest: { name: 'G', email: 'g@example.com', phone: '780', marketingOptIn: false },
+        addOns: [],
+      }),
+    });
+    expect(badDate.status).toBe(400);
+
+    // addOns omitted → still a valid booking (defaulted to []).
+    const noAddOns = await t.fetch('/api/v1/bookings/hold', {
+      method: 'POST',
+      headers: { ...bearer(writeToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        unitId: fx.unitId,
+        ratePlanId: fx.ratePlanId,
+        checkIn: D(40),
+        checkOut: D(42),
+        adults: 2,
+        guest: { name: 'G', email: 'noaddons@example.com', phone: '780', marketingOptIn: false },
+      }),
+    });
+    expect(noAddOns.status).toBe(200);
+  });
+
   it('hold with a write key creates a booking + unitNights', async () => {
     const t = makeT();
     const fx = await seedFixture(t);

@@ -183,6 +183,88 @@ function windowDays(from: string | null, to: string | null, fallback: number): n
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * Validate the POST /bookings/hold body shape and return clean, typed args for
+ * createHold — or a 400 Response naming the first problem. This mirrors
+ * createHold's arg validator so malformed requests get a helpful 400 at the
+ * API boundary instead of an opaque 500 from a Convex ArgumentValidationError.
+ * (Ids are only checked to be non-empty strings here; whether they RESOLVE is
+ * createHold's job, and a missing row yields a mapped ConvexError.)
+ */
+type HoldArgs = {
+  unitId: string;
+  ratePlanId: string;
+  checkIn: string;
+  checkOut: string;
+  adults: number;
+  children: number;
+  guest: { name: string; email: string; phone: string; marketingOptIn: boolean };
+  addOns: Array<{ addOnId: string; quantity: number }>;
+  promoCode?: string;
+};
+
+function validateHoldBody(raw: unknown): { value: HoldArgs } | { error: Response } {
+  const fail = (msg: string) => ({ error: err(400, 'INVALID_BODY', msg) });
+  if (!raw || typeof raw !== 'object') return fail('Request body must be a JSON object.');
+  const b = raw as Record<string, unknown>;
+
+  const str = (k: string) => (typeof b[k] === 'string' && (b[k] as string).length > 0 ? (b[k] as string) : null);
+  const unitId = str('unitId');
+  const ratePlanId = str('ratePlanId');
+  const checkIn = str('checkIn');
+  const checkOut = str('checkOut');
+  if (!unitId) return fail('unitId (string) is required.');
+  if (!ratePlanId) return fail('ratePlanId (string) is required.');
+  if (!checkIn || !ISO_DATE.test(checkIn)) return fail('checkIn must be a YYYY-MM-DD date.');
+  if (!checkOut || !ISO_DATE.test(checkOut)) return fail('checkOut must be a YYYY-MM-DD date.');
+  if (typeof b.adults !== 'number' || !Number.isInteger(b.adults) || b.adults < 1) {
+    return fail('adults must be a positive integer.');
+  }
+  const children = b.children === undefined ? 0 : b.children;
+  if (typeof children !== 'number' || !Number.isInteger(children) || children < 0) {
+    return fail('children must be a non-negative integer.');
+  }
+
+  const g = b.guest;
+  if (!g || typeof g !== 'object') return fail('guest object is required.');
+  const gg = g as Record<string, unknown>;
+  if (typeof gg.name !== 'string' || gg.name.trim() === '') return fail('guest.name is required.');
+  if (typeof gg.email !== 'string' || gg.email.trim() === '') return fail('guest.email is required.');
+  const phone = typeof gg.phone === 'string' ? gg.phone : '';
+  const marketingOptIn = gg.marketingOptIn === true;
+
+  // addOns is REQUIRED by createHold; default an omitted value to [] so callers
+  // that book without extras don't have to send an empty array.
+  const rawAddOns = b.addOns === undefined ? [] : b.addOns;
+  if (!Array.isArray(rawAddOns)) return fail('addOns must be an array.');
+  const addOns: Array<{ addOnId: string; quantity: number }> = [];
+  for (const item of rawAddOns) {
+    if (!item || typeof item !== 'object') return fail('each addOns entry must be an object.');
+    const it = item as Record<string, unknown>;
+    if (typeof it.addOnId !== 'string' || it.addOnId.length === 0) return fail('addOns[].addOnId is required.');
+    if (typeof it.quantity !== 'number' || !Number.isInteger(it.quantity) || it.quantity < 1) {
+      return fail('addOns[].quantity must be a positive integer.');
+    }
+    addOns.push({ addOnId: it.addOnId, quantity: it.quantity });
+  }
+
+  if (b.promoCode !== undefined && typeof b.promoCode !== 'string') return fail('promoCode must be a string.');
+
+  return {
+    value: {
+      unitId,
+      ratePlanId,
+      checkIn,
+      checkOut,
+      adults: b.adults,
+      children,
+      guest: { name: gg.name, email: gg.email, phone, marketingOptIn },
+      addOns,
+      ...(typeof b.promoCode === 'string' ? { promoCode: b.promoCode } : {}),
+    },
+  };
+}
+
 // ===========================================================================
 // Internal read helpers. These live in apiV1.ts (builder H territory) so no
 // existing module is touched. Each is authorized by the API-key check in the
@@ -636,10 +718,24 @@ export const handle = httpAction(async (ctx, request) => {
         if (!auth.ok) return auth.response;
         const body = await parseJsonBody(request);
         if ('error' in body) return body.error;
+        // Validate the request shape at the boundary: without this, a missing
+        // required field (e.g. addOns) or wrong type reaches createHold as a
+        // Convex ArgumentValidationError — NOT a ConvexError — and the outer
+        // catch reports an opaque 500. A public API must answer 400 with a
+        // reason instead.
+        const holdArgs = validateHoldBody(body.value);
+        if ('error' in holdArgs) return holdArgs.error;
         // Pass through to the SAME mutation the UI uses; all money/availability
         // guarantees (conflict check, pricing, promo caps) apply identically.
-        const data = await ctx.runMutation(api.bookings.createHold, body.value as never);
-        return ok(data);
+        // A residual arg-validation failure here can only be a malformed id
+        // string (shape already checked) — a client error, so map it to 400.
+        try {
+          const data = await ctx.runMutation(api.bookings.createHold, holdArgs.value as never);
+          return ok(data);
+        } catch (mutationError) {
+          if (mutationError instanceof ConvexError) throw mutationError; // domain error → mapped by outer catch
+          return err(400, 'INVALID_FIELD', 'One or more field values are invalid (check id fields).');
+        }
       }
 
       // POST /api/v1/bookings/<confirmationCode>/cancel — write
