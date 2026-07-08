@@ -126,6 +126,18 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   promo redemption stays consumed forever — cancellation of a confirmed
   booking does NOT free once-per-guest slots or reopen usage caps; only
   unconsumed (reserved) holds release. 14 adversarial tests added.
+- 2026-07-08 (M1.5): automation surface shipped — apiKeys ('osk_' tokens,
+  SHA-256 at rest, owner-minted, scoped read/write, soft-revoke), /api/v1/*
+  HTTP surface (bearer auth, scope enforcement, delegates to the same domain
+  functions as the UI), and the cli/ package (openstays CLI + MCP stdio
+  server, self-contained — NOT a root workspace). Trust model: an API key is
+  a staff-equivalent automation credential (read key sees the whole booking
+  book; documented in docs/automation.md). Its adversarial review found no
+  money/availability holes but surfaced: demo reset must wipe apiKeys +
+  DEMO_MODE mints read-only keys only; maxOccupancy moved server-side into
+  createHold (the UI clamp was the only control — violation of server-
+  authority). All fixed + test-guarded. Live-tested end-to-end against the
+  demo deployment (hold created via API, read via CLI, scopes enforced).
 - 2026-07-08 (M1 close): five-lens adversarial review (money-loss,
   double-booking, webhook-forgery, promo/email, auth surface) confirmed 9
   findings incl. 2 CRITICALs — a double-charge swallowed as 'duplicate' with
