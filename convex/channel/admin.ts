@@ -1,7 +1,10 @@
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from '../_generated/server';
+import { internal } from '../_generated/api';
 import type { Id } from '../_generated/dataModel';
 import { requireStaff } from '../staff';
+import { channelConfigured } from './index';
+import { channexBaseUrl } from './channex';
 
 // ---------------------------------------------------------------------------
 // Admin-facing channel config (M6-prep) — powers the /admin/settings Channels
@@ -24,7 +27,9 @@ async function gate(ctx: Parameters<typeof requireStaff>[0], ownerOnly: boolean)
  */
 export const getChannelConfig = query({
   args: {},
-  handler: async (): Promise<{
+  handler: async (
+    ctx,
+  ): Promise<{
     configured: boolean; // CHANNEX_API_KEY present
     baseUrl: string;
     properties: Array<{
@@ -40,7 +45,52 @@ export const getChannelConfig = query({
       ratePlans: Array<{ ratePlanId: Id<'ratePlans'>; name: string; channexRatePlanId?: string }>;
     }>;
   }> => {
-    throw new ConvexError('NOT_IMPLEMENTED'); // builder
+    await gate(ctx, false);
+
+    const properties = await ctx.db.query('properties').collect();
+    const result = [];
+    for (const property of properties) {
+      const sync = await ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', property._id))
+        .unique();
+
+      const unitTypeDocs = await ctx.db
+        .query('unitTypes')
+        .withIndex('by_property', (q) => q.eq('propertyId', property._id))
+        .collect();
+      const ratePlanDocs = await ctx.db
+        .query('ratePlans')
+        .withIndex('by_property', (q) => q.eq('propertyId', property._id))
+        .collect();
+
+      result.push({
+        propertyId: property._id,
+        name: property.name,
+        channexPropertyId: property.channexPropertyId,
+        enabled: sync?.enabled ?? false,
+        dirtySince: sync?.dirtySince,
+        lastAriPushAt: sync?.lastAriPushAt,
+        lastBookingPollAt: sync?.lastBookingPollAt,
+        lastError: sync?.lastError,
+        unitTypes: unitTypeDocs.map((ut) => ({
+          unitTypeId: ut._id,
+          name: ut.name,
+          channexRoomTypeId: ut.channexRoomTypeId,
+        })),
+        ratePlans: ratePlanDocs.map((rp) => ({
+          ratePlanId: rp._id,
+          name: rp.name,
+          channexRatePlanId: rp.channexRatePlanId,
+        })),
+      });
+    }
+
+    return {
+      configured: channelConfigured(),
+      baseUrl: channexBaseUrl(),
+      properties: result,
+    };
   },
 });
 
@@ -52,34 +102,94 @@ export const setPropertyChannel = mutation({
     channexPropertyId: v.optional(v.string()), // undefined/'' disconnects
     enabled: v.boolean(),
   },
-  handler: async (): Promise<{ ok: boolean }> => {
-    throw new ConvexError('NOT_IMPLEMENTED'); // builder
+  handler: async (ctx, args): Promise<{ ok: boolean }> => {
+    await gate(ctx, true);
+
+    const property = await ctx.db.get(args.propertyId);
+    if (!property) throw new ConvexError('NOT_FOUND');
+
+    const trimmed = args.channexPropertyId?.trim();
+    const nextChannexPropertyId = trimmed && trimmed.length > 0 ? trimmed : undefined;
+    const disconnecting = nextChannexPropertyId === undefined;
+    const nextEnabled = disconnecting ? false : args.enabled;
+
+    await ctx.db.patch(args.propertyId, { channexPropertyId: nextChannexPropertyId });
+
+    const existing = await ctx.db
+      .query('channelSync')
+      .withIndex('by_property', (q) => q.eq('propertyId', args.propertyId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { enabled: nextEnabled });
+    } else {
+      await ctx.db.insert('channelSync', {
+        propertyId: args.propertyId,
+        provider: 'channex',
+        enabled: nextEnabled,
+      });
+    }
+
+    return { ok: true };
   },
 });
 
 /** Map a unitType → Channex room type UUID (owner). (builder) */
 export const setUnitTypeChannel = mutation({
   args: { unitTypeId: v.id('unitTypes'), channexRoomTypeId: v.optional(v.string()) },
-  handler: async (): Promise<{ ok: boolean }> => {
-    throw new ConvexError('NOT_IMPLEMENTED'); // builder
+  handler: async (ctx, args): Promise<{ ok: boolean }> => {
+    await gate(ctx, true);
+
+    const unitType = await ctx.db.get(args.unitTypeId);
+    if (!unitType) throw new ConvexError('NOT_FOUND');
+
+    const trimmed = args.channexRoomTypeId?.trim();
+    const nextValue = trimmed && trimmed.length > 0 ? trimmed : undefined;
+    await ctx.db.patch(args.unitTypeId, { channexRoomTypeId: nextValue });
+
+    return { ok: true };
   },
 });
 
 /** Map a ratePlan → Channex rate plan UUID (owner). (builder) */
 export const setRatePlanChannel = mutation({
   args: { ratePlanId: v.id('ratePlans'), channexRatePlanId: v.optional(v.string()) },
-  handler: async (): Promise<{ ok: boolean }> => {
-    throw new ConvexError('NOT_IMPLEMENTED'); // builder
+  handler: async (ctx, args): Promise<{ ok: boolean }> => {
+    await gate(ctx, true);
+
+    const ratePlan = await ctx.db.get(args.ratePlanId);
+    if (!ratePlan) throw new ConvexError('NOT_FOUND');
+
+    const trimmed = args.channexRatePlanId?.trim();
+    const nextValue = trimmed && trimmed.length > 0 ? trimmed : undefined;
+    await ctx.db.patch(args.ratePlanId, { channexRatePlanId: nextValue });
+
+    return { ok: true };
   },
 });
 
 /** Recent channelSyncLog rows for a property (newest first). (builder) */
 export const recentSyncLog = query({
   args: { propertyId: v.id('properties'), limit: v.optional(v.number()) },
-  handler: async (): Promise<
-    Array<{ kind: string; ok: boolean; detail: string; ts: number }>
-  > => {
-    throw new ConvexError('NOT_IMPLEMENTED'); // builder
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Array<{ kind: string; ok: boolean; detail: string; ts: number }>> => {
+    await gate(ctx, false);
+
+    const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
+    const rows = await ctx.db
+      .query('channelSyncLog')
+      .withIndex('by_property_ts', (q) => q.eq('propertyId', args.propertyId))
+      .order('desc')
+      .take(limit);
+
+    return rows.map((row) => ({
+      kind: row.kind,
+      ok: row.ok,
+      detail: row.detail,
+      ts: row.ts,
+    }));
   },
 });
 
@@ -87,10 +197,16 @@ export const recentSyncLog = query({
  *  Schedules internal.channel.ari.pushAriForProperty. (builder) */
 export const syncNow = mutation({
   args: { propertyId: v.id('properties') },
-  handler: async (): Promise<{ scheduled: boolean }> => {
-    throw new ConvexError('NOT_IMPLEMENTED'); // builder
+  handler: async (ctx, args): Promise<{ scheduled: boolean }> => {
+    await gate(ctx, true);
+
+    const property = await ctx.db.get(args.propertyId);
+    if (!property) throw new ConvexError('NOT_FOUND');
+
+    await ctx.scheduler.runAfter(0, internal.channel.ari.pushAriForProperty, {
+      propertyId: args.propertyId,
+    });
+
+    return { scheduled: true };
   },
 });
-
-// silence unused-import in the stub phase
-void gate;

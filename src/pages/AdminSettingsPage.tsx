@@ -9,6 +9,7 @@ import type { Id } from '../../convex/_generated/dataModel';
 import { SUPPORTED_CURRENCIES, taxLabelOrDefault } from '../../shared/currency';
 import { Spinner } from '../components/Spinner';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
+import { ChannelsSection } from '../components/ChannelsSection';
 import { useStaffGate } from '../lib/useStaff';
 
 type PropertyConfig = {
@@ -119,6 +120,8 @@ export function AdminSettingsPage() {
       ) : (
         properties.map((property) => <PropertyEditor key={property.propertyId} property={property} />)
       )}
+
+      {gate.role === 'owner' ? <ChannelsSection /> : null}
 
       {gate.role === 'owner' ? <StaffSection /> : null}
 

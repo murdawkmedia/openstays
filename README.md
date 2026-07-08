@@ -55,10 +55,14 @@ Landing now, not yet live for real guests — see the
 
 ## What it is NOT (yet)
 
-- **No OTA channel management.** Airbnb / Booking.com / Expedia APIs are
+- **No direct OTA channel management.** Airbnb / Booking.com / Expedia APIs are
   partner-gated and not buildable by an independent v1. Distribution today =
-  your own site (direct bookings) + iCal sync with direct listings. Channel
-  management is a post-1.0 roadmap item, contingent on partner access.
+  your own site (direct bookings) + iCal sync with direct listings. A
+  **channel-manager integration ([Channex](https://channex.io)) is scaffolded
+  but dormant** (`convex/channel/**`, M6): connect it — a Channex account, one
+  env var, object mapping, and Channex-side certification — to distribute to the
+  OTAs *through* Channex. It is **not** a direct-OTA-API integration and is
+  **not live in v1 by default**. See [docs/channels.md](./docs/channels.md).
 - No SaaS — each operator runs their own deployment (that's a feature: your
   guest data lives in your own project, and the free tiers make it ~$0/month).
 - No card-present / POS hardware integration (record-only cash / e-transfer /

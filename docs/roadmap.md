@@ -12,6 +12,7 @@ living version.
 | **M3** | Hardening — load testing, edge-case coverage on the availability/hold core. |
 | **M4** | Seasonal site contracts (the `seasonalContracts` table goes from skeletal to fully wired — invoicing schedules, renewal offers), gift certificates (ledger goes from skeletal to redeemable), reporting. Agreement e-signing for seasonal contracts: a lightweight built-in flow (client-side PDF + on-device signature capture) as the default, with an optional [DocuSeal](https://github.com/docusealco/docuseal) integration for remote, email-based signing with audit trails — DocuSeal is open source, self-hostable, and consumed over its API as a separate service, so it pairs cleanly with this MIT codebase. Renewal season is the killer use case: emailing a couple hundred seasonal agreements beats collecting signatures one clipboard at a time. |
 | **M5** | 1.0. |
+| **M6** | OTA distribution via the [Channex](https://channex.io) channel manager. The plumbing is already **scaffolded** in this snapshot — a `ChannelManagerProvider` contract, the availability/rates push, the OTA-booking pull/ack ingest, the admin mapping surface, the schema fields, crons, and webhook route (`convex/channel/**`) — but it is **dormant until an operator connects it**. Going live still requires an operator to hold a Channex account, set `CHANNEX_API_KEY`, map objects, do the OTA-side mapping in Channex's dashboard, **and pass Channex's production certification**. It is *not* a direct Airbnb/Booking.com API integration (those stay partner-gated) and *not* a shipped v1 feature — see [Channels](/channels). |
 
 ### M1 checklist (in progress — not shipped)
 
@@ -33,14 +34,28 @@ behind each of these, and [Configuration](/configuration) /
 above is live yet in the sense of "point a real deployment at real guests" —
 this section tracks what's landing, not what's shipped.
 
-## Not planned for v1
+## OTA channel management (M6 — scaffolded, dormant, not a v1 feature)
 
-**OTA channel management** (Airbnb / Booking.com / Expedia partner APIs) is
-explicitly out of scope for v1. Those integrations are partner-gated and not
-buildable by an independent project without a partnership agreement.
-v1 distribution is **direct bookings on your own site + per-unit iCal
-sync with direct listings** — good enough to keep an Airbnb calendar from
-double-booking against your direct site, but not a replacement for a full
-channel manager. Channel management may be revisited post-1.0, contingent on
-partner access; nothing in this project currently promises it, and no docs,
-UI copy, or commit message should imply otherwise.
+**Direct** OTA integrations (Airbnb / Booking.com / Expedia partner APIs)
+remain out of scope: those APIs are partner-gated and not buildable by an
+independent project without a partnership agreement. OpenStays does **not** and
+will not talk to them directly.
+
+What *is* now in the tree (M6-prep) is the plumbing to distribute through **one
+channel manager, [Channex](https://channex.io)**, which holds the OTA
+partnerships and fans out to Booking.com / Airbnb / Expedia / VRBO. The
+provider contract, the availability/rates push, the OTA-booking pull-and-ack
+ingest, the admin mapping surface, the schema fields, the crons, and the
+`/webhooks/channex` route are all scaffolded (`convex/channel/**`) — but
+**dormant by default**. A deployment does nothing with any of it until an
+operator sets `CHANNEX_API_KEY`, maps objects, and does the OTA-side mapping in
+Channex's dashboard, and **OTA distribution only goes live after Channex's
+production certification**. See [Channels](/channels) for the full operator
+guide.
+
+To be precise about scope: this is **not a shipped v1 feature**. The foundation
+is in place, but out of the box a deployment still distributes exactly as v1
+promises — **direct bookings on your own site + per-unit iCal sync with direct
+listings**, good enough to keep an Airbnb calendar from double-booking against
+your direct site. No docs, UI copy, or commit message should imply channels are
+live by default or that OpenStays speaks to any OTA API directly.

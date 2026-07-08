@@ -157,6 +157,11 @@ VITE_CONVEX_URL=
 #   RESEND_API_KEY
 #   EMAIL_FROM
 #
+# Channel manager (Channex, M6 — scaffolded, dormant until connected):
+#   CHANNEX_API_KEY              the 'user-api-key' value; unset = channel sync off
+#   CHANNEX_BASE_URL             default https://staging.channex.io (prod once certified)
+#   CHANNEX_WEBHOOK_SECRET       optional shared secret echoed on the webhook nudge
+#
 # App:
 #   SITE_URL                     https://your-booking-site.example
 #   DEMO_MODE                    "true" ONLY on the public demo deployment
@@ -169,10 +174,14 @@ committed to this repo. The `settings` table is for non-secret deployment
 prefs only (branding, GST number, default provider) — see
 [self-hosting](/self-hosting) for the exact setup commands for each provider.
 
-Everything below is **M1 — in progress**: the code paths exist in this
-snapshot but aren't fully wired end-to-end yet. See [Payments](/concepts/payments),
-the [lifecycle concepts](/concepts/payments), and the [roadmap](/roadmap) for
-what's implemented today versus what's landing next.
+Everything below is **not fully live in a default deployment**: the payments,
+auth, and email variables are **M1 — in progress** (code paths exist in this
+snapshot but aren't fully wired end-to-end yet), and the `CHANNEX_*` variables
+are **M6 — scaffolded, dormant** (present but doing nothing until an operator
+connects Channel manager). In every case, unsetting the variable degrades
+gracefully — the relevant feature is simply off, never an error. See
+[Payments](/concepts/payments), [Channels](/channels), and the
+[roadmap](/roadmap) for what's implemented today versus what's landing next.
 
 | Variable | Purpose | If unset |
 |---|---|---|
@@ -188,6 +197,9 @@ what's implemented today versus what's landing next.
 | `DEMO_MODE` | `"true"` ONLY on the public demo deployment. Enables simulated payments (`bookings.confirmSimulated`) and the nightly reset cron. | Real payment providers and real staff-managed data are in play — this is the correct state for every real operator deployment. |
 | `JWT_PRIVATE_KEY` | Convex Auth's RS256 private key (PKCS8 PEM) used to sign staff session JWTs. | Staff sign-in cannot issue valid sessions — the `/admin/login` flow will fail. Generate this once per deployment; see [self-hosting](/self-hosting). |
 | `JWKS` | The matching public JWKS document Convex Auth uses to verify the JWTs `JWT_PRIVATE_KEY` signs. | Same as above — these two are generated together and both required. |
+| `CHANNEX_API_KEY` | The `user-api-key` value for the [Channex](https://channex.io) channel manager (M6 — scaffolded, dormant). Its presence is what flips channel sync from off to configured. | **Channel sync is simply off.** No availability/rates are pushed, the booking-revisions feed isn't polled, the admin Channels page shows "not configured," and the booking flow is completely unaffected. This is the default and the correct state for any deployment not using OTA distribution — see [Channels](/channels). |
+| `CHANNEX_BASE_URL` | Channex API base URL. | Defaults to `https://staging.channex.io`. Point at the production base URL only after Channex certifies your integration and issues production credentials — verify the exact production host during certification. |
+| `CHANNEX_WEBHOOK_SECRET` | A shared secret you invent and register on the Channex webhook so OpenStays can validate the inbound nudge (Channex has no HMAC signing — this static header is the only check). | The `/webhooks/channex` nudge isn't secret-checked, and inbound OTA bookings still arrive reliably on the 2-minute pull-feed poll (the webhook is only a latency optimization, never the authoritative path). |
 
 Note `JWT_PRIVATE_KEY`/`JWKS` gate **staff/admin** auth only. Guests never
 have accounts — manage-booking access is confirmation code + email match, as

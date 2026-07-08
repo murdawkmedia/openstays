@@ -211,7 +211,7 @@ export default defineSchema({
     children: v.number(),
     status: bookingStatus,
     holdExpiresAt: v.optional(v.number()), // set while status === 'hold'
-    source: v.string(), // 'online' | 'front_desk' | 'phone' | 'ical:Airbnb' | 'demo'
+    source: v.string(), // 'online' | 'front_desk' | 'phone' | 'ical:Airbnb' | 'channel:Booking.com' | 'demo'
     externalUid: v.optional(v.string()), // iCal VEVENT UID for imports
     // Channex booking unique id for OTA reservations ingested via the channel
     // manager (source 'channel:<ota>'). Distinct from iCal's externalUid so the
