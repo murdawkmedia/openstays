@@ -455,6 +455,16 @@ export default defineSchema({
     ts: v.number(),
   }).index('by_property_ts', ['propertyId', 'ts']),
 
+  // Who-did-what audit trail for staff/admin actions (property config, staff
+  // grants, API keys, channel config). Append-only; shown in /admin/settings.
+  auditLog: defineTable({
+    actorUserId: v.optional(v.id('users')), // absent for 'demo' / 'system'
+    actorName: v.string(),
+    action: v.string(), // 'property.update' | 'staff.grant' | 'apiKey.create' | ...
+    detail: v.string(),
+    ts: v.number(),
+  }).index('by_ts', ['ts']),
+
   // Staff auth lands in M1 (Convex Auth). Settings is the kokanee-style
   // key/value store for non-secret deployment prefs.
   settings: defineTable({

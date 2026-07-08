@@ -1,5 +1,9 @@
 import { convexAuth } from '@convex-dev/auth/server';
 import { Password } from '@convex-dev/auth/providers/Password';
+import GitHub from '@auth/core/providers/github';
+import Google from '@auth/core/providers/google';
+import MicrosoftEntraID from '@auth/core/providers/microsoft-entra-id';
+import { query } from './_generated/server';
 
 /**
  * Staff authentication (M1) — Convex Auth with email+password.
@@ -16,6 +20,45 @@ import { Password } from '@convex-dev/auth/providers/Password';
  *   npx convex env set SITE_URL https://<frontend-host>
  * (see docs/self-hosting for the key-generation snippet)
  */
+/**
+ * OAuth providers are ENV-GATED, same dormancy pattern as Stripe/Square/
+ * Channex: set the provider's standard @auth/core env vars on the deployment
+ * and its sign-in button appears; unset = absent. Secrets NEVER live in the
+ * settings table (binding convention #7).
+ *   GitHub:    AUTH_GITHUB_ID + AUTH_GITHUB_SECRET
+ *   Google:    AUTH_GOOGLE_ID + AUTH_GOOGLE_SECRET
+ *   Microsoft: AUTH_MICROSOFT_ENTRA_ID_ID + AUTH_MICROSOFT_ENTRA_ID_SECRET
+ *              (+ optional AUTH_MICROSOFT_ENTRA_ID_ISSUER for a tenant)
+ * Callback URL to register in each provider's console:
+ *   https://<deployment>.convex.site/api/auth/callback/<github|google|microsoft-entra-id>
+ * An OAuth sign-in still grants NOTHING until an owner adds a staffProfile —
+ * requireStaff stays the single chokepoint regardless of how a user signed in.
+ */
+export const oauthConfigured = {
+  github: Boolean(process.env.AUTH_GITHUB_ID && process.env.AUTH_GITHUB_SECRET),
+  google: Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET),
+  microsoft: Boolean(
+    process.env.AUTH_MICROSOFT_ENTRA_ID_ID && process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET,
+  ),
+};
+
+const providers: Parameters<typeof convexAuth>[0]['providers'] = [Password];
+if (oauthConfigured.github) providers.push(GitHub);
+if (oauthConfigured.google) providers.push(Google);
+if (oauthConfigured.microsoft) providers.push(MicrosoftEntraID);
+
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [Password],
+  providers,
+});
+
+/** Which sign-in methods this deployment offers — the login page renders one
+ *  button per true entry. Public by design (a login page needs it pre-auth). */
+export const availableAuthMethods = query({
+  args: {},
+  handler: async () => ({
+    password: true,
+    github: oauthConfigured.github,
+    google: oauthConfigured.google,
+    microsoft: oauthConfigured.microsoft,
+  }),
 });
