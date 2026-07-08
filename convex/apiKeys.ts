@@ -1,5 +1,7 @@
 import { ConvexError, v } from 'convex/values';
-import { action, internalMutation, internalQuery, query } from './_generated/server';
+import { getAuthUserId } from '@convex-dev/auth/server';
+import { action, internalMutation, internalQuery, mutation, query } from './_generated/server';
+import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 
 // ---------------------------------------------------------------------------
@@ -10,17 +12,70 @@ import type { Id } from './_generated/dataModel';
 // ---------------------------------------------------------------------------
 
 /**
+ * Internal: resolve the calling identity to an ACTIVE OWNER staffProfile, or
+ * throw. Actions can't touch the db, so createApiKey (an action, because it
+ * needs crypto.getRandomValues) does its owner check through this query.
+ *
+ * DEMO_MODE: the writable public demo has no real auth (synthetic staff via
+ * staff.me, nightly reset), so we allow key creation and tag it 'demo' — same
+ * carve-out staff.me / updateProperty / tapeForProperty make. Never set
+ * DEMO_MODE on a real deployment.
+ *
+ * Returns the createdBy tag string the insert should record.
+ */
+export const requireOwnerIdentity = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<{ createdBy: string }> => {
+    if (process.env.DEMO_MODE === 'true') {
+      return { createdBy: 'demo' };
+    }
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new ConvexError('UNAUTHENTICATED');
+    const profile = await ctx.db
+      .query('staffProfiles')
+      .withIndex('by_userId', (q) => q.eq('userId', userId))
+      .unique();
+    if (!profile || !profile.active) throw new ConvexError('NOT_STAFF');
+    if (profile.role !== 'owner') throw new ConvexError('OWNER_ONLY');
+    return { createdBy: userId };
+  },
+});
+
+/**
  * Staff-only (owner role) action: mints a token, stores its hash, returns the
  * RAW token exactly once. Actions can use crypto.getRandomValues; the insert
- * happens via the internal mutation below.
+ * happens via the internal mutation below. The owner check runs through
+ * requireOwnerIdentity (an action has no db).
  */
 export const createApiKey = action({
   args: {
     name: v.string(),
     scope: v.union(v.literal('read'), v.literal('write')),
   },
-  handler: async (): Promise<{ token: string; prefix: string }> => {
-    throw new ConvexError('NOT_IMPLEMENTED'); // builder H
+  handler: async (ctx, args): Promise<{ token: string; prefix: string }> => {
+    const { createdBy } = await ctx.runQuery(internal.apiKeys.requireOwnerIdentity, {});
+
+    // 'osk_' + 48 lowercase hex chars (24 random bytes).
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    const hex = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const token = `osk_${hex}`;
+    // prefix = first 12 chars ('osk_' + first 8 hex) — display/identification only.
+    const prefix = token.slice(0, 12);
+    const keyHash = await sha256HexOf(token);
+
+    await ctx.runMutation(internal.apiKeys.insertKey, {
+      name: args.name,
+      keyHash,
+      prefix,
+      scope: args.scope,
+      createdBy,
+    });
+
+    // token is returned ONCE and never stored (only its hash is).
+    return { token, prefix };
   },
 });
 
@@ -38,20 +93,40 @@ export const insertKey = internalMutation({
   },
 });
 
-/** Staff-only (owner role): deactivate a key. Soft revoke — audit trail stays. */
-export const revokeApiKey = internalMutation({
+/**
+ * Staff-only (owner role): deactivate a key. Soft revoke — the row stays for
+ * the audit trail, only `active` flips false (verifyKey then returns null).
+ * Public mutation (the FIXED exported name is revokeApiKey); the stub was an
+ * internalMutation only so it compiled without the auth wiring.
+ */
+export const revokeApiKey = mutation({
   args: { apiKeyId: v.id('apiKeys') },
-  handler: async (): Promise<{ revoked: boolean }> => {
-    throw new ConvexError('NOT_IMPLEMENTED'); // builder H — NOTE: convert to a
-    // public staff-gated mutation; internalMutation here only to keep the stub
-    // compiling without auth wiring. FIXED public name: revokeApiKey.
+  handler: async (ctx, args): Promise<{ revoked: boolean }> => {
+    // Owner-only, with the same DEMO_MODE carve-out as createApiKey.
+    if (process.env.DEMO_MODE !== 'true') {
+      const userId = await getAuthUserId(ctx);
+      if (userId === null) throw new ConvexError('UNAUTHENTICATED');
+      const profile = await ctx.db
+        .query('staffProfiles')
+        .withIndex('by_userId', (q) => q.eq('userId', userId))
+        .unique();
+      if (!profile || !profile.active) throw new ConvexError('NOT_STAFF');
+      if (profile.role !== 'owner') throw new ConvexError('OWNER_ONLY');
+    }
+
+    const key = await ctx.db.get(args.apiKeyId);
+    if (!key) throw new ConvexError('NOT_FOUND');
+    await ctx.db.patch(args.apiKeyId, { active: false });
+    return { revoked: true };
   },
 });
 
 /** Staff-gated: list keys (prefix + metadata only — never hashes). */
 export const listApiKeys = query({
   args: {},
-  handler: async (): Promise<
+  handler: async (
+    ctx,
+  ): Promise<
     Array<{
       apiKeyId: Id<'apiKeys'>;
       name: string;
@@ -62,7 +137,30 @@ export const listApiKeys = query({
       lastUsedAt?: number;
     }>
   > => {
-    throw new ConvexError('NOT_IMPLEMENTED'); // builder H
+    // Staff-gated (any active staff, matching listStaff / forSettings). Owner
+    // is only required to MINT or REVOKE; viewing the key list is fine for
+    // staff. DEMO_MODE is exempt like everywhere else.
+    if (process.env.DEMO_MODE !== 'true') {
+      const userId = await getAuthUserId(ctx);
+      if (userId === null) throw new ConvexError('UNAUTHENTICATED');
+      const profile = await ctx.db
+        .query('staffProfiles')
+        .withIndex('by_userId', (q) => q.eq('userId', userId))
+        .unique();
+      if (!profile || !profile.active) throw new ConvexError('NOT_STAFF');
+    }
+
+    const keys = await ctx.db.query('apiKeys').collect();
+    // keyHash is deliberately NEVER returned — only the display prefix.
+    return keys.map((k) => ({
+      apiKeyId: k._id,
+      name: k.name,
+      prefix: k.prefix,
+      scope: k.scope,
+      active: k.active,
+      createdAt: k.createdAt,
+      lastUsedAt: k.lastUsedAt,
+    }));
   },
 });
 

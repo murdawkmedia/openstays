@@ -78,6 +78,17 @@ npm run dev             # http://localhost:5173
 Book a stay at Pinewood Flats, then open the admin tape and watch it appear
 live. Your real inventory is **data, not code** — see `docs/configuration.md`.
 
+## Automation (API / CLI / MCP)
+
+Everything the guest and staff UI can do is also available over a versioned
+HTTP API (`/api/v1`, API-key auth) backed by the same Convex queries and
+mutations — no parallel business logic, so every booking guarantee holds for
+automations too. A standalone CLI + MCP server ship in [`cli/`](./cli) as a
+thin, well-tested client over that API: `openstays health|properties|
+availability|bookings|hold|cancel|...`, plus `openstays mcp` for MCP clients
+like Claude. See [docs/automation.md](./docs/automation.md) for the full
+guide (getting a key, every command, MCP client config).
+
 ## Stack
 
 | Layer | Choice | Why |

@@ -1,0 +1,33 @@
+{
+  "name": "@openstays/cli",
+  "version": "0.1.0",
+  "description": "Command-line and MCP client for the OpenStays HTTP API v1 — availability, bookings, holds, cancellations, promo previews.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "openstays": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -22,6 +22,7 @@ export default defineConfig({
           { text: 'Quickstart', link: '/quickstart' },
           { text: 'Configuration', link: '/configuration' },
           { text: 'Self-hosting & deployment', link: '/self-hosting' },
+          { text: 'Automation (API / CLI / MCP)', link: '/automation' },
         ],
       },
       {
