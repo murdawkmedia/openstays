@@ -121,7 +121,11 @@ export function AdminSettingsPage() {
         properties.map((property) => <PropertyEditor key={property.propertyId} property={property} />)
       )}
 
-      {gate.role === 'owner' ? <ChannelsSection /> : null}
+      {/* Any staff can VIEW channel status (getChannelConfig is staff-gated,
+          not owner-gated); connection/mapping changes stay owner-only
+          server-side. This also makes the section visible on the public demo,
+          whose synthetic identity is role 'staff'. */}
+      <ChannelsSection />
 
       {gate.role === 'owner' ? <StaffSection /> : null}
 
