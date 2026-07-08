@@ -1,7 +1,8 @@
 import { ConvexError, v } from 'convex/values';
-import { internalMutation, mutation, query } from './_generated/server';
+import { internalMutation, internalQuery, mutation, query } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
+import { internal } from './_generated/api';
 import {
   addDays,
   computePrice,
@@ -401,6 +402,13 @@ export const confirmSimulated = mutation({
       statusHistory: [...booking.statusHistory, { status: 'confirmed', ts: now }],
       updatedAt: now,
     });
+    // Demo parity with the real provider path: schedule the confirmation email.
+    // In DEMO_MODE (the only mode that reaches here) builder E's module logs
+    // instead of sending, so this is a no-op-visible-in-emailLog on the demo.
+    await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
+      bookingId: booking._id,
+      kind: 'confirmation',
+    });
     return { confirmationCode: booking.confirmationCode };
   },
 });
@@ -456,19 +464,42 @@ export const cancelByGuest = mutation({
       updatedAt: now,
     });
 
-    // Refund execution against real providers lands in M1 (scheduled action).
-    // For simulated/demo payments, record the refund inline.
+    // Refund execution. Real providers (stripe/square) refund out-of-band via a
+    // scheduled action (actions can call the provider over the network; a
+    // mutation cannot). Simulated/manual payments have no external ledger, so we
+    // record the refund inline here. The policy allocates the total refundCents
+    // across the paid rows in order until exhausted (partial-deposit bookings
+    // may have multiple 'paid' rows).
+    let remainingRefund = refundCents;
     for (const payment of paidPayments) {
-      if (payment.provider === 'simulated' && refundCents > 0) {
+      if (remainingRefund <= 0) break;
+      const thisRefund = Math.min(remainingRefund, payment.amountCents);
+      if (thisRefund <= 0) continue;
+      if (payment.provider === 'stripe' || payment.provider === 'square') {
+        // Provider refund runs in a scheduled action; recordRefund writes the
+        // refunds[] row + status only after the provider confirms.
+        await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
+          paymentId: payment._id,
+          amountCents: thisRefund,
+          reason: 'guest_cancellation',
+        });
+      } else if (payment.provider === 'simulated' || payment.provider === 'manual') {
         await ctx.db.patch(payment._id, {
-          status: refundCents >= payment.amountCents ? 'refunded' : 'partially_refunded',
+          status: thisRefund >= payment.amountCents ? 'refunded' : 'partially_refunded',
           refunds: [
             ...payment.refunds,
-            { amountCents: Math.min(refundCents, payment.amountCents), reason: 'guest_cancellation', ts: now, by: 'guest' },
+            { amountCents: thisRefund, reason: 'guest_cancellation', ts: now, by: 'guest' },
           ],
         });
       }
+      remainingRefund -= thisRefund;
     }
+
+    // Notify the guest their booking was cancelled (E's module; logs in DEMO).
+    await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
+      bookingId: booking._id,
+      kind: 'cancellation',
+    });
 
     return { refundCents, paidCents };
   },
@@ -546,6 +577,416 @@ export const repairUnitNights = internalMutation({
       }
     }
     return { rebuilt };
+  },
+});
+
+// ===========================================================================
+// M1 PAYMENTS BRIDGE (builder B). Internal functions the payment provider
+// contracts (convex/payments/**) call to move real money through the same
+// serializable-mutation booking machinery createHold/confirmSimulated use.
+//
+// Money-integrity invariants enforced here (adversarial-review critical):
+// - A payment row's gstCents is the tax CONTAINED IN THAT PAYMENT (tax-inclusive
+//   extraction round(amt·rate/(10000+rate))), NEVER the invoice's full GST —
+//   partial deposits would otherwise over-report remittance.
+// - The webhookEvents check-and-insert runs in the SAME mutation as the state
+//   change, so a provider's at-least-once retries never double-confirm,
+//   double-charge, or double-email.
+// - confirmFromPayment re-guards on booking status: a hold whose nights were
+//   re-taken after expiry can never produce two confirmed bookings on the same
+//   nights — it becomes 'payment_conflict' and the capture is refunded.
+// ===========================================================================
+
+/**
+ * Booking snapshot the checkout action needs to build a provider session.
+ * Returns null when the booking is missing so the action can throw a clean
+ * 'BOOKING_NOT_FOUND'. Currency/taxLabel/propertyName come off the property;
+ * the guest email is required for the hosted payment page + receipt.
+ */
+export const getForCheckout = internalQuery({
+  args: { bookingId: v.id('bookings') },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) return null;
+    const property = await ctx.db.get(booking.propertyId);
+    const guest = booking.guestId ? await ctx.db.get(booking.guestId) : null;
+    return {
+      booking: {
+        _id: booking._id,
+        status: booking.status,
+        holdExpiresAt: booking.holdExpiresAt,
+        confirmationCode: booking.confirmationCode,
+        priceBreakdown: booking.priceBreakdown,
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+      },
+      property: property
+        ? {
+            name: property.name,
+            currency: property.currency,
+            taxLabel: property.taxLabel,
+          }
+        : null,
+      guestEmail: guest?.email ?? null,
+    };
+  },
+});
+
+/** Load a payment row for the refund action (actions have no db access). */
+export const getPayment = internalQuery({
+  args: { paymentId: v.id('payments') },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.paymentId);
+  },
+});
+
+/**
+ * Insert (or return the existing) pending payments row for a checkout attempt.
+ * Idempotent per (booking, provider, providerCheckoutId): a guest who reloads
+ * the checkout page and re-creates the same provider session must not spawn a
+ * second pending row (the webhook joins on the checkout id and must find one).
+ */
+export const recordPendingPayment = internalMutation({
+  args: {
+    bookingId: v.id('bookings'),
+    provider: v.union(v.literal('stripe'), v.literal('square')),
+    providerCheckoutId: v.string(),
+    amountCents: v.number(),
+    currency: v.string(),
+  },
+  handler: async (ctx, args): Promise<Id<'payments'>> => {
+    const existing = await ctx.db
+      .query('payments')
+      .withIndex('by_provider_checkout', (q) =>
+        q.eq('provider', args.provider).eq('providerCheckoutId', args.providerCheckoutId),
+      )
+      .filter((q) => q.eq(q.field('bookingId'), args.bookingId))
+      .first();
+    if (existing) return existing._id;
+
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) {
+      throw new ConvexError({ code: 'NOT_FOUND', message: 'Booking not found.' });
+    }
+    return await ctx.db.insert('payments', {
+      propertyId: booking.propertyId,
+      bookingId: args.bookingId,
+      provider: args.provider,
+      providerCheckoutId: args.providerCheckoutId,
+      amountCents: args.amountCents,
+      gstCents: 0, // filled on confirm (tax-inclusive extraction of the captured amount)
+      currency: args.currency,
+      status: 'pending',
+      refunds: [],
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * THE money transaction: a provider 'payment_succeeded' webhook lands here.
+ * One serializable mutation does everything or nothing:
+ *   (a) webhookEvents check-and-insert on (provider, eventId) — a duplicate
+ *       delivery writes nothing and returns 'duplicate';
+ *   (b) join the pending payments row via by_provider_checkout — missing row =
+ *       'orphan' (still records the webhookEvent so retries stay idempotent);
+ *   (c) flip the payment to 'paid' with per-payment GST extraction;
+ *   (d) transition the booking:
+ *         hold                 → confirmed (+ apply promo, clear hold)
+ *         expired | cancelled  → re-acquire the nights (same conflict check as
+ *                                createHold); free → confirmed + fresh
+ *                                unitNights + fresh applied redemption; taken →
+ *                                'payment_conflict' + schedule full refund +
+ *                                apology email
+ *         confirmed            → 'duplicate' (a second provider event)
+ *   (e) plain-confirm success schedules the confirmation email.
+ */
+export const confirmFromPayment = internalMutation({
+  args: {
+    provider: v.union(v.literal('stripe'), v.literal('square')),
+    eventId: v.string(),
+    eventType: v.string(),
+    checkoutId: v.string(),
+    providerPaymentId: v.optional(v.string()),
+    amountCents: v.number(),
+    currency: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ outcome: 'confirmed' | 'payment_conflict' | 'duplicate' | 'orphan' }> => {
+    const now = Date.now();
+
+    // (a) Idempotency: check-and-insert the webhookEvents row FIRST. A duplicate
+    //     delivery of the same provider event id writes nothing else and bails.
+    const priorEvent = await ctx.db
+      .query('webhookEvents')
+      .withIndex('by_provider_event', (q) =>
+        q.eq('provider', args.provider).eq('eventId', args.eventId),
+      )
+      .first();
+    if (priorEvent) return { outcome: 'duplicate' };
+
+    // (b) Join the pending payments row by (provider, checkoutId).
+    const payment = await ctx.db
+      .query('payments')
+      .withIndex('by_provider_checkout', (q) =>
+        q.eq('provider', args.provider).eq('providerCheckoutId', args.checkoutId),
+      )
+      .first();
+    if (!payment || !payment.bookingId) {
+      // Record the event so retries of this orphan are also idempotent no-ops.
+      await ctx.db.insert('webhookEvents', {
+        provider: args.provider,
+        eventId: args.eventId,
+        type: args.eventType,
+        processedAt: now,
+      });
+      return { outcome: 'orphan' };
+    }
+
+    const booking = await ctx.db.get(payment.bookingId);
+    if (!booking) {
+      await ctx.db.insert('webhookEvents', {
+        provider: args.provider,
+        eventId: args.eventId,
+        type: args.eventType,
+        processedAt: now,
+      });
+      return { outcome: 'orphan' };
+    }
+
+    // A second authentic provider event for an already-confirmed booking (e.g.
+    // Stripe + a redundant payment_intent event): the money is already booked.
+    if (booking.status === 'confirmed' || booking.status === 'checked_in' || booking.status === 'checked_out') {
+      await ctx.db.insert('webhookEvents', {
+        provider: args.provider,
+        eventId: args.eventId,
+        type: args.eventType,
+        bookingId: booking._id,
+        processedAt: now,
+      });
+      return { outcome: 'duplicate' };
+    }
+
+    // (c) Flip the payment to 'paid'. gstCents = tax CONTAINED IN THIS PAYMENT
+    //     (tax-inclusive extraction), never the invoice's full GST — the exact
+    //     adversarial-review invariant confirmSimulated already honours.
+    const property = await ctx.db.get(booking.propertyId);
+    const taxRateBps = property?.taxRateBps ?? 0;
+    const gstCents = Math.round((args.amountCents * taxRateBps) / (10_000 + taxRateBps));
+    await ctx.db.patch(payment._id, {
+      status: 'paid',
+      paidAt: now,
+      gstCents,
+      providerPaymentId: args.providerPaymentId,
+      // Trust the invoice amount recorded at checkout; the captured amount is
+      // asserted equal by the provider parse. currency stays as recorded.
+    });
+
+    // Record the idempotency ledger row now that we've committed to processing.
+    await ctx.db.insert('webhookEvents', {
+      provider: args.provider,
+      eventId: args.eventId,
+      type: args.eventType,
+      bookingId: booking._id,
+      processedAt: now,
+    });
+
+    // (d) Booking transition.
+    if (booking.status === 'hold') {
+      // Happy path: the hold is still live. Confirm, consume the promo, clear
+      // the hold timer. unitNights already exist from createHold.
+      await applyPromoRedemption(ctx, booking._id);
+      await ctx.db.patch(booking._id, {
+        status: 'confirmed',
+        holdExpiresAt: undefined,
+        statusHistory: [...booking.statusHistory, { status: 'confirmed', ts: now }],
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
+        bookingId: booking._id,
+        kind: 'confirmation',
+      });
+      return { outcome: 'confirmed' };
+    }
+
+    if (booking.status === 'expired' || booking.status === 'cancelled') {
+      // The hold expired (or was cancelled) BEFORE the payment landed — its
+      // nights and promo reservation were already released. The guest paid the
+      // discounted price, so try to RE-ACQUIRE the same nights + prep tail with
+      // the identical conflict check createHold uses.
+      const ratePlan = booking.ratePlanId ? await ctx.db.get(booking.ratePlanId) : null;
+      const prepBufferNights = ratePlan?.prepBufferNights ?? 0;
+      const blockedUntil = addDays(booking.checkOut, prepBufferNights);
+      const conflict = await ctx.db
+        .query('unitNights')
+        .withIndex('by_unit_date', (q) =>
+          q.eq('unitId', booking.unitId).gte('date', booking.checkIn).lt('date', blockedUntil),
+        )
+        .first();
+
+      if (conflict) {
+        // Nights are gone. We captured money we can't honour with a room →
+        // payment_conflict, refund the FULL captured amount, apologise. NO
+        // unitNights are written (we don't own the nights).
+        await ctx.db.patch(booking._id, {
+          status: 'payment_conflict',
+          holdExpiresAt: undefined,
+          statusHistory: [...booking.statusHistory, { status: 'payment_conflict', ts: now }],
+          updatedAt: now,
+        });
+        await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
+          paymentId: payment._id,
+          amountCents: args.amountCents,
+          reason: 'payment_after_expiry',
+        });
+        await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
+          bookingId: booking._id,
+          kind: 'payment_conflict',
+        });
+        return { outcome: 'payment_conflict' };
+      }
+
+      // Nights are free — re-take them. Re-insert unitNights (stay + prep) and
+      // confirm. The reserved promo redemption was RELEASED at expiry, so we
+      // insert a FRESH 'applied' redemption and bump redemptionCount even if the
+      // cap is now exceeded: the guest already paid the discounted price, so
+      // money integrity wins over the (marketing) cap. This is deliberate.
+      for (const date of enumerateNights(booking.checkIn, blockedUntil)) {
+        await ctx.db.insert('unitNights', {
+          unitId: booking.unitId,
+          date,
+          bookingId: booking._id,
+          kind: date < booking.checkOut ? 'stay' : 'prep',
+        });
+      }
+      if (booking.promoCodeId) {
+        const normalizedEmail = booking.guestId
+          ? (await ctx.db.get(booking.guestId))?.normalizedEmail ?? ''
+          : '';
+        await ctx.db.insert('promoRedemptions', {
+          promoCodeId: booking.promoCodeId,
+          bookingId: booking._id,
+          normalizedEmail,
+          discountCents: booking.priceBreakdown?.promoDiscountCents ?? 0,
+          status: 'applied',
+          ts: now,
+        });
+        const promo = await ctx.db.get(booking.promoCodeId);
+        if (promo) {
+          await ctx.db.patch(promo._id, { redemptionCount: promo.redemptionCount + 1 });
+        }
+      }
+      await ctx.db.patch(booking._id, {
+        status: 'confirmed',
+        holdExpiresAt: undefined,
+        statusHistory: [...booking.statusHistory, { status: 'confirmed', ts: now }],
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
+        bookingId: booking._id,
+        kind: 'confirmation',
+      });
+      return { outcome: 'confirmed' };
+    }
+
+    // Any other status (payment_conflict already, external, blocked, no_show):
+    // the payment is already captured ('paid' above) but we can't seat the
+    // guest. Force a refund + apology. Booking status is left as-is (we don't
+    // own or want to reshape a maintenance block or an external booking).
+    await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
+      paymentId: payment._id,
+      amountCents: args.amountCents,
+      reason: 'payment_after_expiry',
+    });
+    await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
+      bookingId: booking._id,
+      kind: 'payment_conflict',
+    });
+    return { outcome: 'payment_conflict' };
+  },
+});
+
+/**
+ * Provider reported the checkout failed or expired. Idempotent on
+ * (provider, eventId); flips the pending payments row to 'failed' (only while
+ * still pending). The booking stays 'hold' — the 2-minute expiry cron owns
+ * hold lifecycle, so a failed one-off attempt doesn't kill a hold the guest may
+ * still complete via a retry.
+ */
+export const markCheckoutFailed = internalMutation({
+  args: {
+    provider: v.union(v.literal('stripe'), v.literal('square')),
+    eventId: v.string(),
+    eventType: v.optional(v.string()),
+    checkoutId: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ outcome: 'failed' | 'duplicate' | 'orphan' }> => {
+    const now = Date.now();
+    const priorEvent = await ctx.db
+      .query('webhookEvents')
+      .withIndex('by_provider_event', (q) =>
+        q.eq('provider', args.provider).eq('eventId', args.eventId),
+      )
+      .first();
+    if (priorEvent) return { outcome: 'duplicate' };
+
+    await ctx.db.insert('webhookEvents', {
+      provider: args.provider,
+      eventId: args.eventId,
+      type: args.eventType ?? 'checkout_failed',
+      processedAt: now,
+    });
+
+    const payment = await ctx.db
+      .query('payments')
+      .withIndex('by_provider_checkout', (q) =>
+        q.eq('provider', args.provider).eq('providerCheckoutId', args.checkoutId),
+      )
+      .first();
+    if (!payment) return { outcome: 'orphan' };
+    if (payment.status === 'pending') {
+      await ctx.db.patch(payment._id, { status: 'failed' });
+    }
+    return { outcome: 'failed' };
+  },
+});
+
+/**
+ * Record a provider refund on a payments row: append to refunds[] and set the
+ * row's status to 'refunded' (cumulative refunds ≥ amount) or
+ * 'partially_refunded'. Called by the refundPayment action after the provider
+ * confirms the refund.
+ */
+export const recordRefund = internalMutation({
+  args: {
+    paymentId: v.id('payments'),
+    amountCents: v.number(),
+    providerRefundId: v.optional(v.string()),
+    reason: v.string(),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    const payment = await ctx.db.get(args.paymentId);
+    if (!payment) {
+      throw new ConvexError({ code: 'NOT_FOUND', message: 'Payment not found.' });
+    }
+    const now = Date.now();
+    const refunds = [
+      ...payment.refunds,
+      {
+        amountCents: args.amountCents,
+        providerRefundId: args.providerRefundId,
+        reason: args.reason,
+        ts: now,
+        by: 'system',
+      },
+    ];
+    const totalRefunded = refunds.reduce((sum, r) => sum + r.amountCents, 0);
+    await ctx.db.patch(args.paymentId, {
+      refunds,
+      status: totalRefunded >= payment.amountCents ? 'refunded' : 'partially_refunded',
+    });
   },
 });
 

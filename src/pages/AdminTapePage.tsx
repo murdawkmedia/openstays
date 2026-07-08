@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useQuery } from 'convex/react';
-import { ShieldAlert } from 'lucide-react';
+import { useAuthActions } from '@convex-dev/auth/react';
+import { ShieldAlert, ShieldCheck } from 'lucide-react';
 
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { Spinner } from '../components/Spinner';
 import { BookingTape } from '../components/BookingTape';
 import { todayIso } from '../lib/dates';
+import { useStaffGate } from '../lib/useStaff';
 
 const TAPE_WINDOW_DAYS = 21;
 
@@ -18,9 +20,12 @@ const LEGEND: Array<{ label: string; className: string }> = [
   { label: 'Blocked', className: 'bg-stone-400/80' },
 ];
 
-/** M0 stub: no staff auth yet. Read-only booking tape, live via Convex reactivity. */
+/** Staff-only (M1): booking tape, live via Convex reactivity. */
 export function AdminTapePage() {
-  const properties = useQuery(api.properties.listActive, {});
+  const gate = useStaffGate();
+  const { signOut } = useAuthActions();
+
+  const properties = useQuery(api.properties.listActive, gate.status === 'staff' ? {} : 'skip');
   const [propertyId, setPropertyId] = useState<Id<'properties'> | null>(null);
 
   useEffect(() => {
@@ -31,14 +36,37 @@ export function AdminTapePage() {
 
   const tape = useQuery(
     api.availability.tapeForProperty,
-    propertyId ? { propertyId, startDate: todayIso(), days: TAPE_WINDOW_DAYS } : 'skip',
+    gate.status === 'staff' && propertyId ? { propertyId, startDate: todayIso(), days: TAPE_WINDOW_DAYS } : 'skip',
   );
+
+  if (gate.status === 'loading') return <Spinner label="Checking staff access…" />;
+  if (gate.status === 'signed_out') return <Navigate to="/admin/login" replace />;
+  if (gate.status === 'awaiting_access') {
+    return (
+      <div className="mx-auto max-w-md space-y-4 text-center">
+        <ShieldAlert className="mx-auto h-8 w-8 text-amber-600" aria-hidden="true" />
+        <h1 className="font-display text-xl font-semibold text-stone-900">Awaiting staff access</h1>
+        <p className="text-sm text-stone-600">
+          You're signed in but no owner has granted you staff access yet. Ask an owner to add you from{' '}
+          <span className="font-medium">Settings → Staff</span>.
+        </p>
+        <button type="button" className="btn-secondary" onClick={() => void signOut()}>
+          Sign out
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div className="mb-6 flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
-        <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
-        Staff auth arrives in M1. This page is unauthenticated for now.
+      <div className="mb-6 flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <span className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Signed in as {gate.name} ({gate.role})
+        </span>
+        <button type="button" className="text-xs font-medium text-emerald-700 underline hover:text-emerald-900" onClick={() => void signOut()}>
+          Sign out
+        </button>
       </div>
 
       <div className="mb-4 flex items-center justify-between">

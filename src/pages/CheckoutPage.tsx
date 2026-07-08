@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery } from 'convex/react';
-import { Clock } from 'lucide-react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useAction, useMutation, useQuery } from 'convex/react';
+import { Clock, CreditCard } from 'lucide-react';
 
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -11,10 +11,20 @@ import { PriceBreakdownView } from '../components/PriceBreakdownView';
 import { formatCountdown, formatDisplayDate } from '../lib/dates';
 import { NotFoundPage } from './NotFoundPage';
 
+const PROVIDER_LABELS: Record<string, string> = {
+  stripe: 'Pay with card — Stripe',
+  square: 'Pay with card — Square',
+};
+
 /**
  * Checkout reads the confirmation code from the query string but treats it
  * only as a lookup key — the reactive query result is the sole source of
  * truth for booking state (CLAUDE.md convention #9).
+ *
+ * The guest can land here two ways: fresh navigation from the unit page
+ * (which sets ?code=...), or a bounce back from a provider's hosted
+ * checkout "cancel" link. Either way this page must rehydrate purely from
+ * the URL + the reactive query — no reliance on router/navigation state.
  */
 export function CheckoutPage() {
   const { bookingId } = useParams<{ bookingId: string }>();
@@ -23,11 +33,18 @@ export function CheckoutPage() {
   const navigate = useNavigate();
 
   const booking = useQuery(api.bookings.byConfirmationCode, code ? { code } : 'skip');
+  const providerInfo = useQuery(api.payments.checkout.availableProviders);
+  // Single-operator-per-deployment (CLAUDE.md #8): configList always
+  // describes the one property this deployment serves.
+  const propertyConfigs = useQuery(api.properties.configList);
   const confirmSimulated = useMutation(api.bookings.confirmSimulated);
+  const createCheckoutSession = useAction(api.payments.checkout.createCheckoutSession);
 
   const [now, setNow] = useState(() => Date.now());
   const [payError, setPayError] = useState<string | null>(null);
+  const [holdTooStale, setHoldTooStale] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [payingProvider, setPayingProvider] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -55,8 +72,10 @@ export function CheckoutPage() {
 
   const msRemaining = (booking.holdExpiresAt ?? now) - now;
   const expired = msRemaining <= 0;
+  const property = propertyConfigs?.[0];
+  const demoMode = providerInfo?.demoMode ?? true;
 
-  async function handlePay() {
+  async function handleSimulatedPay() {
     setPaying(true);
     setPayError(null);
     try {
@@ -66,6 +85,40 @@ export function CheckoutPage() {
       setPayError(extractErrorMessage(error));
     } finally {
       setPaying(false);
+    }
+  }
+
+  async function handleProviderPay(provider: 'stripe' | 'square') {
+    setPaying(true);
+    setPayingProvider(provider);
+    setPayError(null);
+    setHoldTooStale(false);
+    try {
+      const result = await createCheckoutSession({ bookingId: bookingId as Id<'bookings'>, provider });
+      window.location.assign(result.checkoutUrl);
+      // Intentionally leave `paying` true — we're navigating away.
+    } catch (error) {
+      const code = extractErrorCode(error);
+      if (code === 'HOLD_TOO_STALE') {
+        setHoldTooStale(true);
+      } else if (code === 'NOT_A_HOLD') {
+        // The booking may have been confirmed by a webhook in the interim.
+        // The reactive query is the source of truth: if it already shows
+        // 'confirmed', go straight to the confirmation page; otherwise show
+        // a generic message rather than guessing at a status we can't see.
+        const status: string | undefined = booking?.status;
+        if (status === 'confirmed' && booking?.confirmationCode) {
+          navigate(`/confirmation/${booking.confirmationCode}`, { replace: true });
+        } else {
+          setPayError('This booking is no longer awaiting payment. Refresh to see its current status.');
+        }
+      } else if (code === 'PROVIDER_NOT_CONFIGURED') {
+        setPayError('PROVIDER_NOT_CONFIGURED');
+      } else {
+        setPayError(extractErrorMessage(error));
+      }
+      setPaying(false);
+      setPayingProvider(null);
     }
   }
 
@@ -104,24 +157,96 @@ export function CheckoutPage() {
           </div>
         ) : null}
 
-        {payError ? (
+        {holdTooStale ? (
+          <div className="mt-4">
+            <ErrorMessage message="There isn't enough time left on this hold to start a card payment. Please rebook to get a fresh hold window." />
+            <Link to="/" className="btn-secondary mt-3 inline-flex">
+              Start a new booking
+            </Link>
+          </div>
+        ) : payError === 'PROVIDER_NOT_CONFIGURED' ? (
+          <div className="mt-4">
+            <ErrorMessage
+              message={
+                property
+                  ? `Online payment isn't configured yet. Please contact ${property.name} at ${property.email} or ${property.phone} to complete this booking.`
+                  : "Online payment isn't configured yet. Please contact the property to complete this booking."
+              }
+            />
+          </div>
+        ) : payError ? (
           <div className="mt-4">
             <ErrorMessage message={payError} />
           </div>
         ) : null}
 
-        <button
-          type="button"
-          className="btn-primary mt-6 w-full"
-          disabled={expired || paying}
-          onClick={handlePay}
-        >
-          {paying ? 'Processing…' : 'Complete demo payment'}
-        </button>
-        <p className="mt-2 text-center text-xs text-stone-400">
-          Demo mode — no real charge. Stripe &amp; Square checkout land in M1.
-        </p>
+        {demoMode ? (
+          <>
+            <button
+              type="button"
+              className="btn-primary mt-6 w-full"
+              disabled={expired || paying}
+              onClick={handleSimulatedPay}
+            >
+              {paying ? 'Processing…' : 'Complete demo payment'}
+            </button>
+            <p className="mt-2 text-center text-xs text-stone-400">
+              Demo mode — no real charge. Stripe &amp; Square checkout land in M1.
+            </p>
+          </>
+        ) : providerInfo === undefined || propertyConfigs === undefined ? (
+          <div className="mt-6">
+            <Spinner label="Loading payment options…" />
+          </div>
+        ) : providerInfo.providers.length === 0 ? (
+          <div className="mt-6 rounded-lg bg-stone-50 px-4 py-3 text-sm text-stone-600">
+            Online payment isn't configured for this property yet.{' '}
+            {property ? (
+              <>
+                Please contact them at{' '}
+                <a className="font-medium text-emerald-700 underline" href={`mailto:${property.email}`}>
+                  {property.email}
+                </a>{' '}
+                or {property.phone} to complete your booking.
+              </>
+            ) : (
+              'Please contact the property to complete your booking.'
+            )}
+          </div>
+        ) : (
+          <div className={`mt-6 grid gap-3 ${providerInfo.providers.length > 1 ? 'sm:grid-cols-2' : ''}`}>
+            {providerInfo.providers.map((provider) => (
+              <button
+                key={provider}
+                type="button"
+                className="btn-primary flex w-full items-center justify-center gap-2"
+                disabled={expired || paying}
+                onClick={() => handleProviderPay(provider)}
+              >
+                <CreditCard className="h-4 w-4" aria-hidden="true" />
+                {paying && payingProvider === provider ? 'Redirecting…' : PROVIDER_LABELS[provider] ?? `Pay with ${provider}`}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+/**
+ * Convex actions surface ConvexError via `error.data` (same shape as
+ * mutations). We use the same {code, message} object as the rest of the
+ * codebase (see convex/bookings.ts ConvexError calls) — extract just the code.
+ */
+function extractErrorCode(error: unknown): string | null {
+  if (error && typeof error === 'object' && 'data' in error) {
+    const data = (error as { data?: unknown }).data;
+    if (typeof data === 'string') return data;
+    if (data && typeof data === 'object' && 'code' in data) {
+      const code = (data as { code?: unknown }).code;
+      if (typeof code === 'string') return code;
+    }
+  }
+  return null;
 }

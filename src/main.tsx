@@ -1,7 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import { ConvexProvider, ConvexReactClient } from 'convex/react';
+import { ConvexReactClient } from 'convex/react';
+import { ConvexAuthProvider } from '@convex-dev/auth/react';
 
 import './index.css';
 import { AppLayout } from './components/AppLayout';
@@ -13,6 +14,7 @@ import { ConfirmationPage } from './pages/ConfirmationPage';
 import { ManageBookingPage } from './pages/ManageBookingPage';
 import { AdminTapePage } from './pages/AdminTapePage';
 import { AdminSettingsPage } from './pages/AdminSettingsPage';
+import { AdminLoginPage } from './pages/AdminLoginPage';
 import { AboutPage } from './pages/AboutPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
@@ -30,7 +32,7 @@ if (!rootElement) throw new Error('Root element #root not found.');
 
 createRoot(rootElement).render(
   <StrictMode>
-    <ConvexProvider client={convex}>
+    <ConvexAuthProvider client={convex}>
       <BrowserRouter basename={import.meta.env.BASE_URL}>
         <Routes>
           <Route element={<AppLayout />}>
@@ -43,10 +45,11 @@ createRoot(rootElement).render(
             <Route path="/about" element={<AboutPage />} />
             <Route path="/admin" element={<AdminTapePage />} />
             <Route path="/admin/settings" element={<AdminSettingsPage />} />
+            <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
-    </ConvexProvider>
+    </ConvexAuthProvider>
   </StrictMode>,
 );

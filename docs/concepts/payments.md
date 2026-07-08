@@ -85,5 +85,113 @@ hard-code "always full payment" or "always a deposit."
 If you're evaluating OpenStays for a real property: as of this snapshot,
 **you cannot yet take a real card payment from a guest.** The booking core,
 pricing math, refund policy math, and data model are done and tested. The
-provider wiring and staff auth needed to run this for real guests land in
-M1. See the [roadmap](/roadmap) for the full sequencing.
+provider wiring and staff auth needed to run this for real guests are
+**landing now in M1** — see the [roadmap](/roadmap) for the full sequencing,
+and the sections below for how the M1 pieces fit together once they're live.
+
+## The hold → checkout → webhook → confirmed lifecycle (M1 — in progress)
+
+This is the full path a real (non-simulated) payment takes, end to end:
+
+1. **Hold.** A guest picks dates and submits checkout. `createHold` writes a
+   `bookings` row with `status: 'hold'` and `holdExpiresAt = now + 35
+   minutes` (`HOLD_TTL_MS`), plus its `unitNights` rows — see
+   [Availability & holds](/concepts/availability) for why 35 minutes and not
+   less.
+2. **Checkout.** The client asks for a Checkout Session against that hold.
+   The checkout action first re-checks freshness: if `holdExpiresAt − now <
+   31 minutes`, it refuses outright (`HOLD_TOO_STALE`) rather than start a
+   Stripe/Square session it can't guarantee will outlive the hold — Stripe
+   Checkout Sessions can't be configured to expire in under 30 minutes, so
+   31 minutes of hold headroom is the safety margin. On success, a `payments`
+   row is inserted with `status: 'pending'` *before* the guest is redirected
+   to the hosted payment page, so the webhook that arrives later always has
+   a row to update.
+3. **Webhook.** Stripe/Square call back to `/webhooks/stripe` or
+   `/webhooks/square` (see `convex/http.ts`). The signature is verified
+   first — an unverifiable request is rejected (`400`) and nothing about the
+   booking changes. A verified `payment_succeeded` event runs one
+   serializable transaction (`internal.bookings.confirmFromPayment`) that
+   checks-and-inserts into `webhookEvents` (idempotency — a duplicate
+   `eventId` is a no-op), records the payment, and confirms the booking.
+4. **Confirmed — the normal case.** If the hold's nights are still reserved
+   (the common case), the booking flips to `status: 'confirmed'` and a
+   confirmation email is scheduled.
+5. **Payment-after-expiry: re-acquire or conflict.** If the hold already
+   expired before the payment webhook arrived (nights were released back to
+   availability by the 2-minute expiry cron), the same transaction first
+   tries to **re-acquire** those exact nights. If they're still free, the
+   booking still confirms normally. If someone else has since taken any of
+   those nights, the booking instead becomes `status: 'payment_conflict'` —
+   the guest *paid*, but OpenStays cannot honor the reservation as booked.
+   That triggers an **automatic refund** of the full captured amount (the
+   refund executor retries transiently-failing provider calls up to 3 times
+   before alerting staff) plus an apology email to the guest. `payment_conflict`
+   is a distinct booking status specifically so this rare case is visible on
+   the tape and never silently double-booked or silently un-refunded.
+6. **Confirmation pages never trust redirects.** The success URL a guest
+   lands on after paying renders "finalizing…" until the booking's status —
+   read via a live reactive query, not the redirect itself — actually shows
+   `confirmed`. The webhook, not the browser coming back from the payment
+   page, is what makes a booking real.
+
+## Staff-auth trust model (M1 — in progress)
+
+Guests never have accounts in OpenStays — manage-booking access is
+confirmation code + email match, unchanged by M1. **Staff/admin** access is
+new in M1, via [Convex Auth](https://labs.convex.dev/auth) (email+password).
+
+The load-bearing rule: **a signed-up user grants nothing**. Signing up
+creates a Convex Auth `users` row and nothing else. Every staff-only query or
+mutation calls a single chokepoint, `requireStaff()` (`convex/staff.ts`),
+which requires an **active `staffProfiles` row** for that user — role
+`owner` or `staff`. No `staffProfiles` row (or one with `active: false`) means
+`NOT_STAFF`, full stop, regardless of whether the user can sign in.
+
+`staffProfiles` rows only get created two ways:
+
+- **Bootstrap** (`staff:bootstrap`, orchestrator-run, one time, refuses if an
+  owner already exists) — turns the first signed-up user into an `owner`.
+  See [self-hosting](/self-hosting) for the exact command.
+- **An existing owner grants more staff** from the admin UI
+  (`staff.grantStaff`), which is the ongoing way a deployment adds front-desk
+  accounts after bootstrap.
+
+This two-step design (sign-up is public and free; staff rights are a
+separate, gated grant) is what lets `/admin/login` exist on a public-facing
+deployment without turning it into an open door — anyone can create a
+`users` row, but that row can't read or write anything staff-only until an
+owner says so.
+
+## iCal import conflict semantics (M1 — in progress)
+
+Export (`/ical/u/<token>.ics`) has shipped since M0. **Import** — pulling an
+external calendar (a direct Airbnb listing, a legacy-PMS bridge) in so it
+blocks availability here too — is new in M1, on a 15-minute sync cron.
+
+The binding rule, matching the "never lose a booking" principle from
+[Availability & holds](/concepts/availability): **an external event can
+never displace an internal booking.** Concretely, per unit and per feed:
+
+- A new external UID becomes a `bookings` row with `status: 'external'`,
+  `source: 'ical:<label>'`, and its own `unitNights` rows (`kind:
+  'external'`) — same conflict-tracking mechanism as any other booking.
+- If dates for an already-imported UID change, its `unitNights` rows are
+  deleted and rewritten to match.
+- If a UID present in a previous sync is missing from the current feed, that
+  external booking is cancelled and its nights released.
+- **If an external event's nights overlap nights already held by a
+  non-external booking**, the internal booking is left untouched and
+  authoritative. Only the external event's *free* nights (if any) get
+  `unitNights` rows; the external booking itself is flagged
+  (`syncConflict: true`) instead of silently dropped or allowed to steal the
+  night. Staff see and resolve the conflict manually on the booking tape —
+  there is no automatic cancellation of a real guest's booking to make room
+  for an imported one.
+- Loop prevention: the export feed never re-emits `kind: 'external'` rows, so
+  a sync cycle can't feed back into itself across two linked calendars.
+
+Because conflicts are surfaced, not silently resolved, a property with an
+active Airbnb listing should still expect to check the tape periodically
+during the transition — iCal sync closes the double-booking gap, it doesn't
+replace human judgment on the rare overlap.

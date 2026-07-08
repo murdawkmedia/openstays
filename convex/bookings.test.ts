@@ -8,6 +8,33 @@ import { addDays } from '../shared/pricing';
 
 const modules = import.meta.glob('./**/!(*.*.*)*.*s');
 
+// Booking mutations now fire-and-forget schedule transactional emails
+// (internal.email.sendBookingEmail) via ctx.scheduler.runAfter(0, …). In
+// convex-test those execute on a real setTimeout(0); if the test ends before
+// they run, their internal job-state write lands "outside a transaction" on the
+// disposed fake DB and surfaces as an unhandled error. Track every t created in
+// this file and deterministically drain its scheduled functions in afterEach.
+const created: Array<ReturnType<typeof convexTest>> = [];
+function makeT() {
+  const t = convexTest(schema, modules);
+  created.push(t);
+  return t;
+}
+async function drainAll() {
+  for (const t of created) {
+    for (let i = 0; i < 50; i += 1) {
+      const pending = await t.run(async (ctx) => {
+        const jobs = await ctx.db.system.query('_scheduled_functions').collect();
+        return jobs.filter((j) => j.state.kind === 'pending' || j.state.kind === 'inProgress').length;
+      });
+      if (pending === 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await t.finishInProgressScheduledFunctions();
+    }
+  }
+  created.length = 0;
+}
+
 // Dates far enough out to satisfy lead-time rules regardless of when CI runs.
 const today = new Date().toISOString().slice(0, 10);
 const D = (offset: number) => addDays(today, offset);
@@ -98,13 +125,14 @@ function holdArgs(
   };
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await drainAll();
   vi.unstubAllEnvs();
 });
 
 describe('createHold conflict prevention', () => {
   it('rejects an overlapping second hold', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
     await expect(
@@ -113,7 +141,7 @@ describe('createHold conflict prevention', () => {
   });
 
   it('allows perfectly adjacent stays (half-open ranges)', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
     const second = await t.mutation(
@@ -124,7 +152,7 @@ describe('createHold conflict prevention', () => {
   });
 
   it('prep buffer blocks the night after checkout', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t, { prepBufferNights: 1 });
     await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
     // Checkout D(13) + 1 prep night blocks D(13); check-in D(13) must fail…
@@ -140,7 +168,7 @@ describe('createHold conflict prevention', () => {
   });
 
   it('caps concurrent holds per guest email', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(11)));
     await t.mutation(api.bookings.createHold, holdArgs(fx, D(12), D(13)));
@@ -155,7 +183,7 @@ describe('hold expiry', () => {
   it('expireHolds releases nights so the dates can be rebooked', async () => {
     vi.useFakeTimers();
     try {
-      const t = convexTest(schema, modules);
+      const t = makeT();
       const fx = await seedFixture(t);
       await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
 
@@ -175,7 +203,7 @@ describe('hold expiry', () => {
   });
 
   it('does not expire fresh holds', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
     const result = await t.mutation(internal.bookings.expireHolds, {});
@@ -185,7 +213,7 @@ describe('hold expiry', () => {
 
 describe('simulated confirmation (demo path)', () => {
   it('is refused unless DEMO_MODE=true', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(12)));
     await expect(
@@ -195,7 +223,7 @@ describe('simulated confirmation (demo path)', () => {
 
   it('confirms a hold and records a simulated payment in DEMO_MODE', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(12)));
     const confirmed = await t.mutation(api.bookings.confirmSimulated, {
@@ -211,7 +239,7 @@ describe('simulated confirmation (demo path)', () => {
 describe('guest cancellation', () => {
   it('cancels with matching code+email, frees nights, computes policy refund', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(30), D(32)));
     await t.mutation(api.bookings.confirmSimulated, { bookingId: hold.bookingId });
@@ -232,7 +260,7 @@ describe('guest cancellation', () => {
   });
 
   it('rejects a wrong email', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(12)));
     await expect(
@@ -280,7 +308,7 @@ describe('promo code lifecycle', () => {
   }
 
   it('applies a percent promo pre-tax and snapshots it on the booking', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await seedPromo(t, fx); // 10% off
     const hold = await t.mutation(api.bookings.createHold, {
@@ -297,7 +325,7 @@ describe('promo code lifecycle', () => {
   });
 
   it('rejects inactive, expired, and unknown codes', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await seedPromo(t, fx, { active: false });
     await expect(
@@ -311,7 +339,7 @@ describe('promo code lifecycle', () => {
   it('enforces the total-usage cap transactionally and releases slots on expiry', async () => {
     vi.useFakeTimers();
     try {
-      const t = convexTest(schema, modules);
+      const t = makeT();
       const fx = await seedFixture(t);
       await seedPromo(t, fx, { maxRedemptions: 1 });
 
@@ -342,7 +370,7 @@ describe('promo code lifecycle', () => {
 
   it('enforces once-per-guest across reserved and applied redemptions', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await seedPromo(t, fx, { oncePerGuest: true });
 
@@ -368,7 +396,7 @@ describe('promo code lifecycle', () => {
   });
 
   it('enforces minimum spend against the pre-promo subtotal', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await seedPromo(t, fx, { minSubtotalCents: 25_000 });
     await expect(
@@ -383,7 +411,7 @@ describe('promo code lifecycle', () => {
 
   it('an APPLIED redemption stays consumed when the confirmed booking cancels', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     const promoId = await seedPromo(t, fx, { maxRedemptions: 1 });
 
@@ -411,7 +439,7 @@ describe('promo code lifecycle', () => {
   });
 
   it('a RESERVED redemption is released when an unpaid hold is cancelled', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     const promoId = await seedPromo(t, fx, { maxRedemptions: 1 });
 
@@ -440,7 +468,7 @@ describe('unitNights invariant', () => {
   it('active bookings own exactly their stay+prep rows; released on expiry', async () => {
     vi.useFakeTimers();
     try {
-      const t = convexTest(schema, modules);
+      const t = makeT();
       const fx = await seedFixture(t, { prepBufferNights: 1 });
       const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
 
@@ -469,7 +497,7 @@ describe('unitNights invariant', () => {
   });
 
   it('repairUnitNights rebuilds rows exactly', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t, { prepBufferNights: 1 });
     const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
 

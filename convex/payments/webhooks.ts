@@ -1,5 +1,7 @@
 import { v } from 'convex/values';
 import { internalAction } from '../_generated/server';
+import { internal } from '../_generated/api';
+import { getProvider } from './index';
 
 /**
  * Webhook processing pipeline (M1, builder B; signatures FIXED — http.ts
@@ -11,23 +13,17 @@ import { internalAction } from '../_generated/server';
  *     processed on a bad signature.
  *  2. kind 'ignored' → { status: 200 } (acknowledged, no-op).
  *  3. kind 'payment_succeeded' → runMutation
- *     internal.bookings.confirmFromPayment { provider, eventId, checkoutId,
- *     providerPaymentId, amountCents, currency }. That mutation is the single
- *     serializable transaction that: checks-and-inserts webhookEvents
- *     (idempotency — duplicate eventId returns outcome 'duplicate' and writes
- *     nothing), flips the pending payments row to 'paid' with per-payment GST
- *     extraction round(amt×rate/(10000+rate)), confirms the hold (or
- *     re-acquires nights if the hold expired; if nights are gone → status
- *     'payment_conflict'), applies the promo redemption, and schedules the
- *     confirmation email (internal.email.sendBookingEmail).
- *     If outcome is 'payment_conflict' → schedule refundPayment (below) for
- *     the full captured amount + the apology email.
+ *     internal.bookings.confirmFromPayment. That single serializable mutation
+ *     handles idempotency, the paid flip with per-payment GST extraction, the
+ *     hold→confirmed transition (or re-acquire / payment_conflict), promo
+ *     application, and scheduling the confirmation email. On a
+ *     'payment_conflict' outcome the refund + apology email were ALREADY
+ *     scheduled INSIDE the mutation — handleWebhook stays thin.
  *  4. kind 'payment_failed' / 'checkout_expired' → runMutation
- *     internal.bookings.markCheckoutFailed { provider, eventId, checkoutId }
- *     (flips pending payments row to 'failed'; booking stays 'hold' and the
- *     2-min cron owns expiry).
- *  5. Always { status: 200 } for authentic events, even on outcome
- *     'duplicate' — providers retry non-2xx forever.
+ *     internal.bookings.markCheckoutFailed (flips the pending row to 'failed';
+ *     the booking stays 'hold' and the 2-min cron owns expiry).
+ *  5. Always { status: 200 } for authentic events, even on 'duplicate' /
+ *     'orphan' — providers retry non-2xx forever, and re-delivery is a no-op.
  */
 export const handleWebhook = internalAction({
   args: {
@@ -36,19 +32,60 @@ export const handleWebhook = internalAction({
     headers: v.record(v.string(), v.string()),
     requestUrl: v.string(),
   },
-  handler: async (): Promise<{ status: number }> => {
-    // builder B — until implemented, acknowledge nothing.
-    return { status: 501 };
+  handler: async (ctx, args): Promise<{ status: number }> => {
+    const provider = getProvider(args.provider);
+    const parsed = await provider.verifyAndParseWebhook({
+      body: args.body,
+      headers: args.headers,
+      requestUrl: args.requestUrl,
+    });
+
+    // Bad signature → process NOTHING. 400 tells the provider to stop.
+    if (parsed === null) return { status: 400 };
+
+    if (parsed.kind === 'ignored') return { status: 200 };
+
+    if (parsed.kind === 'payment_succeeded') {
+      // A success event without the join key / amount can't be processed;
+      // acknowledge so the provider stops retrying an event we can't use.
+      if (!parsed.checkoutId || parsed.amountCents === undefined) {
+        return { status: 200 };
+      }
+      await ctx.runMutation(internal.bookings.confirmFromPayment, {
+        provider: args.provider,
+        eventId: parsed.eventId,
+        eventType: parsed.kind,
+        checkoutId: parsed.checkoutId,
+        providerPaymentId: parsed.providerPaymentId,
+        amountCents: parsed.amountCents,
+        currency: parsed.currency ?? '',
+      });
+      // The refund + apology email on a 'payment_conflict' outcome are scheduled
+      // inside confirmFromPayment — nothing more to do here. Authentic → 200.
+      return { status: 200 };
+    }
+
+    // payment_failed | checkout_expired.
+    if (parsed.checkoutId) {
+      await ctx.runMutation(internal.bookings.markCheckoutFailed, {
+        provider: args.provider,
+        eventId: parsed.eventId,
+        eventType: parsed.kind,
+        checkoutId: parsed.checkoutId,
+      });
+    }
+    return { status: 200 };
   },
 });
 
 /**
  * Provider refund executor — called from confirmFromPayment's payment_conflict
- * path and from guest cancellation of provider-paid bookings. On provider
- * success, runMutation internal.bookings.recordRefund appends to the payments
- * row's refunds[] and updates its status (refunded / partially_refunded).
- * Retries: schedule self up to 3 times on transient provider failure, then
- * emailLog a 'refund_failed' alert for staff.
+ * path and from guest cancellation of provider-paid bookings. Loads the payment
+ * (actions have no db → internal.bookings.getPayment), calls the provider
+ * refund, then runMutation internal.bookings.recordRefund appends to refunds[]
+ * and updates status. Retries: on transient provider failure, reschedule self
+ * (attempt < 3, backoff 60s·attempt). After the final attempt, write an
+ * emailLog 'refund_failed' alert row for staff via internal.email.writeLog.
  */
 export const refundPayment = internalAction({
   args: {
@@ -57,7 +94,64 @@ export const refundPayment = internalAction({
     reason: v.string(),
     attempt: v.optional(v.number()),
   },
-  handler: async (): Promise<void> => {
-    throw new Error('NOT_IMPLEMENTED: refundPayment (builder B)');
+  handler: async (ctx, args): Promise<void> => {
+    const attempt = args.attempt ?? 1;
+    const MAX_ATTEMPTS = 3;
+
+    const payment = await ctx.runQuery(internal.bookings.getPayment, {
+      paymentId: args.paymentId,
+    });
+    if (!payment) {
+      // Nothing to refund against — the row vanished; give up quietly.
+      return;
+    }
+    // Only stripe/square refund through a provider. simulated/manual/gift are
+    // recorded inline by their own flows; nothing to call here.
+    if (
+      (payment.provider !== 'stripe' && payment.provider !== 'square') ||
+      !payment.providerPaymentId
+    ) {
+      return;
+    }
+    // Already fully refunded (a retry raced a prior success) → idempotent stop.
+    if (payment.status === 'refunded') return;
+
+    const provider = getProvider(payment.provider);
+    try {
+      const { providerRefundId } = await provider.refund({
+        providerPaymentId: payment.providerPaymentId,
+        amountCents: args.amountCents,
+        currency: payment.currency,
+        reason: args.reason,
+      });
+      await ctx.runMutation(internal.bookings.recordRefund, {
+        paymentId: args.paymentId,
+        amountCents: args.amountCents,
+        providerRefundId,
+        reason: args.reason,
+      });
+    } catch (error) {
+      if (attempt < MAX_ATTEMPTS) {
+        // Transient — back off linearly (60s, 120s) and retry.
+        await ctx.scheduler.runAfter(attempt * 60_000, internal.payments.webhooks.refundPayment, {
+          paymentId: args.paymentId,
+          amountCents: args.amountCents,
+          reason: args.reason,
+          attempt: attempt + 1,
+        });
+        return;
+      }
+      // Out of retries — surface a staff alert so a human refunds manually.
+      const message = error instanceof Error ? error.message : String(error);
+      await ctx.runMutation(internal.email.writeLog, {
+        propertyId: payment.propertyId,
+        to: 'staff',
+        templateKey: 'refund_failed',
+        subject: `Refund failed for payment ${args.paymentId} (${args.amountCents}¢)`,
+        bookingId: payment.bookingId ?? undefined,
+        status: 'failed',
+        error: message,
+      });
+    }
   },
 });

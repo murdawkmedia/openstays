@@ -1,5 +1,16 @@
 import { v } from 'convex/values';
-import { internalAction, internalMutation } from './_generated/server';
+import { internalAction, internalMutation, internalQuery } from './_generated/server';
+import { internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
+import type { BookingEmailData } from './emailTemplates';
+import { renderCancellation, renderConfirmation, renderPaymentConflict } from './emailTemplates';
+
+/** getEmailContext's return shape: template data + delivery-only fields. */
+export type EmailContext = BookingEmailData & {
+  propertyId: Id<'properties'>;
+  guestEmail: string;
+  refundCents: number;
+};
 
 /**
  * Transactional email (M1, builder E; signatures FIXED — bookings.ts schedules
@@ -32,8 +43,234 @@ export const sendBookingEmail = internalAction({
     ),
     attempt: v.optional(v.number()),
   },
-  handler: async (): Promise<void> => {
-    // builder E — until implemented, a silent no-op so booking flows never block.
+  handler: async (ctx, args): Promise<void> => {
+    const templateKey = args.kind;
+
+    // Idempotency: skip if this (bookingId, templateKey) already sent/logged.
+    const priorStatus: 'sent' | 'logged' | null = await ctx.runQuery(
+      internal.email.getPriorLogStatus,
+      { bookingId: args.bookingId, templateKey },
+    );
+    if (priorStatus === 'sent' || priorStatus === 'logged') {
+      return;
+    }
+
+    const context: EmailContext | null = await ctx.runQuery(internal.email.getEmailContext, {
+      bookingId: args.bookingId,
+    });
+    if (!context) {
+      // Booking/property/guest vanished — nothing sane to send or log against.
+      return;
+    }
+
+    let rendered;
+    if (args.kind === 'confirmation') {
+      rendered = renderConfirmation(context);
+    } else if (args.kind === 'cancellation') {
+      rendered = renderCancellation({ ...context, refundCents: context.refundCents });
+    } else {
+      rendered = renderPaymentConflict(context);
+    }
+
+    const demoMode = process.env.DEMO_MODE === 'true';
+    const apiKey = process.env.RESEND_API_KEY;
+
+    if (demoMode || !apiKey) {
+      await ctx.runMutation(internal.email.writeLog, {
+        propertyId: context.propertyId,
+        to: context.guestEmail,
+        templateKey,
+        subject: rendered.subject,
+        bookingId: args.bookingId,
+        status: 'logged',
+      });
+      return;
+    }
+
+    const logId = await ctx.runMutation(internal.email.writeLog, {
+      propertyId: context.propertyId,
+      to: context.guestEmail,
+      templateKey,
+      subject: rendered.subject,
+      bookingId: args.bookingId,
+      status: 'queued',
+    });
+
+    const from = process.env.EMAIL_FROM ?? `${context.propertyName} <no-reply@example.com>`;
+
+    let response: Response;
+    try {
+      response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from,
+          to: context.guestEmail,
+          subject: rendered.subject,
+          html: rendered.html,
+          text: rendered.text,
+        }),
+      });
+    } catch (error) {
+      // Network failure — transient, treated like a 5xx.
+      await retryOrFail(ctx, logId, args, error instanceof Error ? error.message : 'Network error');
+      return;
+    }
+
+    if (response.ok) {
+      let providerMessageId: string | undefined;
+      try {
+        const body: unknown = await response.json();
+        providerMessageId =
+          body && typeof body === 'object' && 'id' in body && typeof (body as { id: unknown }).id === 'string'
+            ? (body as { id: string }).id
+            : undefined;
+      } catch {
+        providerMessageId = undefined;
+      }
+      await ctx.runMutation(internal.email.updateLog, {
+        logId,
+        status: 'sent',
+        providerMessageId,
+      });
+      return;
+    }
+
+    if (response.status >= 400 && response.status < 500) {
+      const errorText = await safeText(response);
+      await ctx.runMutation(internal.email.updateLog, {
+        logId,
+        status: 'failed',
+        error: `HTTP ${response.status}: ${errorText}`,
+      });
+      return;
+    }
+
+    // 5xx — transient, retry with backoff.
+    const errorText = await safeText(response);
+    await retryOrFail(ctx, logId, args, `HTTP ${response.status}: ${errorText}`);
+  },
+});
+
+async function safeText(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
+}
+
+async function retryOrFail(
+  ctx: {
+    runMutation: (fn: typeof internal.email.updateLog, args: {
+      logId: Id<'emailLog'>;
+      status: 'sent' | 'failed';
+      providerMessageId?: string;
+      error?: string;
+    }) => Promise<unknown>;
+    scheduler: {
+      runAfter: (
+        delayMs: number,
+        fn: typeof internal.email.sendBookingEmail,
+        args: { bookingId: Id<'bookings'>; kind: 'confirmation' | 'cancellation' | 'payment_conflict'; attempt: number },
+      ) => Promise<unknown>;
+    };
+  },
+  logId: Id<'emailLog'>,
+  args: { bookingId: Id<'bookings'>; kind: 'confirmation' | 'cancellation' | 'payment_conflict'; attempt?: number },
+  error: string,
+): Promise<void> {
+  const attempt = args.attempt ?? 0;
+  if (attempt < 3) {
+    await ctx.scheduler.runAfter(60_000 * (attempt + 1), internal.email.sendBookingEmail, {
+      bookingId: args.bookingId,
+      kind: args.kind,
+      attempt: attempt + 1,
+    });
+    return;
+  }
+  await ctx.runMutation(internal.email.updateLog, {
+    logId,
+    status: 'failed',
+    error,
+  });
+}
+
+/** Read the most recent emailLog status for (bookingId, templateKey), if any. (builder E) */
+export const getPriorLogStatus = internalQuery({
+  args: { bookingId: v.id('bookings'), templateKey: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query('emailLog')
+      .withIndex('by_booking', (q) => q.eq('bookingId', args.bookingId))
+      .collect();
+    const matching = rows.filter((r) => r.templateKey === args.templateKey);
+    if (matching.some((r) => r.status === 'sent')) return 'sent';
+    if (matching.some((r) => r.status === 'logged')) return 'logged';
+    return null;
+  },
+});
+
+/**
+ * Load booking + property + guest → the BookingEmailData shape plus guestEmail
+ * and propertyId (needed by sendBookingEmail but not part of the template
+ * data itself). paidCents = sum of 'paid' payments for this booking;
+ * balanceDueCents = priceBreakdown.totalCents − paidCents (never negative).
+ * manageUrl = `${SITE_URL}/manage/${confirmationCode}`. (builder E)
+ */
+export const getEmailContext = internalQuery({
+  args: { bookingId: v.id('bookings') },
+  handler: async (ctx, args): Promise<EmailContext | null> => {
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) return null;
+    const property = await ctx.db.get(booking.propertyId);
+    if (!property) return null;
+    const unitType = await ctx.db.get(booking.unitTypeId);
+    const guest = booking.guestId ? await ctx.db.get(booking.guestId) : null;
+
+    const payments = await ctx.db
+      .query('payments')
+      .withIndex('by_booking', (q) => q.eq('bookingId', args.bookingId))
+      .collect();
+    // paidCents counts the amount actually captured (paid, or the still-paid
+    // remainder of a partial refund). Fully refunded payments contribute 0.
+    const paidCents = payments
+      .filter((p) => p.status === 'paid' || p.status === 'partially_refunded')
+      .reduce((sum, p) => sum + p.amountCents, 0);
+    const refundCents = payments.reduce(
+      (sum, p) => sum + p.refunds.reduce((rsum, r) => rsum + r.amountCents, 0),
+      0,
+    );
+
+    const totalCents = booking.priceBreakdown?.totalCents ?? 0;
+    const balanceDueCents = Math.max(0, totalCents - paidCents);
+
+    const siteUrl = process.env.SITE_URL ?? '';
+    const manageUrl = `${siteUrl}/manage/${booking.confirmationCode}`;
+
+    return {
+      guestName: guest?.name ?? 'Guest',
+      guestEmail: guest?.email ?? '',
+      propertyId: booking.propertyId,
+      propertyName: property.name,
+      propertyEmail: property.email,
+      propertyPhone: property.phone,
+      unitTypeName: unitType?.name ?? '',
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      nights: booking.nights,
+      confirmationCode: booking.confirmationCode,
+      currency: property.currency,
+      taxLabel: property.taxLabel ?? 'Tax',
+      totalCents,
+      paidCents,
+      balanceDueCents,
+      refundCents,
+      manageUrl,
+    };
   },
 });
 

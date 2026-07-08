@@ -141,15 +141,21 @@ VITE_CONVEX_URL=
 # These are NOT read from this file. Set them per deployment with:
 #   npx convex env set NAME value
 #
-# Payments (configure one or both; M1+):
+# Payments (configure one or both; M1, in progress):
 #   STRIPE_SECRET_KEY            sk_live_... / sk_test_...
 #   STRIPE_WEBHOOK_SECRET        whsec_...
 #   SQUARE_ACCESS_TOKEN
 #   SQUARE_LOCATION_ID
 #   SQUARE_WEBHOOK_SIGNATURE_KEY
+#   SQUARE_ENV                   'sandbox' | 'production'
 #
-# Email (M1+):
+# Staff/admin auth (M1, in progress — Convex Auth):
+#   JWT_PRIVATE_KEY
+#   JWKS
+#
+# Email (M1, in progress):
 #   RESEND_API_KEY
+#   EMAIL_FROM
 #
 # App:
 #   SITE_URL                     https://your-booking-site.example
@@ -157,6 +163,32 @@ VITE_CONVEX_URL=
 #                                (enables simulated payments + nightly reset)
 ```
 
-Everything marked **M1** isn't wired up yet in this early snapshot of the
-project — see [Payments](/concepts/payments) and the [roadmap](/roadmap) for
+**Binding rule: secrets only via `npx convex env set`.** Every variable below
+is a Convex deployment env var, never a row in the `settings` table and never
+committed to this repo. The `settings` table is for non-secret deployment
+prefs only (branding, GST number, default provider) — see
+[self-hosting](/self-hosting) for the exact setup commands for each provider.
+
+Everything below is **M1 — in progress**: the code paths exist in this
+snapshot but aren't fully wired end-to-end yet. See [Payments](/concepts/payments),
+the [lifecycle concepts](/concepts/payments), and the [roadmap](/roadmap) for
 what's implemented today versus what's landing next.
+
+| Variable | Purpose | If unset |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | Restricted API key used server-side to create Stripe Checkout Sessions. | Stripe isn't "configured" for this deployment — the Stripe button is absent from checkout; guests only see providers that are configured. |
+| `STRIPE_WEBHOOK_SECRET` | Verifies that incoming `/webhooks/stripe` requests are authentically from Stripe (signature check) before any booking state changes. | Same as above — a deployment needs both Stripe vars to offer Stripe at all. |
+| `SQUARE_ACCESS_TOKEN` | Server-side token used to create Square Payment Links. | Square isn't configured — the Square button is absent from checkout. |
+| `SQUARE_LOCATION_ID` | The Square location the Payment Link is created against. | Same as above. |
+| `SQUARE_WEBHOOK_SIGNATURE_KEY` | Verifies incoming `/webhooks/square` requests are authentically from Square. | Same as above. |
+| `SQUARE_ENV` | `'sandbox'` or `'production'` — selects which Square API base URL and credentials set applies. | Defaults to sandbox behavior; always set explicitly for a real deployment so you don't accidentally run production traffic against sandbox credentials (or vice versa). |
+| `SITE_URL` | Frontend origin used to build Checkout success/cancel redirect URLs, Payment Link redirects, and links inside guest emails. | Checkout session creation and email links can't be built correctly — set this before enabling any real provider. |
+| `RESEND_API_KEY` | Bearer token for the Resend API, used to actually send guest/staff transactional email. | Email sends degrade to an `emailLog` row with `status: 'logged'` instead of a real send — nothing errors, nothing blocks the booking flow, but guests don't receive email. This is also the default on `DEMO_MODE=true` deployments regardless of this key. |
+| `EMAIL_FROM` | The `From:` address/name Resend sends as, e.g. `'Pinewood Flats <stays@pinewood.example>'`. | Falls back to a generic sender identity (or the send is only logged if `RESEND_API_KEY` is also unset) — set this alongside `RESEND_API_KEY` so confirmation emails look like they came from your property. |
+| `DEMO_MODE` | `"true"` ONLY on the public demo deployment. Enables simulated payments (`bookings.confirmSimulated`) and the nightly reset cron. | Real payment providers and real staff-managed data are in play — this is the correct state for every real operator deployment. |
+| `JWT_PRIVATE_KEY` | Convex Auth's RS256 private key (PKCS8 PEM) used to sign staff session JWTs. | Staff sign-in cannot issue valid sessions — the `/admin/login` flow will fail. Generate this once per deployment; see [self-hosting](/self-hosting). |
+| `JWKS` | The matching public JWKS document Convex Auth uses to verify the JWTs `JWT_PRIVATE_KEY` signs. | Same as above — these two are generated together and both required. |
+
+Note `JWT_PRIVATE_KEY`/`JWKS` gate **staff/admin** auth only. Guests never
+have accounts — manage-booking access is confirmation code + email match, as
+today (see binding convention #10 in `CLAUDE.md`).

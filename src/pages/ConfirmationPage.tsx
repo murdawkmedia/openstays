@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from 'convex/react';
-import { PartyPopper } from 'lucide-react';
+import { PartyPopper, ShieldAlert } from 'lucide-react';
 
 import { api } from '../../convex/_generated/api';
 import { Spinner } from '../components/Spinner';
@@ -11,18 +11,52 @@ import { NotFoundPage } from './NotFoundPage';
 /**
  * NEVER trust navigation state here — only the reactive query result decides
  * what's shown (CLAUDE.md convention #9). A 'hold' status means the payment
- * mutation hasn't landed yet (still finalizing); render accordingly.
+ * mutation/webhook hasn't landed yet (still finalizing); render accordingly.
  */
 export function ConfirmationPage() {
   const { code } = useParams<{ code: string }>();
   const booking = useQuery(api.bookings.byConfirmationCode, code ? { code } : 'skip');
+  // Single-operator-per-deployment (CLAUDE.md #8): configList always
+  // describes the one property this deployment serves.
+  const propertyConfigs = useQuery(api.properties.configList);
 
   if (!code) return <NotFoundPage />;
   if (booking === undefined) return <Spinner label="Loading your confirmation…" />;
   if (booking === null) return <NotFoundPage />;
 
   if (booking.status === 'hold') {
-    return <Spinner label="Finalizing your booking…" />;
+    // Real payment providers confirm asynchronously via webhook — the guest
+    // can land here a few seconds before that lands. This is NOT an error
+    // state; the query will flip to 'confirmed' (or 'payment_conflict') on
+    // its own once the webhook processes.
+    return <Spinner label="Finalizing your payment… this can take a few seconds." />;
+  }
+
+  if (booking.status === 'payment_conflict') {
+    const property = propertyConfigs?.[0];
+    return (
+      <div className="card p-8 text-center">
+        <ShieldAlert className="mx-auto h-10 w-10 text-amber-600" aria-hidden="true" />
+        <h1 className="mt-3 text-2xl font-semibold text-stone-900">We couldn't hold these dates</h1>
+        <p className="mt-2 text-stone-500">
+          Your payment came through after the hold on these dates had already lapsed, and someone else booked
+          them in the meantime. We're very sorry for the mix-up — a full refund is on its way and should appear
+          on your statement within a few business days.
+        </p>
+        {property ? (
+          <p className="mt-4 text-sm text-stone-600">
+            Questions? Contact {property.name} at{' '}
+            <a className="font-medium text-emerald-700 underline" href={`mailto:${property.email}`}>
+              {property.email}
+            </a>{' '}
+            or {property.phone}.
+          </p>
+        ) : null}
+        <Link to="/" className="btn-primary mt-6 inline-flex">
+          Back to home
+        </Link>
+      </div>
+    );
   }
 
   if (booking.status === 'expired' || booking.status === 'cancelled') {

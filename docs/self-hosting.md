@@ -88,3 +88,144 @@ these two things:
 Never set `DEMO_MODE=true` on a deployment holding real guest data — it
 exists solely for the public demo instance and for kicking the tires
 locally without a payment provider configured.
+
+## Payment providers (M1 — in progress)
+
+Configure Stripe, Square, or both — whichever a deployment has env vars for
+is what the guest checkout UI offers. Neither is required; a deployment with
+neither configured falls back to manual (front-desk) payment recording, or
+`DEMO_MODE`'s simulated path for kicking the tires. See
+[Environment variables](/configuration#environment-variables) for the full
+variable reference and graceful-degradation behavior.
+
+**Sandbox-first**: get both providers working in test/sandbox mode against a
+dev or staging Convex deployment before pointing live keys at a deployment
+that takes real guest payments.
+
+### Stripe
+
+1. In the [Stripe dashboard](https://dashboard.stripe.com), create a
+   **restricted key** scoped to Checkout Sessions and (if you want refunds
+   executed from the app) Refunds — avoid using a full secret key. Set it:
+   ```bash
+   npx convex env set STRIPE_SECRET_KEY sk_test_...
+   ```
+2. Add a webhook endpoint pointing at your deployment's HTTP actions URL:
+   ```
+   https://<your-deployment>.convex.site/webhooks/stripe
+   ```
+   Subscribe it to the `checkout.session.*` events (completed, expired, and
+   async payment failed/succeeded, as applicable to your integration).
+3. Copy the endpoint's signing secret and set it:
+   ```bash
+   npx convex env set STRIPE_WEBHOOK_SECRET whsec_...
+   ```
+4. Start in Stripe **test mode** (`sk_test_...` keys, test webhook endpoint)
+   and confirm a full hold → checkout → webhook → confirmed cycle before
+   switching to live keys.
+
+### Square
+
+1. Create a Square application in the
+   [Square Developer Dashboard](https://developer.squareup.com/apps) and
+   generate an **access token** for the environment you're targeting
+   (sandbox first):
+   ```bash
+   npx convex env set SQUARE_ACCESS_TOKEN ...
+   npx convex env set SQUARE_ENV sandbox
+   ```
+2. Find your **location id** (Square dashboard → Locations, or the Locations
+   API) and set it:
+   ```bash
+   npx convex env set SQUARE_LOCATION_ID ...
+   ```
+3. Create a webhook subscription pointing at:
+   ```
+   https://<your-deployment>.convex.site/webhooks/square
+   ```
+   Subscribe it to `payment.updated` (Square Payment Links drive confirmation
+   through payment status changes rather than a dedicated checkout-session
+   event).
+4. Copy the subscription's signature key and set it:
+   ```bash
+   npx convex env set SQUARE_WEBHOOK_SIGNATURE_KEY ...
+   ```
+5. Verify a full cycle in `SQUARE_ENV=sandbox` before switching
+   `SQUARE_ENV=production` with production credentials.
+
+## Staff/admin authentication (M1 — in progress)
+
+Staff sign-in uses [Convex Auth](https://labs.convex.dev/auth) with an
+email+password provider. A signed-up user grants nothing by itself — every
+staff-only query/mutation requires an active `staffProfiles` row (see
+`convex/staff.ts`), which only an owner or the one-time bootstrap command
+below can create.
+
+1. Generate an RS256 keypair and JWKS document for Convex Auth to sign and
+   verify staff session tokens. The standard Convex Auth snippet does this
+   for you — run it once per deployment and capture the two outputs:
+   ```bash
+   npx @convex-dev/auth
+   ```
+   (If you're wiring this up by hand instead: generate an RS256 keypair,
+   export the private key as PKCS8 PEM, and derive the matching public JWKS
+   document from it.)
+2. Set the generated values and your frontend origin as deployment env vars:
+   ```bash
+   npx convex env set JWT_PRIVATE_KEY -- "<pkcs8 pem>"
+   npx convex env set JWKS '<jwks json>'
+   npx convex env set SITE_URL https://<frontend-host>
+   ```
+3. With the app running against that deployment, sign up the first staff
+   account at `/admin/login` (email + password) — this creates the
+   `users` row but grants no staff rights yet.
+4. Bootstrap that user to `owner` (refuses if an owner already exists):
+   ```bash
+   npx convex run staff:bootstrap '{"email":"you@example.com","name":"Your Name"}'
+   ```
+5. From then on, the owner grants additional staff accounts from the admin
+   UI (`staff.grantStaff`) — the bootstrap command is a one-time, orchestrator-run
+   step, not a recurring admin action.
+
+## Email (M1 — in progress)
+
+Transactional email (booking confirmations, cancellations, payment-conflict
+apologies) sends via [Resend](https://resend.com).
+
+1. Add and verify your sending domain in the Resend dashboard.
+2. Create an API key and set it:
+   ```bash
+   npx convex env set RESEND_API_KEY re_...
+   ```
+3. Set the sender identity emails go out as:
+   ```bash
+   npx convex env set EMAIL_FROM "Pinewood Flats <stays@pinewood.example>"
+   ```
+
+Until `RESEND_API_KEY` is set (or whenever `DEMO_MODE=true`), sends degrade
+to an `emailLog` row with `status: 'logged'` instead of a real delivery —
+nothing in the booking flow blocks or errors because email isn't configured.
+
+## iCal import (M1 — in progress)
+
+Two-way iCal keeps an externally-listed calendar (a direct Airbnb listing, a
+legacy PMS bridge) from double-booking against this deployment. Export
+(`/ical/u/<token>.ics`) already ships; **import** pulls external feeds in on
+a 15-minute cron.
+
+1. From the admin unit editor (or directly in the Convex dashboard against a
+   unit's `icalImports` array), add an entry per external feed:
+   `{ url, label }` — e.g. `label: 'Airbnb'` pointing at that listing's
+   exported `.ics` URL.
+2. The 15-minute sync cron picks up every active unit's `icalImports`
+   entries, fetches each feed, and reconciles events against this unit's
+   bookings. `lastSyncedAt` / `lastStatus` on the entry reflect the most
+   recent attempt; one failing feed doesn't block sync for any other
+   unit or feed.
+3. **Conflicts are never auto-resolved.** External events never displace an
+   internal booking — if an imported event's nights overlap an existing
+   internal booking, the internal booking stays authoritative, the external
+   event is recorded flagged (`syncConflict`), and staff resolve it manually
+   on the booking tape. See
+   [iCal import conflict semantics](/concepts/payments#ical-import-conflict-semantics-m1-—-in-progress)
+   for the full conflict semantics.

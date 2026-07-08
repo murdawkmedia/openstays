@@ -13,6 +13,33 @@ import { addDays } from '../shared/pricing';
 
 const modules = import.meta.glob('./**/!(*.*.*)*.*s');
 
+// Booking mutations now fire-and-forget schedule transactional emails
+// (internal.email.sendBookingEmail) via ctx.scheduler.runAfter(0, …). In
+// convex-test those execute on a real setTimeout(0); if the test ends before
+// they run, their internal job-state write lands "outside a transaction" on the
+// disposed fake DB and surfaces as an unhandled error. Track every t created in
+// this file and deterministically drain its scheduled functions in afterEach.
+const created: Array<ReturnType<typeof convexTest>> = [];
+function makeT() {
+  const t = convexTest(schema, modules);
+  created.push(t);
+  return t;
+}
+async function drainAll() {
+  for (const t of created) {
+    for (let i = 0; i < 50; i += 1) {
+      const pending = await t.run(async (ctx) => {
+        const jobs = await ctx.db.system.query('_scheduled_functions').collect();
+        return jobs.filter((j) => j.state.kind === 'pending' || j.state.kind === 'inProgress').length;
+      });
+      if (pending === 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await t.finishInProgressScheduledFunctions();
+    }
+  }
+  created.length = 0;
+}
+
 const today = new Date().toISOString().slice(0, 10);
 const D = (offset: number) => addDays(today, offset);
 
@@ -145,7 +172,8 @@ async function seedPromo(
   );
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await drainAll();
   vi.unstubAllEnvs();
 });
 
@@ -158,7 +186,7 @@ afterEach(() => {
 describe('FINDING 1: deposit payment carries full-invoice GST', () => {
   it('a percent-deposit confirmation records more GST than it collected', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
-    const t = convexTest(schema, modules);
+    const t = makeT();
     // 25% deposit on a $200 + $10 GST = $210 invoice → deposit $52.50 → 5250¢.
     const fx = await seedFixture(t, { depositPolicy: { type: 'percent', value: 25 } });
     const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(12)));
@@ -189,7 +217,7 @@ describe('FINDING 1: deposit payment carries full-invoice GST', () => {
 describe('FINDING 2: once-per-guest re-grantable by cancelling', () => {
   it('lets the same email redeem a once-per-guest code twice via cancel', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await seedPromo(t, fx, { oncePerGuest: true });
 
@@ -221,7 +249,7 @@ describe('FINDING 2: once-per-guest re-grantable by cancelling', () => {
 describe('FINDING 3: maxRedemptions cap survives cancellation', () => {
   it('rejects a 2nd redemption of a max=1 code after the 1st confirms then cancels', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await seedPromo(t, fx, { maxRedemptions: 1 });
 
@@ -254,7 +282,7 @@ describe('FINDING 3: maxRedemptions cap survives cancellation', () => {
 // ---------------------------------------------------------------------------
 describe('FINDING 4: cancel of an unpaid hold', () => {
   it('cancelling a hold releases redemption and refunds zero', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     const promoId = await seedPromo(t, fx, { maxRedemptions: 1 });
     const hold = await t.mutation(api.bookings.createHold, {
@@ -280,7 +308,7 @@ describe('FINDING 4: cancel of an unpaid hold', () => {
 // ---------------------------------------------------------------------------
 describe('FINDING 5: once-per-guest email-alias bypass', () => {
   it('lets one human redeem a once-per-guest code via plus-addressing', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     await seedPromo(t, fx, { oncePerGuest: true });
 
@@ -312,7 +340,7 @@ describe('FINDING 6: confirm-after-expiry double-book probe', () => {
     vi.useFakeTimers();
     try {
       vi.stubEnv('DEMO_MODE', 'true');
-      const t = convexTest(schema, modules);
+      const t = makeT();
       const fx = await seedFixture(t);
       const first = await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
 
@@ -347,7 +375,7 @@ describe('FINDING 6: confirm-after-expiry double-book probe', () => {
 describe('FINDING 7: re-confirm after cancel double-charge probe', () => {
   it('refuses to re-confirm a cancelled booking', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(30), D(32)));
     await t.mutation(api.bookings.confirmSimulated, { bookingId: hold.bookingId });
@@ -378,7 +406,7 @@ describe('FINDING 7: re-confirm after cancel double-charge probe', () => {
 describe('FINDING 8: double-cancel redemption-count integrity', () => {
   it('a second cancel does not corrupt redemptionCount', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
-    const t = convexTest(schema, modules);
+    const t = makeT();
     const fx = await seedFixture(t);
     const promoId = await seedPromo(t, fx, { maxRedemptions: 5 });
     // Two independent guests redeem, bringing count to 2.
