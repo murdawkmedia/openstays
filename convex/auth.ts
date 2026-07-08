@@ -45,7 +45,14 @@ export const oauthConfigured = {
 const providers: Parameters<typeof convexAuth>[0]['providers'] = [Password];
 if (oauthConfigured.github) providers.push(GitHub);
 if (oauthConfigured.google) providers.push(Google);
-if (oauthConfigured.microsoft) providers.push(MicrosoftEntraID);
+// @convex-dev/auth materializes a bare provider function by calling it with NO
+// argument (provider_utils materializeAndDefaultProviders: `provider()`).
+// GitHub/Google tolerate an undefined config (they use `config?.`), but
+// @auth/core's MicrosoftEntraID destructures `const { profilePhotoSize = 48 }
+// = config` and throws on undefined. Pass an explicit `{}` so it materializes;
+// clientId/clientSecret/issuer are still filled from AUTH_MICROSOFT_ENTRA_ID_*
+// env vars by setEnvDefaults, exactly like the other providers.
+if (oauthConfigured.microsoft) providers.push(MicrosoftEntraID({}));
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers,

@@ -31,6 +31,7 @@ export default defineConfig({
         items: [
           { text: 'Availability & holds', link: '/concepts/availability' },
           { text: 'Payments', link: '/concepts/payments' },
+          { text: 'Staff & auth', link: '/concepts/staff-auth' },
         ],
       },
       {

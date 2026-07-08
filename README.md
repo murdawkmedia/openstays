@@ -44,8 +44,11 @@ Landing now, not yet live for real guests — see the
   Links behind one `PaymentProvider` interface, confirmation driven by
   verified webhooks (never a client redirect), executed refunds.
 - **Staff logins** — Convex Auth email+password for the admin/front-desk
-  side; a signed-up account grants nothing until explicitly promoted to
-  staff.
+  side, plus optional "Sign in with GitHub / Google / Microsoft" once a
+  deployment sets that provider's credentials; a signed-up account (by any
+  method) grants nothing until explicitly promoted to staff. Every staff
+  action is recorded in an append-only activity audit log, viewable in
+  Settings.
 - **Guest emails** — booking confirmation and cancellation email via Resend,
   with a safe log-only fallback when unconfigured.
 - **Two-way iCal** — a 15-minute import cron pulls external calendars in

@@ -1,9 +1,14 @@
 /// <reference types="vite/client" />
 import { convexTest } from 'convex-test';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
+import { writeAudit } from './staff';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 const modules = import.meta.glob('./**/!(*.*.*)*.*s');
 
@@ -257,5 +262,170 @@ describe('staff.bootstrap', () => {
     const asUser = t.withIdentity(identityFor(userId));
     const me = await asUser.query(api.staff.me, {});
     expect(me).toEqual({ name: 'First', role: 'owner' });
+  });
+
+  it('writes a staff.bootstrap audit row', async () => {
+    const t = convexTest(schema, modules);
+    await seedUser(t, 'first@example.com', 'First');
+    await t.mutation(internal.staff.bootstrap, { email: 'first@example.com', name: 'First' });
+
+    const rows = await t.run(async (ctx) => ctx.db.query('auditLog').collect());
+    const bootstrapRow = rows.find((r) => r.action === 'staff.bootstrap');
+    expect(bootstrapRow).toBeDefined();
+    // bootstrap is an internal mutation with no signed-in identity → 'system'.
+    expect(bootstrapRow?.actorName).toBe('system');
+  });
+});
+
+describe('writeAudit actor resolution', () => {
+  it('resolves a signed-in staff member to their profile name + userId', async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await seedOwner(t, 'owner@example.com');
+    const asOwner = t.withIdentity(identityFor(ownerId));
+
+    await asOwner.run(async (ctx) => {
+      await writeAudit(ctx, 'test.action', 'a detail');
+    });
+
+    const row = await t.run(async (ctx) => (await ctx.db.query('auditLog').collect())[0]);
+    expect(row.actorName).toBe('Owner');
+    expect(row.actorUserId).toBe(ownerId);
+    expect(row.action).toBe('test.action');
+    expect(row.detail).toBe('a detail');
+    expect(typeof row.ts).toBe('number');
+  });
+
+  it('resolves an unauthenticated caller to "system" (no actorUserId)', async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await writeAudit(ctx, 'sys.action', 'system detail');
+    });
+
+    const row = await t.run(async (ctx) => (await ctx.db.query('auditLog').collect())[0]);
+    expect(row.actorName).toBe('system');
+    expect(row.actorUserId).toBeUndefined();
+  });
+
+  it('resolves an unauthenticated caller to "demo" under DEMO_MODE', async () => {
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await writeAudit(ctx, 'demo.action', 'demo detail');
+    });
+
+    const row = await t.run(async (ctx) => (await ctx.db.query('auditLog').collect())[0]);
+    expect(row.actorName).toBe('demo');
+    expect(row.actorUserId).toBeUndefined();
+  });
+});
+
+describe('audit rows on staff mutations', () => {
+  it('updateProperty writes a property.update row listing changed field names, not values', async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await seedOwner(t);
+    const propertyId = await seedProperty(t);
+    const asOwner = t.withIdentity(identityFor(ownerId));
+
+    await asOwner.mutation(api.staff.updateProperty, {
+      propertyId,
+      patch: { name: 'Renamed', gstNumber: '123456789RT0001', taxLabel: 'VAT' },
+    });
+
+    const row = await t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect()).find((r) => r.action === 'property.update'),
+    );
+    expect(row).toBeDefined();
+    expect(row?.actorName).toBe('Owner');
+    // Field NAMES are listed…
+    expect(row?.detail).toContain('name');
+    expect(row?.detail).toContain('gstNumber');
+    expect(row?.detail).toContain('taxLabel');
+    // …but the sensitive gstNumber VALUE is never in the trail.
+    expect(row?.detail).not.toContain('123456789RT0001');
+  });
+
+  it('grantStaff writes a staff.grant row and revokeStaff writes a staff.revoke row', async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await seedOwner(t);
+    await seedUser(t, 'newbie@example.com', 'Newbie');
+    const asOwner = t.withIdentity(identityFor(ownerId));
+
+    await asOwner.mutation(api.staff.grantStaff, {
+      email: 'newbie@example.com',
+      name: 'Newbie',
+      role: 'staff',
+    });
+
+    const grantRow = await t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect()).find((r) => r.action === 'staff.grant'),
+    );
+    expect(grantRow).toBeDefined();
+    expect(grantRow?.detail).toContain('newbie@example.com');
+    expect(grantRow?.detail).toContain('staff');
+
+    const list = await asOwner.query(api.staff.listStaff, {});
+    const target = list.find((s) => s.email === 'newbie@example.com');
+    await asOwner.mutation(api.staff.revokeStaff, { staffProfileId: target!.staffProfileId });
+
+    const revokeRow = await t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect()).find((r) => r.action === 'staff.revoke'),
+    );
+    expect(revokeRow).toBeDefined();
+    expect(revokeRow?.detail).toContain('Newbie');
+  });
+});
+
+describe('staff.recentActivity', () => {
+  it('returns rows newest-first, capped, staff-shaped', async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await seedOwner(t);
+    const asOwner = t.withIdentity(identityFor(ownerId));
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('auditLog', { actorName: 'A', action: 'x', detail: 'first', ts: 1 });
+      await ctx.db.insert('auditLog', { actorName: 'B', action: 'y', detail: 'second', ts: 2 });
+      await ctx.db.insert('auditLog', { actorName: 'C', action: 'z', detail: 'third', ts: 3 });
+    });
+
+    const rows = await asOwner.query(api.staff.recentActivity, {});
+    expect(rows.map((r) => r.detail)).toEqual(['third', 'second', 'first']);
+    // shape: only the four public fields, no actorUserId leak.
+    expect(Object.keys(rows[0]).sort()).toEqual(['action', 'actorName', 'detail', 'ts']);
+
+    const limited = await asOwner.query(api.staff.recentActivity, { limit: 1 });
+    expect(limited).toHaveLength(1);
+    expect(limited[0].detail).toBe('third');
+  });
+
+  it('is readable by any active staff member (not owner-only)', async () => {
+    const t = convexTest(schema, modules);
+    const staffUserId = await seedUser(t, 'staffer@example.com', 'Staffer');
+    await t.run(async (ctx) =>
+      ctx.db.insert('staffProfiles', {
+        userId: staffUserId,
+        name: 'Staffer',
+        role: 'staff',
+        active: true,
+        createdAt: Date.now(),
+      }),
+    );
+    const asStaff = t.withIdentity(identityFor(staffUserId));
+    const rows = await asStaff.query(api.staff.recentActivity, {});
+    expect(rows).toEqual([]);
+  });
+
+  it('rejects an unauthenticated (non-demo) caller', async () => {
+    const t = convexTest(schema, modules);
+    await expect(t.query(api.staff.recentActivity, {})).rejects.toThrow(/UNAUTHENTICATED/);
+  });
+
+  it('is exempt from auth under DEMO_MODE', async () => {
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) =>
+      ctx.db.insert('auditLog', { actorName: 'demo', action: 'x', detail: 'd', ts: 1 }),
+    );
+    const rows = await t.query(api.staff.recentActivity, {});
+    expect(rows).toHaveLength(1);
   });
 });

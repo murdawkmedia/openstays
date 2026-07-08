@@ -26,6 +26,44 @@ export async function requireStaff(
   return { userId, profile };
 }
 
+// ---------------------------------------------------------------------------
+// Who-did-what audit trail. writeAudit appends one auditLog row per staff
+// action (property config, staff grants, API keys, channel config). Append-
+// only; surfaced in /admin/settings via recentActivity.
+//
+// Actor resolution: getAuthUserId → staffProfile name → {actorUserId,
+// actorName}. Unauthenticated under DEMO_MODE → 'demo' (the writable public
+// demo has no real identity). Unauthenticated otherwise → 'system' (internal
+// mutations / cron have no user). `detail` MUST stay human-readable and SHORT
+// and NEVER contain secrets or tokens (only field NAMES, never gstNumber
+// values, never key hashes).
+// ---------------------------------------------------------------------------
+
+export async function writeAudit(ctx: MutationCtx, action: string, detail: string): Promise<void> {
+  const userId = await getAuthUserId(ctx);
+  let actorUserId: Id<'users'> | undefined;
+  let actorName: string;
+  if (userId !== null) {
+    const profile = await ctx.db
+      .query('staffProfiles')
+      .withIndex('by_userId', (q) => q.eq('userId', userId))
+      .unique();
+    actorUserId = userId;
+    actorName = profile?.name ?? 'unknown';
+  } else if (process.env.DEMO_MODE === 'true') {
+    actorName = 'demo';
+  } else {
+    actorName = 'system';
+  }
+  await ctx.db.insert('auditLog', {
+    actorUserId,
+    actorName,
+    action,
+    detail,
+    ts: Date.now(),
+  });
+}
+
 /** Who am I? Null when signed out or not (yet) staff — the admin UI gates on this. */
 export const me = query({
   args: {},
@@ -72,6 +110,7 @@ export const bootstrap = internalMutation({
       active: true,
       createdAt: Date.now(),
     });
+    await writeAudit(ctx, 'staff.bootstrap', `bootstrapped owner ${args.name}`);
     return { granted: true };
   },
 });
@@ -118,6 +157,7 @@ export const grantStaff = mutation({
         createdAt: Date.now(),
       });
     }
+    await writeAudit(ctx, 'staff.grant', `granted staff to ${args.email} (${args.role})`);
     return { granted: true };
   },
 });
@@ -138,6 +178,7 @@ export const revokeStaff = mutation({
     }
 
     await ctx.db.patch(args.staffProfileId, { active: false });
+    await writeAudit(ctx, 'staff.revoke', `revoked staff from ${target.name} (${target.role})`);
     return { revoked: true };
   },
 });
@@ -163,6 +204,34 @@ export const listStaff = query({
       });
     }
     return result;
+  },
+});
+
+/**
+ * Recent staff/admin activity (the audit trail) for the /admin/settings
+ * "Sign-in & activity" section. Any active staff may read it; DEMO_MODE is
+ * exempt from the auth check (same carve-out as the rest of the settings
+ * surface — the writable public demo has no real identity). Newest-first,
+ * default 30 rows, capped at 100. Never returns actorUserId or secrets — only
+ * the human-readable {actorName, action, detail, ts}.
+ */
+export const recentActivity = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Array<{ actorName: string; action: string; detail: string; ts: number }>> => {
+    if (process.env.DEMO_MODE !== 'true') {
+      await requireStaff(ctx);
+    }
+    const limit = Math.min(Math.max(args.limit ?? 30, 1), 100);
+    const rows = await ctx.db.query('auditLog').withIndex('by_ts').order('desc').take(limit);
+    return rows.map((row) => ({
+      actorName: row.actorName,
+      action: row.action,
+      detail: row.detail,
+      ts: row.ts,
+    }));
   },
 });
 
@@ -282,6 +351,13 @@ export const updateProperty = mutation({
     if (patch.checkOutTime !== undefined) fields.checkOutTime = patch.checkOutTime;
 
     await ctx.db.patch(args.propertyId, fields);
+
+    // Audit detail lists the CHANGED FIELD NAMES only — never old/new values
+    // (gstNumber is sensitive; keep the trail free of any field values).
+    const changedFields = Object.keys(fields);
+    const summary =
+      changedFields.length > 0 ? changedFields.join(', ') : 'no fields';
+    await writeAudit(ctx, 'property.update', `updated ${property.name}: ${summary}`);
     return { updated: true };
   },
 });

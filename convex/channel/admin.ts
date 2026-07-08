@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import { mutation, query } from '../_generated/server';
 import { internal } from '../_generated/api';
 import type { Id } from '../_generated/dataModel';
-import { requireStaff } from '../staff';
+import { requireStaff, writeAudit } from '../staff';
 import { channelConfigured } from './index';
 import { channexBaseUrl } from './channex';
 
@@ -130,6 +130,13 @@ export const setPropertyChannel = mutation({
       });
     }
 
+    await writeAudit(
+      ctx,
+      'channel.connect',
+      disconnecting
+        ? `disconnected channel for ${property.name}`
+        : `connected channel for ${property.name} (sync ${nextEnabled ? 'on' : 'off'})`,
+    );
     return { ok: true };
   },
 });
@@ -147,6 +154,13 @@ export const setUnitTypeChannel = mutation({
     const nextValue = trimmed && trimmed.length > 0 ? trimmed : undefined;
     await ctx.db.patch(args.unitTypeId, { channexRoomTypeId: nextValue });
 
+    await writeAudit(
+      ctx,
+      'channel.map',
+      nextValue
+        ? `mapped room type for ${unitType.name}`
+        : `unmapped room type for ${unitType.name}`,
+    );
     return { ok: true };
   },
 });
@@ -164,6 +178,13 @@ export const setRatePlanChannel = mutation({
     const nextValue = trimmed && trimmed.length > 0 ? trimmed : undefined;
     await ctx.db.patch(args.ratePlanId, { channexRatePlanId: nextValue });
 
+    await writeAudit(
+      ctx,
+      'channel.map',
+      nextValue
+        ? `mapped rate plan for ${ratePlan.name}`
+        : `unmapped rate plan for ${ratePlan.name}`,
+    );
     return { ok: true };
   },
 });
@@ -207,6 +228,7 @@ export const syncNow = mutation({
       propertyId: args.propertyId,
     });
 
+    await writeAudit(ctx, 'channel.sync_now', `triggered ARI sync for ${property.name}`);
     return { scheduled: true };
   },
 });

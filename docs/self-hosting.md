@@ -187,6 +187,75 @@ below can create.
    UI (`staff.grantStaff`) — the bootstrap command is a one-time, orchestrator-run
    step, not a recurring admin action.
 
+### Optional: OAuth sign-in
+
+Password sign-in (above) always works and needs nothing further. On top of
+it, you can enable "Sign in with GitHub / Google / Microsoft" — each provider
+is **env-gated**: set its client id + secret and the login page shows a
+button for it; leave either unset and that provider's button is simply
+absent. This is the same dormancy pattern as Stripe/Square/Channex elsewhere
+in this doc.
+
+**The rule that doesn't change:** an OAuth sign-in creates a `users` row
+exactly like a password sign-up does, and that row still grants **nothing**.
+`requireStaff` is the single chokepoint for every staff query/mutation
+regardless of how someone signed in — an owner still has to add the new user
+as staff (`staff.grantStaff`) before they can do anything.
+
+For each provider you want to offer:
+
+#### GitHub
+
+1. Create an OAuth app in
+   [GitHub Developer settings](https://github.com/settings/developers) →
+   OAuth Apps → New OAuth App.
+2. Set its **Authorization callback URL** to:
+   ```
+   https://<your-deployment>.convex.site/api/auth/callback/github
+   ```
+3. Copy the generated client id and client secret and set them:
+   ```bash
+   npx convex env set AUTH_GITHUB_ID ...
+   npx convex env set AUTH_GITHUB_SECRET ...
+   ```
+
+#### Google
+
+1. In the [Google Cloud Console](https://console.cloud.google.com), configure
+   the OAuth consent screen (if you haven't already) and create an **OAuth
+   client ID** credential (Application type: Web application).
+2. Add this as an **authorized redirect URI**:
+   ```
+   https://<your-deployment>.convex.site/api/auth/callback/google
+   ```
+3. Copy the client id and client secret and set them:
+   ```bash
+   npx convex env set AUTH_GOOGLE_ID ...
+   npx convex env set AUTH_GOOGLE_SECRET ...
+   ```
+
+#### Microsoft Entra ID
+
+1. In the [Microsoft Entra admin center](https://entra.microsoft.com), create
+   an **App registration**.
+2. Add this as a **Redirect URI** (platform: Web):
+   ```
+   https://<your-deployment>.convex.site/api/auth/callback/microsoft-entra-id
+   ```
+3. Copy the application (client) id, create a client secret, and set them:
+   ```bash
+   npx convex env set AUTH_MICROSOFT_ENTRA_ID_ID ...
+   npx convex env set AUTH_MICROSOFT_ENTRA_ID_SECRET ...
+   ```
+   If you want to restrict sign-in to a single Microsoft tenant (rather than
+   any Microsoft account), also set the tenant-specific issuer:
+   ```bash
+   npx convex env set AUTH_MICROSOFT_ENTRA_ID_ISSUER https://login.microsoftonline.com/<tenant-id>/v2.0
+   ```
+
+None of the three are required — a deployment with none configured just
+shows the password form, exactly as it does today.
+
 ## Email (M1 — in progress)
 
 Transactional email (booking confirmations, cancellations, payment-conflict

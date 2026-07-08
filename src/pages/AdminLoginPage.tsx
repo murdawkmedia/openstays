@@ -1,21 +1,31 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthActions } from '@convex-dev/auth/react';
+import { useQuery } from 'convex/react';
 import { LogIn, ShieldCheck, UserPlus } from 'lucide-react';
 
+import { api } from '../../convex/_generated/api';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
+import { OAuthButtons } from '../components/OAuthButtons';
 
 type Flow = 'signIn' | 'signUp';
 
 /**
- * Staff sign-in / sign-up (M1). A successful sign-up creates a Convex Auth
- * `users` row but grants NO staff rights — an owner must grant access via
- * /admin/settings (staff.grantStaff) before the admin area unlocks. See
- * convex/staff.ts requireStaff.
+ * Staff sign-in / sign-up (M1). A successful sign-up (password OR OAuth)
+ * creates a Convex Auth `users` row but grants NO staff rights — an owner must
+ * grant access via /admin/settings (staff.grantStaff) before the admin area
+ * unlocks. See convex/staff.ts requireStaff — the single chokepoint regardless
+ * of how a user signed in.
  */
 export function AdminLoginPage() {
   const { signIn } = useAuthActions();
   const navigate = useNavigate();
+
+  // Which sign-in methods this deployment offers (env-gated OAuth providers +
+  // password). `undefined` while loading — render password-only until it
+  // resolves so the OAuth buttons never flash then disappear.
+  const methods = useQuery(api.auth.availableAuthMethods, {});
+  const hasOAuth = Boolean(methods && (methods.github || methods.google || methods.microsoft));
 
   const [flow, setFlow] = useState<Flow>('signIn');
   const [name, setName] = useState('');
@@ -48,6 +58,17 @@ export function AdminLoginPage() {
       </div>
 
       <div className="card p-6">
+        {hasOAuth && methods ? (
+          <>
+            <OAuthButtons methods={methods} />
+            <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wide text-stone-400">
+              <span className="h-px flex-1 bg-stone-200" />
+              or use email + password
+              <span className="h-px flex-1 bg-stone-200" />
+            </div>
+          </>
+        ) : null}
+
         <div className="mb-5 flex rounded-lg bg-stone-100 p-1 text-sm font-medium">
           <button
             type="button"
@@ -133,9 +154,11 @@ export function AdminLoginPage() {
           </button>
         </form>
 
-        {isSignUp ? (
+        {isSignUp || hasOAuth ? (
           <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            New account? An owner must grant you staff access before the admin area unlocks.
+            New account? An owner must grant you staff access before the admin area unlocks — this
+            applies to social sign-ins too. Signing in with GitHub, Google, or Microsoft creates an
+            account but grants no access on its own.
           </p>
         ) : null}
       </div>

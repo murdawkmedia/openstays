@@ -3,6 +3,7 @@ import { getAuthUserId } from '@convex-dev/auth/server';
 import { action, internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
+import { writeAudit } from './staff';
 
 // ---------------------------------------------------------------------------
 // API key lifecycle (M1.5) — machine credentials for the HTTP API v1.
@@ -86,7 +87,11 @@ export const createApiKey = action({
   },
 });
 
-/** Internal: store a minted key (called by createApiKey after staff check). */
+/** Internal: store a minted key (called by createApiKey after staff check).
+ *  Also writes the audit row — the create path is an action (no db), so this
+ *  mutation is where the auditLog insert has to happen. writeAudit self-
+ *  resolves the actor from the forwarded identity (or 'demo' under DEMO_MODE).
+ *  Only the key NAME + scope + prefix are recorded — never the token/hash. */
 export const insertKey = internalMutation({
   args: {
     name: v.string(),
@@ -96,7 +101,9 @@ export const insertKey = internalMutation({
     createdBy: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert('apiKeys', { ...args, active: true, createdAt: Date.now() });
+    const id = await ctx.db.insert('apiKeys', { ...args, active: true, createdAt: Date.now() });
+    await writeAudit(ctx, 'apiKey.create', `created API key ${args.name} (${args.scope}, ${args.prefix})`);
+    return id;
   },
 });
 
@@ -124,6 +131,7 @@ export const revokeApiKey = mutation({
     const key = await ctx.db.get(args.apiKeyId);
     if (!key) throw new ConvexError('NOT_FOUND');
     await ctx.db.patch(args.apiKeyId, { active: false });
+    await writeAudit(ctx, 'apiKey.revoke', `revoked API key ${key.name} (${key.prefix})`);
     return { revoked: true };
   },
 });

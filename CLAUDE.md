@@ -137,6 +137,20 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   promo redemption stays consumed forever — cancellation of a confirmed
   booking does NOT free once-per-guest slots or reopen usage caps; only
   unconsumed (reserved) holds release. 14 adversarial tests added.
+- 2026-07-08 (auth expansion, Tim): OAuth sign-in (GitHub / Google /
+  Microsoft Entra ID) via @auth/core, ENV-GATED on the standard AUTH_* vars —
+  buttons appear when a provider's id+secret pair is set (read at module
+  load, so a new provider appears on next deploy). Secrets never in the
+  settings table; the settings page only SHOWS configured methods.
+  users-row-grants-nothing applies to OAuth sign-ins identically. Gotcha:
+  @convex-dev/auth materializes bare providers by calling provider() with no
+  args — @auth/core's MicrosoftEntraID throws on undefined config, so it is
+  pushed as MicrosoftEntraID({}) (guarded by test). Plus an append-only
+  auditLog (who/what/when) written via staff.writeAudit from every
+  staff-facing mutation (property.update, staff.grant/revoke/bootstrap,
+  apiKey.create/revoke, channel.connect/map/sync_now — details never include
+  secrets/tokens/gstNumber values), surfaced in Settings → Sign-in &
+  activity. Admin-vs-user tiers = existing owner/staff roles.
 - 2026-07-08 (M6-prep): Channex channel-manager BAKED IN, dormant until
   CHANNEX_API_KEY + a mapped property (Tim: "bake in Channex and get it
   ready"). ChannelManagerProvider mirrors PaymentProvider; built against the

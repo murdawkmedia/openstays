@@ -261,3 +261,59 @@ describe('verifyKey', () => {
     expect(result).toBeNull();
   });
 });
+
+describe('apiKey audit trail', () => {
+  it('createApiKey writes an apiKey.create row (name + scope + prefix, never the token/hash)', async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await seedStaff(t, 'owner');
+    const asOwner = t.withIdentity(identityFor(ownerId));
+
+    const { token, prefix } = await asOwner.action(api.apiKeys.createApiKey, {
+      name: 'NAS runner',
+      scope: 'read',
+    });
+
+    const row = await t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect()).find((r) => r.action === 'apiKey.create'),
+    );
+    expect(row).toBeDefined();
+    expect(row?.actorName).toBe('owner');
+    expect(row?.detail).toContain('NAS runner');
+    expect(row?.detail).toContain('read');
+    expect(row?.detail).toContain(prefix);
+    // The raw token and its hash NEVER appear in the audit detail.
+    expect(row?.detail).not.toContain(token);
+    expect(row?.detail).not.toContain(await sha256HexOf(token));
+  });
+
+  it('revokeApiKey writes an apiKey.revoke row', async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await seedStaff(t, 'owner');
+    const asOwner = t.withIdentity(identityFor(ownerId));
+
+    await asOwner.action(api.apiKeys.createApiKey, { name: 'to-revoke', scope: 'write' });
+    const apiKeyId = (await t.run(async (ctx) =>
+      (await ctx.db.query('apiKeys').collect())[0]._id,
+    )) as Id<'apiKeys'>;
+
+    await asOwner.mutation(api.apiKeys.revokeApiKey, { apiKeyId });
+
+    const row = await t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect()).find((r) => r.action === 'apiKey.revoke'),
+    );
+    expect(row).toBeDefined();
+    expect(row?.actorName).toBe('owner');
+    expect(row?.detail).toContain('to-revoke');
+  });
+
+  it('a DEMO_MODE createApiKey tags the audit actor as "demo"', async () => {
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = convexTest(schema, modules);
+    await t.action(api.apiKeys.createApiKey, { name: 'demo', scope: 'read' });
+
+    const row = await t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect()).find((r) => r.action === 'apiKey.create'),
+    );
+    expect(row?.actorName).toBe('demo');
+  });
+});

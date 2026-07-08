@@ -478,3 +478,63 @@ describe('channel.admin.syncNow', () => {
     ).rejects.toThrow(/OWNER_ONLY/);
   });
 });
+
+describe('channel.admin audit trail', () => {
+  it('setPropertyChannel writes a channel.connect row', async () => {
+    const t = makeT();
+    const ownerId = await seedOwner(t);
+    const fx = await seedFixture(t);
+    const asOwner = t.withIdentity(identityFor(ownerId));
+
+    await asOwner.mutation(api.channel.admin.setPropertyChannel, {
+      propertyId: fx.propertyId,
+      channexPropertyId: 'prop-uuid-1',
+      enabled: true,
+    });
+
+    const row = await t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect()).find((r) => r.action === 'channel.connect'),
+    );
+    expect(row).toBeDefined();
+    expect(row?.actorName).toBe('Owner');
+    expect(row?.detail).toContain('Test Grounds');
+  });
+
+  it('setUnitTypeChannel and setRatePlanChannel each write a channel.map row', async () => {
+    const t = makeT();
+    const ownerId = await seedOwner(t);
+    const fx = await seedFixture(t);
+    const asOwner = t.withIdentity(identityFor(ownerId));
+
+    await asOwner.mutation(api.channel.admin.setUnitTypeChannel, {
+      unitTypeId: fx.unitTypeId,
+      channexRoomTypeId: 'room-type-uuid-1',
+    });
+    await asOwner.mutation(api.channel.admin.setRatePlanChannel, {
+      ratePlanId: fx.ratePlanId,
+      channexRatePlanId: 'rate-plan-uuid-1',
+    });
+
+    const mapRows = await t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect()).filter((r) => r.action === 'channel.map'),
+    );
+    expect(mapRows).toHaveLength(2);
+    expect(mapRows.some((r) => r.detail.includes('Cabin'))).toBe(true);
+    expect(mapRows.some((r) => r.detail.includes('Standard'))).toBe(true);
+  });
+
+  it('syncNow writes a channel.sync_now row', async () => {
+    const t = makeT();
+    const ownerId = await seedOwner(t);
+    const fx = await seedFixture(t);
+    const asOwner = t.withIdentity(identityFor(ownerId));
+
+    await asOwner.mutation(api.channel.admin.syncNow, { propertyId: fx.propertyId });
+
+    const row = await t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect()).find((r) => r.action === 'channel.sync_now'),
+    );
+    expect(row).toBeDefined();
+    expect(row?.detail).toContain('Test Grounds');
+  });
+});

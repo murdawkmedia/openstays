@@ -10,6 +10,7 @@ import { SUPPORTED_CURRENCIES, taxLabelOrDefault } from '../../shared/currency';
 import { Spinner } from '../components/Spinner';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
 import { ChannelsSection } from '../components/ChannelsSection';
+import { SignInActivitySection } from '../components/SignInActivitySection';
 import { useStaffGate } from '../lib/useStaff';
 
 type PropertyConfig = {
@@ -126,6 +127,11 @@ export function AdminSettingsPage() {
           server-side. This also makes the section visible on the public demo,
           whose synthetic identity is role 'staff'. */}
       <ChannelsSection />
+
+      {/* Sign-in methods status + who-did-what audit trail. Any staff can view
+          (same visibility as Channels); the queries are staff-gated server-side
+          with the usual DEMO_MODE carve-out. */}
+      <SignInActivitySection />
 
       {gate.role === 'owner' ? <StaffSection /> : null}
 

@@ -153,6 +153,13 @@ VITE_CONVEX_URL=
 #   JWT_PRIVATE_KEY
 #   JWKS
 #
+# Optional OAuth sign-in (in addition to password; each pair is independently
+# env-gated — set a pair to show that provider's button, leave unset to hide it):
+#   AUTH_GITHUB_ID / AUTH_GITHUB_SECRET
+#   AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET
+#   AUTH_MICROSOFT_ENTRA_ID_ID / AUTH_MICROSOFT_ENTRA_ID_SECRET
+#   AUTH_MICROSOFT_ENTRA_ID_ISSUER  optional, restricts sign-in to one tenant
+#
 # Email (M1, in progress):
 #   RESEND_API_KEY
 #   EMAIL_FROM
@@ -197,10 +204,19 @@ gracefully — the relevant feature is simply off, never an error. See
 | `DEMO_MODE` | `"true"` ONLY on the public demo deployment. Enables simulated payments (`bookings.confirmSimulated`) and the nightly reset cron. | Real payment providers and real staff-managed data are in play — this is the correct state for every real operator deployment. |
 | `JWT_PRIVATE_KEY` | Convex Auth's RS256 private key (PKCS8 PEM) used to sign staff session JWTs. | Staff sign-in cannot issue valid sessions — the `/admin/login` flow will fail. Generate this once per deployment; see [self-hosting](/self-hosting). |
 | `JWKS` | The matching public JWKS document Convex Auth uses to verify the JWTs `JWT_PRIVATE_KEY` signs. | Same as above — these two are generated together and both required. |
+| `AUTH_GITHUB_ID` / `AUTH_GITHUB_SECRET` | GitHub OAuth app client id/secret, enabling "Sign in with GitHub" on the login page. | That pair isn't fully set — the GitHub button is simply absent from the login page. Password sign-in is unaffected. |
+| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth client id/secret, enabling "Sign in with Google." | Same graceful-degradation pattern — the Google button is absent. |
+| `AUTH_MICROSOFT_ENTRA_ID_ID` / `AUTH_MICROSOFT_ENTRA_ID_SECRET` | Microsoft Entra ID app registration client id/secret, enabling "Sign in with Microsoft." | Same pattern — the Microsoft button is absent. |
+| `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | Optional. Restricts Microsoft sign-in to a single tenant's issuer URL instead of accepting any Microsoft account. | Microsoft sign-in (if that pair above is set) accepts any Microsoft account rather than one tenant. |
 | `CHANNEX_API_KEY` | The `user-api-key` value for the [Channex](https://channex.io) channel manager (M6 — scaffolded, dormant). Its presence is what flips channel sync from off to configured. | **Channel sync is simply off.** No availability/rates are pushed, the booking-revisions feed isn't polled, the admin Channels page shows "not configured," and the booking flow is completely unaffected. This is the default and the correct state for any deployment not using OTA distribution — see [Channels](/channels). |
 | `CHANNEX_BASE_URL` | Channex API base URL. | Defaults to `https://staging.channex.io`. Point at the production base URL only after Channex certifies your integration and issues production credentials — verify the exact production host during certification. |
 | `CHANNEX_WEBHOOK_SECRET` | A shared secret you invent and register on the Channex webhook so OpenStays can validate the inbound nudge (Channex has no HMAC signing — this static header is the only check). | The `/webhooks/channex` nudge isn't secret-checked, and inbound OTA bookings still arrive reliably on the 2-minute pull-feed poll (the webhook is only a latency optimization, never the authoritative path). |
 
 Note `JWT_PRIVATE_KEY`/`JWKS` gate **staff/admin** auth only. Guests never
 have accounts — manage-booking access is confirmation code + email match, as
-today (see binding convention #10 in `CLAUDE.md`).
+today (see binding convention #10 in `CLAUDE.md`). The `AUTH_GITHUB_*` /
+`AUTH_GOOGLE_*` / `AUTH_MICROSOFT_ENTRA_ID_*` variables are additional
+staff/admin sign-in methods layered on top of the same session machinery —
+none of them changes what a signed-in account can do; that's still entirely
+gated on a `staffProfiles` row (see
+[Staff & auth](/concepts/staff-auth)).
