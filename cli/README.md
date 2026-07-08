@@ -41,6 +41,12 @@ client SDK origin). `OPENSTAYS_API_KEY` is minted by a staff owner from the
 admin settings UI (`osk_` + 48 hex characters, shown once at creation). Both
 can be overridden per-invocation with `--url` / `--key`.
 
+**Prefer `OPENSTAYS_API_KEY` in the environment over `--key`.** Passing the key
+with `--key` puts the raw secret in your OS process table (visible to `ps` /
+Task Manager while the command runs) and in your shell history. The CLI prints
+a stderr warning when you use `--key` for exactly this reason. Reserve `--key`
+for throwaway/interactive use; automations should set the env var.
+
 ## Commands
 
 ```

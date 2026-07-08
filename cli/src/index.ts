@@ -106,7 +106,33 @@ function intFlag(flags: Record<string, string>, name: string): number | undefine
   return n;
 }
 
-const HELP_TEXT = `openstays — CLI for the OpenStays booking API
+/**
+ * Strict non-negative integer parse for a flag. A non-numeric or fractional
+ * value throws a local CliUsageError BEFORE any network round-trip, instead of
+ * `Number('abc')` → NaN → JSON.stringify → `null` reaching the server as a
+ * confusing 400. `min` gates below-range values (adults require >= 1).
+ */
+function requireIntFlag(
+  flags: Record<string, string>,
+  name: string,
+  min: number,
+): number {
+  const value = flags[name];
+  if (value === undefined) {
+    throw new CliUsageError(`--${name} must be a positive integer`);
+  }
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < min) {
+    throw new CliUsageError(
+      min >= 1
+        ? `--${name} must be a positive integer, got '${value}'`
+        : `--${name} must be a non-negative integer, got '${value}'`,
+    );
+  }
+  return n;
+}
+
+export const HELP_TEXT = `openstays — CLI for the OpenStays booking API
 
 Usage:
   openstays <command> [flags]
@@ -122,8 +148,8 @@ Commands:
   bookings [--status <s>] [--from <d>] [--to <d>] [--limit <n>]
                                              List bookings
   booking <code>                            Get one booking by confirmation code
-  hold --property <slug> --unit-type <slug> --check-in <d> --check-out <d>
-       --adults <n> [--children <n>] --name <n> --email <e> --phone <p>
+  hold --unit-id <id> --rate-plan-id <id> --check-in <d> --check-out <d>
+       --adults <n> [--children <n>] --name <n> --email <e> [--phone <p>]
        [--marketing-opt-in] [--promo-code <c>]
                                              Create a hold (write scope)
   cancel <code> --email <e>                 Cancel a booking (write scope)
@@ -264,13 +290,18 @@ export async function dispatch(
     }
 
     case 'hold': {
+      // Parse adults/children with a strict integer parse so a typo fails
+      // locally with a precise message instead of sending adults:null (NaN →
+      // JSON null) for the server to reject after a round-trip.
+      const adults = requireIntFlag(flags, 'adults', 1);
+      const children = flags.children === undefined ? 0 : requireIntFlag(flags, 'children', 0);
       const args: CreateHoldArgs = {
         unitId: requireFlag(flags, 'unit-id'),
         ratePlanId: requireFlag(flags, 'rate-plan-id'),
         checkIn: requireFlag(flags, 'check-in'),
         checkOut: requireFlag(flags, 'check-out'),
-        adults: Number(requireFlag(flags, 'adults')),
-        children: intFlag(flags, 'children') ?? 0,
+        adults,
+        children,
         guest: {
           name: requireFlag(flags, 'name'),
           email: requireFlag(flags, 'email'),
@@ -314,6 +345,21 @@ export async function dispatch(
   }
 }
 
+/**
+ * Warn (to stderr, never stdout) when the API key was passed via --key. A key
+ * on the command line lands in the OS process table (`ps`, Task Manager) and in
+ * shell history — OPENSTAYS_API_KEY in the environment does not. We never echo
+ * the key itself. (Adversarial review 2026-07-08.)
+ */
+function warnIfKeyOnArgv(parsed: ParsedArgs): void {
+  if (parsed.key !== undefined) {
+    process.stderr.write(
+      'Warning: passing --key exposes your API key in process listings and shell ' +
+        'history. Prefer the OPENSTAYS_API_KEY environment variable.\n',
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const parsed = parseArgs(argv);
@@ -330,6 +376,7 @@ async function main(): Promise<void> {
   }
 
   if (parsed.command === 'mcp') {
+    warnIfKeyOnArgv(parsed);
     const baseUrl = parsed.url ?? process.env.OPENSTAYS_URL;
     const apiKey = parsed.key ?? process.env.OPENSTAYS_API_KEY;
     if (!baseUrl || !apiKey) {
@@ -341,6 +388,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  warnIfKeyOnArgv(parsed);
   const baseUrl = parsed.url ?? process.env.OPENSTAYS_URL;
   const apiKey = parsed.key ?? process.env.OPENSTAYS_API_KEY;
   if (!baseUrl || !apiKey) {

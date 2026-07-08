@@ -142,10 +142,13 @@ async function authenticate(
   requiredScope: 'read' | 'write',
 ): Promise<AuthResult> {
   const header = request.headers.get('Authorization') ?? request.headers.get('authorization');
-  if (!header || !header.startsWith('Bearer ')) {
+  // RFC 7235: the auth-scheme is case-insensitive, so accept 'bearer'/'BEARER'
+  // etc. The token itself is kept verbatim (only the scheme is normalized).
+  const SCHEME = 'bearer ';
+  if (!header || header.slice(0, SCHEME.length).toLowerCase() !== SCHEME) {
     return { ok: false, response: err(401, 'UNAUTHORIZED', 'Missing or malformed Authorization header.') };
   }
-  const token = header.slice('Bearer '.length).trim();
+  const token = header.slice(SCHEME.length).trim();
   if (!token.startsWith('osk_')) {
     return { ok: false, response: err(401, 'UNAUTHORIZED', 'Invalid API token.') };
   }

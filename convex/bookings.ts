@@ -64,6 +64,29 @@ export const createHold = mutation({
       });
     }
 
+    // Server-authoritative occupancy guard. The UI's GuestForm clamps adults/
+    // children to [1..maxOccupancy], but that is a convenience, not a control:
+    // server-side validation is the authority (see CLAUDE.md — clients only
+    // preview). Any API/MCP/CLI caller with a write key could otherwise seat
+    // arbitrary guests in a unit. adults must be >= 1 and adults + children
+    // must not exceed the unit type's maxOccupancy. (Adversarial review 2026-07-08.)
+    const unitType = await ctx.db.get(unit.unitTypeId);
+    if (!unitType) {
+      throw new ConvexError({ code: 'UNIT_UNAVAILABLE', message: 'This unit is not bookable.' });
+    }
+    if (!Number.isInteger(args.adults) || args.adults < 1) {
+      throw new ConvexError({ code: 'INVALID_OCCUPANCY', message: 'At least one adult is required.' });
+    }
+    if (!Number.isInteger(args.children) || args.children < 0) {
+      throw new ConvexError({ code: 'INVALID_OCCUPANCY', message: 'Children must be zero or more.' });
+    }
+    if (args.adults + args.children > unitType.maxOccupancy) {
+      throw new ConvexError({
+        code: 'OVER_OCCUPANCY',
+        message: `This unit holds at most ${unitType.maxOccupancy} guests.`,
+      });
+    }
+
     // 1. Stay rules (dates sane, min/max stay, lead time, advance window).
     try {
       validateStayRules(ratePlan, args.checkIn, args.checkOut, property.timezone);

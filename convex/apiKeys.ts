@@ -55,6 +55,13 @@ export const createApiKey = action({
   handler: async (ctx, args): Promise<{ token: string; prefix: string }> => {
     const { createdBy } = await ctx.runQuery(internal.apiKeys.requireOwnerIdentity, {});
 
+    // DEMO_MODE: the demo mints keys with no real auth (requireOwnerIdentity's
+    // carve-out) so the admin UI can showcase the flow. An anonymous demo
+    // visitor must NEVER obtain a WRITE credential — force scope to 'read'
+    // regardless of what was requested. Real deployments are owner-gated and
+    // may mint any scope. (Adversarial review 2026-07-08.)
+    const scope = process.env.DEMO_MODE === 'true' ? 'read' : args.scope;
+
     // 'osk_' + 48 lowercase hex chars (24 random bytes).
     const bytes = new Uint8Array(24);
     crypto.getRandomValues(bytes);
@@ -70,7 +77,7 @@ export const createApiKey = action({
       name: args.name,
       keyHash,
       prefix,
-      scope: args.scope,
+      scope,
       createdBy,
     });
 

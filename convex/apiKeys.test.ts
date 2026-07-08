@@ -107,6 +107,32 @@ describe('createApiKey', () => {
     const row = await t.run(async (ctx) => (await ctx.db.query('apiKeys').collect())[0]);
     expect(row.createdBy).toBe('demo');
   });
+
+  it('DEMO_MODE forces scope to read even when write is requested', async () => {
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = convexTest(schema, modules);
+    // An anonymous demo visitor must never obtain a WRITE credential.
+    await t.action(api.apiKeys.createApiKey, { name: 'demo-write-attempt', scope: 'write' });
+    const row = await t.run(async (ctx) => (await ctx.db.query('apiKeys').collect())[0]);
+    expect(row.scope).toBe('read');
+  });
+});
+
+describe('demo.reset clears apiKeys', () => {
+  it('a demo-minted key does not survive a nightly reset', async () => {
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = convexTest(schema, modules);
+    const { token } = await t.action(api.apiKeys.createApiKey, { name: 'demo', scope: 'read' });
+    const keyHash = await sha256HexOf(token);
+
+    // Live before the reset.
+    expect(await t.query(internal.apiKeys.verifyKey, { keyHash })).not.toBeNull();
+
+    await t.mutation(internal.demo.reset, {});
+
+    // The apiKeys table was wiped, so the key no longer verifies.
+    expect(await t.query(internal.apiKeys.verifyKey, { keyHash })).toBeNull();
+  });
 });
 
 describe('listApiKeys', () => {

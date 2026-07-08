@@ -175,6 +175,17 @@ describe('auth', () => {
     expect(res.status).toBe(401);
   });
 
+  it('accepts a lowercase "bearer " scheme (RFC 7235 case-insensitive)', async () => {
+    const t = makeT();
+    await seedFixture(t);
+    const token = await seedKey(t, 'read');
+    const res = await t.fetch('/api/v1/properties', {
+      method: 'GET',
+      headers: { Authorization: `bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+  });
+
   it('touches lastUsedAt on first use, not on an immediate second use', async () => {
     const t = makeT();
     await seedFixture(t);
@@ -520,6 +531,29 @@ describe('POST write routes', () => {
     });
     expect(rows.booking?.status).toBe('hold');
     expect(rows.nights.map((n) => n.date).sort()).toEqual([D(10), D(11)]);
+  });
+
+  it('a hold that exceeds maxOccupancy returns 400 (server-authoritative)', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t); // maxOccupancy: 4
+    const writeToken = await seedKey(t, 'write');
+    const res = await t.fetch('/api/v1/bookings/hold', {
+      method: 'POST',
+      headers: { ...bearer(writeToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        unitId: fx.unitId,
+        ratePlanId: fx.ratePlanId,
+        checkIn: D(10),
+        checkOut: D(12),
+        adults: 9999,
+        children: 9999,
+        guest: { name: 'G', email: 'g@example.com', phone: '780', marketingOptIn: false },
+        addOns: [],
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = await jsonOf(res);
+    expect((body.error as { code: string }).code).toBe('OVER_OCCUPANCY');
   });
 
   it('a conflicting hold returns 409', async () => {

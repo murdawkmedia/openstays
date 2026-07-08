@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CliUsageError, dispatch, parseArgs, VERSION } from './index.js';
+import { CliUsageError, dispatch, HELP_TEXT, parseArgs, VERSION } from './index.js';
 import { ApiError, OpenStaysClient } from './client.js';
 
 function fakeClient(overrides: Partial<OpenStaysClient> = {}): OpenStaysClient {
@@ -229,6 +229,42 @@ describe('dispatch', () => {
     await expect(dispatch(parsed, client)).rejects.toBeInstanceOf(CliUsageError);
   });
 
+  it('hold rejects a non-numeric --adults locally, before any API call', async () => {
+    const createHold = vi.fn();
+    const client = fakeClient({ createHold });
+    const parsed = parseArgs([
+      'hold',
+      '--unit-id', 'unit1',
+      '--rate-plan-id', 'plan1',
+      '--check-in', '2026-07-01',
+      '--check-out', '2026-07-03',
+      '--adults', 'abc',
+      '--name', 'Sam Guest',
+      '--email', 'sam@example.com',
+    ]);
+    await expect(dispatch(parsed, client)).rejects.toThrow(/--adults must be a positive integer/);
+    // The failure is caught client-side — the API is never called.
+    expect(createHold).not.toHaveBeenCalled();
+  });
+
+  it('hold rejects a non-numeric --children locally', async () => {
+    const createHold = vi.fn();
+    const client = fakeClient({ createHold });
+    const parsed = parseArgs([
+      'hold',
+      '--unit-id', 'unit1',
+      '--rate-plan-id', 'plan1',
+      '--check-in', '2026-07-01',
+      '--check-out', '2026-07-03',
+      '--adults', '2',
+      '--children', 'oops',
+      '--name', 'Sam Guest',
+      '--email', 'sam@example.com',
+    ]);
+    await expect(dispatch(parsed, client)).rejects.toThrow(/--children must be a non-negative integer/);
+    expect(createHold).not.toHaveBeenCalled();
+  });
+
   it('dispatches cancel <code> --email <e>', async () => {
     const cancelBooking = vi.fn().mockResolvedValue({ refundCents: 5000, paidCents: 10000 });
     const client = fakeClient({ cancelBooking });
@@ -259,6 +295,21 @@ describe('dispatch', () => {
     const client = fakeClient();
     const parsed = parseArgs(['frobnicate']);
     await expect(dispatch(parsed, client)).rejects.toBeInstanceOf(CliUsageError);
+  });
+});
+
+describe('HELP_TEXT', () => {
+  it('documents the hold command with --unit-id / --rate-plan-id, not --property/--unit-type', () => {
+    // The hold dispatch requires --unit-id and --rate-plan-id; the help must
+    // match the actual contract (and the README), not advertise flags the
+    // command ignores.
+    const holdLine = HELP_TEXT.slice(HELP_TEXT.indexOf('  hold '));
+    expect(holdLine).toContain('--unit-id');
+    expect(holdLine).toContain('--rate-plan-id');
+    // The old, wrong flags must be gone from the hold usage.
+    const holdBlock = holdLine.slice(0, holdLine.indexOf('cancel'));
+    expect(holdBlock).not.toContain('--property');
+    expect(holdBlock).not.toContain('--unit-type');
   });
 });
 

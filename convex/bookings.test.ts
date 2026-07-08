@@ -179,6 +179,42 @@ describe('createHold conflict prevention', () => {
   });
 });
 
+describe('occupancy enforcement', () => {
+  it('rejects a hold that exceeds the unit type maxOccupancy', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t); // maxOccupancy: 4
+    await expect(
+      t.mutation(api.bookings.createHold, {
+        ...holdArgs(fx, D(10), D(12)),
+        adults: 3,
+        children: 2, // 3 + 2 = 5 > 4
+      }),
+    ).rejects.toThrow(/OVER_OCCUPANCY|at most/);
+  });
+
+  it('allows a hold exactly at maxOccupancy', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t); // maxOccupancy: 4
+    const ok = await t.mutation(api.bookings.createHold, {
+      ...holdArgs(fx, D(10), D(12)),
+      adults: 3,
+      children: 1, // 3 + 1 = 4 == 4
+    });
+    expect(ok.confirmationCode).toMatch(/^OS-/);
+  });
+
+  it('requires at least one adult', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    await expect(
+      t.mutation(api.bookings.createHold, {
+        ...holdArgs(fx, D(10), D(12)),
+        adults: 0,
+      }),
+    ).rejects.toThrow(/INVALID_OCCUPANCY|adult/);
+  });
+});
+
 describe('hold expiry', () => {
   it('expireHolds releases nights so the dates can be rebooked', async () => {
     vi.useFakeTimers();

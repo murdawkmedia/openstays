@@ -43,6 +43,34 @@ describe('MCP tool registry', () => {
     });
   });
 
+  it('create_hold input schema exposes an optional addOns array', async () => {
+    const def = TOOL_DEFINITIONS.find((d) => d.tool.name === 'openstays_create_hold')!;
+    const props = def.tool.inputSchema.properties as Record<string, { type?: string }>;
+    expect(props.addOns).toBeDefined();
+    expect(props.addOns.type).toBe('array');
+    // addOns is optional — not in the required list.
+    expect(def.tool.inputSchema.required as string[]).not.toContain('addOns');
+  });
+
+  it('create_hold threads addOns through to the client when provided', async () => {
+    const def = TOOL_DEFINITIONS.find((d) => d.tool.name === 'openstays_create_hold')!;
+    const createHold = vi.fn().mockResolvedValue({ bookingId: 'b1', confirmationCode: 'OS-1' });
+    const client = { createHold } as unknown as OpenStaysClient;
+    await def.run(client, {
+      unitId: 'u1',
+      ratePlanId: 'r1',
+      checkIn: '2026-07-01',
+      checkOut: '2026-07-03',
+      adults: 2,
+      guestName: 'Sam Guest',
+      guestEmail: 'sam@example.com',
+      addOns: [{ addOnId: 'a1', quantity: 2 }],
+    });
+    expect(createHold).toHaveBeenCalledWith(
+      expect.objectContaining({ addOns: [{ addOnId: 'a1', quantity: 2 }] }),
+    );
+  });
+
   it('routes openstays_create_hold to client.createHold with the guest object assembled', async () => {
     const def = TOOL_DEFINITIONS.find((d) => d.tool.name === 'openstays_create_hold')!;
     const createHold = vi.fn().mockResolvedValue({ bookingId: 'b1', confirmationCode: 'OS-1', status: 'hold' });

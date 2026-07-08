@@ -30,6 +30,33 @@ This page covers three layers built on top of that API:
   inventory CRUD, no payment refund initiation beyond guest-cancellation
   refund policy). See the [roadmap](/roadmap) for what's landing later.
 
+## Security model (what a key is, by design)
+
+An API key is a **trusted automation credential** — treat it as
+staff-equivalent, not as a narrowly scoped guest token. Two properties follow
+from that and are intentional, not defects:
+
+- **A `read` key can read the whole booking book.** The list, tape, and
+  `bookings/<code>` routes return every booking's dates, occupancy, price
+  breakdown, and confirmation code across the deployment (no guest name / email
+  / phone is projected — that PII is deliberately withheld). A read key is a
+  full-book read credential by design, the same visibility a staff login has;
+  provision read keys accordingly, and revoke any key the moment it is no
+  longer needed. If you need a caller that can only see part of the book, don't
+  give it a key.
+- **A `write` key can create many holds across different guest emails.** This
+  is inherent to a booking API. The only throttle today is the per-guest-email
+  active-hold cap (3), and holds self-expire after 35 minutes. A malicious or
+  leaked write key could still create churn across many emails; a coarse
+  per-key / global rate limit on the write routes is a future hardening item,
+  not shipped in v1. Scope keys to `read` unless the automation genuinely needs
+  to book, and rotate write keys promptly if exposure is suspected.
+
+Server-side validation is always authoritative: every guarantee the guest UI
+relies on — conflict-checked serializable holds, server-computed pricing, promo
+caps, and **the unit's `maxOccupancy` limit** — is enforced in the mutation the
+API calls, never trusted from the caller.
+
 ## Getting a URL and an API key
 
 **`OPENSTAYS_URL`** is your Convex deployment's **HTTP Actions origin** — the
@@ -105,6 +132,13 @@ openstays health
 
 (`openstays` on your `PATH` requires either `npm link` inside `cli/` or
 installing the package from wherever you publish it — see `cli/README.md`.)
+
+**Prefer the `OPENSTAYS_API_KEY` environment variable over `--key`.** A key
+passed as `--key osk_...` lands in the OS process table (any local user can see
+it via `ps` / Task Manager while the command runs) and in your shell history
+file; the environment variable does not. The CLI prints a stderr warning
+whenever `--key` is used. Keep `--key` for quick interactive use and set the
+env var for anything scripted or long-lived.
 
 ### Commands
 

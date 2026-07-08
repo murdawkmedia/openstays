@@ -30,6 +30,12 @@ export const reset = internalMutation({
       'unitTypes',
       'properties',
       'settings',
+      // Demo-minted API keys must NOT outlive a reset: an anonymous demo
+      // visitor can mint one (see apiKeys.requireOwnerIdentity's DEMO carve-out),
+      // and the '/api/v1' auth path honors any active key independent of
+      // DEMO_MODE, so without this wipe a demo key would be a permanent
+      // credential surviving every nightly reset. (Adversarial review 2026-07-08.)
+      'apiKeys',
     ] as const;
     for (const table of tables) {
       const rows = await ctx.db.query(table).collect();
