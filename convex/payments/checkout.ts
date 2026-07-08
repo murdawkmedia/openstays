@@ -47,6 +47,11 @@ export const createCheckoutSession = action({
   args: {
     bookingId: v.id('bookings'),
     provider: v.union(v.literal('stripe'), v.literal('square')),
+    // Proof of ownership: the confirmation code the guest already holds. Without
+    // it, a bare bookingId (enumerable via the cancel URL / a leak) would let an
+    // attacker mint provider sessions against anyone else's hold — real
+    // provider-cost abuse plus the victim's email prefilled on the hosted page.
+    code: v.string(),
   },
   handler: async (ctx, args): Promise<{ checkoutUrl: string }> => {
     // 0. Provider must be configured for this deployment.
@@ -66,6 +71,12 @@ export const createCheckoutSession = action({
       throw new ConvexError({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' });
     }
     const { booking, property, guestEmail } = data;
+    // Ownership check: the supplied code must match this booking's confirmation
+    // code. Fail with the same generic BOOKING_NOT_FOUND as a missing booking —
+    // never reveal which part failed (no booking enumeration oracle).
+    if (booking.confirmationCode !== args.code.trim().toUpperCase()) {
+      throw new ConvexError({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' });
+    }
     if (booking.status !== 'hold') {
       throw new ConvexError({ code: 'NOT_A_HOLD', message: 'This booking is not a payable hold.' });
     }
@@ -94,6 +105,35 @@ export const createCheckoutSession = action({
     const siteUrl = (process.env.SITE_URL ?? '').replace(/\/$/, '');
     const successUrl = `${siteUrl}/confirmation/${booking.confirmationCode}`;
     const cancelUrl = `${siteUrl}/checkout/${booking._id}?code=${booking.confirmationCode}`;
+
+    // Best-effort: expire other live Stripe pending sessions for this booking
+    // before creating a new one, so a guest who opens two tabs / backs out and
+    // retries can't leave two payable Stripe sessions open (double-charge
+    // mitigation). Errors are swallowed — this is only a mitigation; the
+    // confirmFromPayment state machine (a second capture is recorded and
+    // auto-refunded as 'duplicate_payment') is the actual guarantee. Square
+    // links are already deduped by their deterministic idempotency key for the
+    // same amount, and any cross-provider duplicate is caught by the same
+    // duplicate_payment auto-refund, so we only sweep Stripe here.
+    if (args.provider === 'stripe') {
+      const stale = await ctx.runQuery(internal.bookings.getPendingCheckoutIds, {
+        bookingId: booking._id,
+        provider: 'stripe',
+      });
+      const secret = process.env.STRIPE_SECRET_KEY;
+      if (secret) {
+        for (const checkoutId of stale) {
+          try {
+            await fetch(`https://api.stripe.com/v1/checkout/sessions/${checkoutId}/expire`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${secret}` },
+            });
+          } catch {
+            // Swallow — mitigation only.
+          }
+        }
+      }
+    }
 
     const session = await provider.createCheckout({
       bookingId: booking._id,

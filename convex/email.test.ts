@@ -3,6 +3,7 @@ import { convexTest } from 'convex-test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { internal } from './_generated/api';
 import schema from './schema';
+import { renderCancellation } from './emailTemplates';
 
 const modules = import.meta.glob('./**/!(*.*.*)*.*s');
 
@@ -127,6 +128,80 @@ describe('getEmailContext', () => {
       balanceDueCents: 0,
     });
     expect(context?.manageUrl).toBe('/manage/OS-7K3M2Q');
+  });
+
+  it('subtracts refunds from paidCents for a partially_refunded row', async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seedBooking(t);
+    // Turn the seeded 31,500¢ paid row into a partially_refunded row: 4,000¢
+    // refunded → 27,500¢ still held. balanceDue = 31,500 − 27,500 = 4,000.
+    await t.run(async (ctx) => {
+      const payment = await ctx.db
+        .query('payments')
+        .withIndex('by_booking', (q) => q.eq('bookingId', fx.bookingId))
+        .first();
+      await ctx.db.patch(payment!._id, {
+        status: 'partially_refunded',
+        refunds: [{ amountCents: 4_000, reason: 'partial', ts: Date.now(), by: 'system' }],
+      });
+    });
+
+    const context = await t.query(internal.email.getEmailContext, { bookingId: fx.bookingId });
+    expect(context?.paidCents).toBe(27_500);
+    expect(context?.balanceDueCents).toBe(4_000);
+    expect(context?.refundCents).toBe(4_000);
+  });
+
+  it('counts a fully refunded row as 0 paid', async () => {
+    const t = convexTest(schema, modules);
+    const fx = await seedBooking(t);
+    await t.run(async (ctx) => {
+      const payment = await ctx.db
+        .query('payments')
+        .withIndex('by_booking', (q) => q.eq('bookingId', fx.bookingId))
+        .first();
+      await ctx.db.patch(payment!._id, {
+        status: 'refunded',
+        refunds: [{ amountCents: 31_500, reason: 'guest_cancellation', ts: Date.now(), by: 'system' }],
+      });
+    });
+
+    const context = await t.query(internal.email.getEmailContext, { bookingId: fx.bookingId });
+    expect(context?.paidCents).toBe(0);
+    expect(context?.balanceDueCents).toBe(31_500);
+  });
+});
+
+describe('renderCancellation — refund copy', () => {
+  const base = {
+    guestName: 'Jamie',
+    propertyName: 'Pinewood Flats',
+    propertyEmail: 'stays@pinewood.example',
+    propertyPhone: '780-555-0100',
+    unitTypeName: 'Cabin',
+    checkIn: '2026-07-15',
+    checkOut: '2026-07-18',
+    nights: 3,
+    confirmationCode: 'OS-7K3M2Q',
+    currency: 'CAD',
+    taxLabel: 'GST',
+    totalCents: 31_500,
+    paidCents: 0,
+    balanceDueCents: 0,
+    manageUrl: '/manage/OS-7K3M2Q',
+  };
+
+  it('shows the policy refund amount and "being processed" copy for a provider refund in flight', () => {
+    const rendered = renderCancellation({ ...base, refundCents: 21_000, refundInFlight: true });
+    expect(rendered.text).toContain('Refund: $210.00');
+    expect(rendered.text).toMatch(/being processed/);
+    expect(rendered.html).toMatch(/being processed/);
+  });
+
+  it('omits the processing note when there is no refund', () => {
+    const rendered = renderCancellation({ ...base, refundCents: 0, refundInFlight: false });
+    expect(rendered.text).toContain('Refund: $0.00');
+    expect(rendered.text).not.toMatch(/being processed/);
   });
 });
 

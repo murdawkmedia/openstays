@@ -167,6 +167,57 @@ export const listStaff = query({
 });
 
 /**
+ * Full property config for the admin /settings page. Staff-gated (or DEMO_MODE,
+ * same rationale as staff.me / updateProperty: the writable public demo has no
+ * real auth and resets nightly). Returns the sensitive fields the public
+ * properties.configList deliberately drops — gstNumber, taxRateBps, timezone.
+ */
+export const forSettings = query({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<
+    Array<{
+      propertyId: Id<'properties'>;
+      name: string;
+      slug: string;
+      active: boolean;
+      timezone: string;
+      currency: string;
+      taxRateBps: number;
+      taxLabel?: string;
+      gstNumber?: string;
+      email: string;
+      phone: string;
+      address: string;
+      checkInTime: string;
+      checkOutTime: string;
+    }>
+  > => {
+    if (process.env.DEMO_MODE !== 'true') {
+      await requireStaff(ctx);
+    }
+    const properties = await ctx.db.query('properties').collect();
+    return properties.map((p) => ({
+      propertyId: p._id,
+      name: p.name,
+      slug: p.slug,
+      active: p.active,
+      timezone: p.timezone,
+      currency: p.currency,
+      taxRateBps: p.taxRateBps,
+      taxLabel: p.taxLabel,
+      gstNumber: p.gstNumber,
+      email: p.email,
+      phone: p.phone,
+      address: p.address,
+      checkInTime: p.checkInTime,
+      checkOutTime: p.checkOutTime,
+    }));
+  },
+});
+
+/**
  * Staff-editable property settings (the /admin/settings page goes editable in
  * M1). Only non-secret display/config prefs — secrets stay in env vars.
  */

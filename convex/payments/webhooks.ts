@@ -131,8 +131,15 @@ export const refundPayment = internalAction({
         reason: args.reason,
       });
     } catch (error) {
-      if (attempt < MAX_ATTEMPTS) {
-        // Transient — back off linearly (60s, 120s) and retry.
+      const message = error instanceof Error ? error.message : String(error);
+      // Retry ONLY on a transient failure: a network error (no HTTP status in
+      // the message) or a 5xx. A 4xx is permanent (e.g. charge_already_refunded,
+      // invalid amount) — retrying just burns attempts and, with a lost-response
+      // race, risks a real double refund. Dead-letter it immediately.
+      const httpStatus = parseHttpStatus(message);
+      const transient = httpStatus === null || httpStatus >= 500;
+      if (transient && attempt < MAX_ATTEMPTS) {
+        // Back off linearly (60s, 120s) and retry.
         await ctx.scheduler.runAfter(attempt * 60_000, internal.payments.webhooks.refundPayment, {
           paymentId: args.paymentId,
           amountCents: args.amountCents,
@@ -141,8 +148,9 @@ export const refundPayment = internalAction({
         });
         return;
       }
-      // Out of retries — surface a staff alert so a human refunds manually.
-      const message = error instanceof Error ? error.message : String(error);
+      // Permanent (4xx) or out of retries — DEAD-LETTER. The guest was already
+      // told the refund is on its way, so this must reach a human: send a REAL
+      // staff email AND write the log row (belt + suspenders).
       await ctx.runMutation(internal.email.writeLog, {
         propertyId: payment.propertyId,
         to: 'staff',
@@ -152,6 +160,25 @@ export const refundPayment = internalAction({
         status: 'failed',
         error: message,
       });
+      await ctx.runAction(internal.email.sendStaffAlert, {
+        propertyId: payment.propertyId,
+        subject: `Refund failed for payment ${args.paymentId} (${args.amountCents}¢)`,
+        body:
+          `A ${payment.provider} refund of ${args.amountCents}¢ (reason: ${args.reason}) for payment ` +
+          `${args.paymentId} could not be completed after ${attempt} attempt(s). The guest may have ` +
+          `already been told a refund is on its way — please refund manually in the provider ` +
+          `dashboard. Error: ${message}`,
+      });
     }
   },
 });
+
+/**
+ * Extract a leading `HTTP <status>:` code from a provider refund error message,
+ * or null when the message carries no HTTP status (i.e. a network-level
+ * failure). Providers' refund() prefix HTTP failures with 'HTTP <status>:'.
+ */
+function parseHttpStatus(message: string): number | null {
+  const match = /^HTTP (\d{3}):/.exec(message);
+  return match ? Number(match[1]) : null;
+}

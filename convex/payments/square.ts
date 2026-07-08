@@ -1,5 +1,5 @@
 import type { CheckoutRequest, CheckoutSession, ParsedWebhookEvent, PaymentProvider } from './types';
-import { timingSafeEqual } from './stripe';
+import { sha256Hex, timingSafeEqual } from './stripe';
 
 /**
  * Square via Payment Links (Online Checkout API) — raw REST, no SDK (the
@@ -168,7 +168,14 @@ export const squareProvider: PaymentProvider = {
   refund: async ({ providerPaymentId, amountCents, currency, reason }): Promise<{ providerRefundId: string }> => {
     const token = process.env.SQUARE_ACCESS_TOKEN;
     if (!token) throw new Error('Square not configured');
-    const idempotencyKey = `os-refund-${providerPaymentId}-${amountCents}`.slice(0, 45);
+    // Square idempotency keys cap at 45 chars. A naive
+    // `os-refund-${paymentId}-${amount}`.slice(0,45) TRUNCATES the amount
+    // discriminator away for long payment ids, so two refunds of DIFFERENT
+    // amounts against the same payment would collide on one key and Square would
+    // silently replay the first refund. Hash the discriminating tuple to a
+    // fixed-width, collision-safe key instead. (Adversarial-review LOW.)
+    const digest = await sha256Hex(`${providerPaymentId}:${amountCents}`);
+    const idempotencyKey = `osrf-${digest.slice(0, 40)}`;
     const res = await fetch(`${squareBaseUrl()}/v2/refunds`, {
       method: 'POST',
       headers: {
@@ -185,7 +192,9 @@ export const squareProvider: PaymentProvider = {
     });
     if (!res.ok) {
       const detail = await res.text();
-      throw new Error(`Square refund failed (${res.status}): ${detail}`);
+      // Prefix with the HTTP status so refundPayment can distinguish a 4xx
+      // (permanent — dead-letter, no retry) from a 5xx (transient — retry).
+      throw new Error(`HTTP ${res.status}: Square refund failed: ${detail}`);
     }
     const data = (await res.json()) as { refund?: { id?: string } };
     const id = data.refund?.id;

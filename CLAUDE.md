@@ -33,7 +33,20 @@ data in a private deployment — never in this repo).
 9. **Confirmation pages trust reactive queries, never redirects.** Success URLs
    render "finalizing…" until `byConfirmationCode` shows `confirmed`.
 10. **Guests have no accounts.** Manage-booking auth = confirmation code + email
-    match. Staff/admin auth = Convex Auth (lands M1).
+    match. Staff/admin auth = Convex Auth (M1): a users row grants NOTHING —
+    staff rights require an active staffProfiles row via requireStaff().
+11. **Settled payment rows are immutable.** Once a payments row leaves
+    'pending' (paid/refunded/partially_refunded/failed), no webhook event may
+    change it — redundant events return 'duplicate' and touch nothing. New
+    captured money (a 'pending' row) is ALWAYS recorded; if the booking isn't
+    in a confirmable state (cancelled, already confirmed, conflict), the
+    money is flipped to paid and immediately auto-refunded with an apology —
+    never silently swallowed, and a payment never resurrects a booking.
+    (Adversarial review 2026-07-08 — both CRITICALs traced to violating this.)
+12. **Every meaningful state gets a canonical URL.** Property, unit type,
+    checkout, confirmation, manage-booking, admin pages — all deep-linkable;
+    builds ship an SPA fallback so cold loads never 404. New UI surfaces must
+    keep this guarantee.
 
 ## Review policy
 
@@ -113,6 +126,22 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   promo redemption stays consumed forever — cancellation of a confirmed
   booking does NOT free once-per-guest slots or reopen usage caps; only
   unconsumed (reserved) holds release. 14 adversarial tests added.
+- 2026-07-08 (M1 close): five-lens adversarial review (money-loss,
+  double-booking, webhook-forgery, promo/email, auth surface) confirmed 9
+  findings incl. 2 CRITICALs — a double-charge swallowed as 'duplicate' with
+  funds stranded, and late webhooks resurrecting cancelled+refunded bookings.
+  Root cause: confirmFromPayment conflated "redundant event for settled
+  money" with "new money on an unexpected booking state". Fixed via binding
+  convention #11 (settled rows immutable / record-then-refund), plus: Stripe
+  payment_status check + card-only methods, deterministic refund
+  Idempotency-Keys both providers, 4xx-never-retry refund policy + staff
+  alert email on dead-letter, staff-gated tapeForProperty and forSettings
+  (public configList slimmed), webhook amount/currency mismatch → refund,
+  invoice-proportional per-payment GST attribution (gstForPayment), checkout
+  requires the confirmation code, email paid/refund figures corrected.
+  156 tests green. DEMO_MODE grants a synthetic read-mostly staff identity
+  (demo tape/settings work without login) — never set DEMO_MODE on a real
+  deployment.
 - 2026-07-08: Promo codes added to schema v1 pre-commit (no migration).
   BINDING accounting rule: promo code = PRE-tax price reduction (GST on the
   discounted base, allocated proportionally across taxable/non-taxable

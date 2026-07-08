@@ -45,29 +45,31 @@ export const bySlug = query({
 });
 
 /**
- * Configuration snapshot for the settings page. Read-only and non-secret;
- * editing arrives with staff auth in M1.
+ * Public contact/config snapshot the checkout & confirmation pages consume.
+ * Intentionally public (no auth), so it must NOT leak sensitive or unlaunched
+ * config: ACTIVE properties only, and NO gstNumber (the tax-registration
+ * number). The full config (incl. gstNumber, taxRateBps, timezone) lives behind
+ * staff auth in staff.forSettings.
  */
 export const configList = query({
   args: {},
   handler: async (ctx) => {
     const properties = await ctx.db.query('properties').collect();
-    return properties.map((p) => ({
-      propertyId: p._id,
-      name: p.name,
-      slug: p.slug,
-      active: p.active,
-      timezone: p.timezone,
-      currency: p.currency,
-      taxRateBps: p.taxRateBps,
-      taxLabel: p.taxLabel,
-      gstNumber: p.gstNumber,
-      email: p.email,
-      phone: p.phone,
-      address: p.address,
-      checkInTime: p.checkInTime,
-      checkOutTime: p.checkOutTime,
-    }));
+    return properties
+      .filter((p) => p.active)
+      .map((p) => ({
+        propertyId: p._id,
+        name: p.name,
+        slug: p.slug,
+        active: p.active,
+        currency: p.currency,
+        taxLabel: p.taxLabel,
+        email: p.email,
+        phone: p.phone,
+        address: p.address,
+        checkInTime: p.checkInTime,
+        checkOutTime: p.checkOutTime,
+      }));
   },
 });
 

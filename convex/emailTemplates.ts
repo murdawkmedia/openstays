@@ -143,15 +143,26 @@ export function renderConfirmation(data: BookingEmailData): RenderedEmail {
   return { subject, html, text };
 }
 
-export function renderCancellation(data: BookingEmailData & { refundCents: number }): RenderedEmail {
+export function renderCancellation(
+  data: BookingEmailData & { refundCents: number; refundInFlight?: boolean },
+): RenderedEmail {
   const guestName = escapeHtml(data.guestName);
   const subject = `Booking cancelled — ${data.confirmationCode}`;
   const refundLine = `<tr><td style="padding:6px 0;color:#6b7280;">Refund</td><td style="padding:6px 0;text-align:right;font-weight:bold;">${formatMoney(data.refundCents, data.currency)}</td></tr>`;
+  // For provider payments the refund is scheduled but not yet settled when this
+  // email sends, so say it's being processed rather than implying it's done.
+  const processingNote =
+    data.refundInFlight && data.refundCents > 0
+      ? `<p style="margin:0 0 12px;">Your refund of ${escapeHtml(
+          formatMoney(data.refundCents, data.currency),
+        )} is being processed and will appear on your original payment method.</p>`
+      : '';
   const html = wrapHtml(
     data,
     [
       `<p style="margin:0 0 12px;">Hi ${guestName},</p>`,
       `<p style="margin:0 0 12px;">Your booking at ${escapeHtml(data.propertyName)} has been cancelled.</p>`,
+      processingNote,
       detailsTableHtml(data).replace('</table>', `${refundLine}</table>`),
       manageLinkHtml(data),
     ].join(''),
@@ -160,6 +171,9 @@ export function renderCancellation(data: BookingEmailData & { refundCents: numbe
     `Hi ${data.guestName},`,
     '',
     `Your booking at ${data.propertyName} has been cancelled.`,
+    ...(data.refundInFlight && data.refundCents > 0
+      ? ['', `Your refund of ${formatMoney(data.refundCents, data.currency)} is being processed and will appear on your original payment method.`]
+      : []),
     '',
     ...detailsTextLines(data),
     `Refund: ${formatMoney(data.refundCents, data.currency)}`,

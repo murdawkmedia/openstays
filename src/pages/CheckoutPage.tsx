@@ -94,7 +94,12 @@ export function CheckoutPage() {
     setPayError(null);
     setHoldTooStale(false);
     try {
-      const result = await createCheckoutSession({ bookingId: bookingId as Id<'bookings'>, provider });
+      const result = await createCheckoutSession({
+        bookingId: bookingId as Id<'bookings'>,
+        provider,
+        // Proof of ownership — the code the guest already has (from the URL).
+        code: code ?? '',
+      });
       window.location.assign(result.checkoutUrl);
       // Intentionally leave `paying` true — we're navigating away.
     } catch (error) {

@@ -338,6 +338,47 @@ async function releasePromoRedemption(ctx: MutationCtx, bookingId: Id<'bookings'
   }
 }
 
+/**
+ * Per-payment GST attribution. A payment row records the GST CONTAINED IN THAT
+ * PAYMENT, and the sum across a booking's payments must equal the invoice's
+ * gstCents EXACTLY (CRA reconciliation).
+ *
+ * With a priceBreakdown snapshot we attribute proportionally to the invoice:
+ *   gstForThisPayment = round(invoice.gstCents · amountCents / invoice.totalCents)
+ * The payment that settles the remaining balance (prior paid + this ≥ total)
+ * instead takes the REMAINDER (invoice.gstCents − Σ gstCents already booked),
+ * so rounding never lets the per-payment GST drift away from the invoice GST,
+ * and non-taxable add-ons never inflate it (the old flat tax-inclusive
+ * extraction assumed the whole payment was taxable and overstated).
+ *
+ * Only when the booking has NO priceBreakdown do we fall back to the tax-
+ * inclusive extraction round(amt · rate / (10000 + rate)).
+ *
+ * Pure: all inputs are numbers. `priorGstCents` = Σ gstCents of the booking's
+ * already-settled (paid/partially_refunded/refunded) rows. `priorPaidCents` =
+ * Σ amountCents of those rows.
+ */
+export function gstForPayment(args: {
+  amountCents: number;
+  priceBreakdown: { gstCents: number; totalCents: number } | null | undefined;
+  priorPaidCents: number;
+  priorGstCents: number;
+  taxRateBps: number;
+}): number {
+  const { amountCents, priceBreakdown, priorPaidCents, priorGstCents, taxRateBps } = args;
+  if (!priceBreakdown || priceBreakdown.totalCents <= 0) {
+    // No invoice snapshot to attribute against — tax-inclusive extraction.
+    return Math.round((amountCents * taxRateBps) / (10_000 + taxRateBps));
+  }
+  const settlesBalance = priorPaidCents + amountCents >= priceBreakdown.totalCents;
+  if (settlesBalance) {
+    // Remainder attribution: whatever GST is not yet booked, so the per-payment
+    // GST across the booking sums EXACTLY to invoice.gstCents.
+    return Math.max(0, priceBreakdown.gstCents - priorGstCents);
+  }
+  return Math.round((priceBreakdown.gstCents * amountCents) / priceBreakdown.totalCents);
+}
+
 export const expireHolds = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -496,9 +537,14 @@ export const cancelByGuest = mutation({
     }
 
     // Notify the guest their booking was cancelled (E's module; logs in DEMO).
+    // Pass the policy-computed refundCents through explicitly: for stripe/square
+    // the refunds[] row is only written by recordRefund AFTER the provider
+    // round-trip, so getEmailContext would race it and render "Refund: $0.00".
+    // The email copy says the refund "is being processed" for provider payments.
     await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
       bookingId: booking._id,
       kind: 'cancellation',
+      refundCents,
     });
 
     return { refundCents, paidCents };
@@ -641,6 +687,29 @@ export const getPayment = internalQuery({
 });
 
 /**
+ * The provider checkout ids of a booking's still-'pending' payment rows for a
+ * given provider — so createCheckoutSession can best-effort expire other live
+ * sessions before minting a new one (mitigation for the double-charge vector;
+ * the confirmFromPayment state machine is the actual guarantee).
+ */
+export const getPendingCheckoutIds = internalQuery({
+  args: {
+    bookingId: v.id('bookings'),
+    provider: v.union(v.literal('stripe'), v.literal('square')),
+  },
+  handler: async (ctx, args): Promise<string[]> => {
+    const rows = await ctx.db
+      .query('payments')
+      .withIndex('by_booking', (q) => q.eq('bookingId', args.bookingId))
+      .filter((q) => q.eq(q.field('status'), 'pending'))
+      .collect();
+    return rows
+      .filter((p) => p.provider === args.provider && p.providerCheckoutId)
+      .map((p) => p.providerCheckoutId!);
+  },
+});
+
+/**
  * Insert (or return the existing) pending payments row for a checkout attempt.
  * Idempotent per (booking, provider, providerCheckoutId): a guest who reloads
  * the checkout page and re-creates the same provider session must not spawn a
@@ -685,21 +754,47 @@ export const recordPendingPayment = internalMutation({
 
 /**
  * THE money transaction: a provider 'payment_succeeded' webhook lands here.
- * One serializable mutation does everything or nothing:
- *   (a) webhookEvents check-and-insert on (provider, eventId) — a duplicate
- *       delivery writes nothing and returns 'duplicate';
- *   (b) join the pending payments row via by_provider_checkout — missing row =
- *       'orphan' (still records the webhookEvent so retries stay idempotent);
- *   (c) flip the payment to 'paid' with per-payment GST extraction;
- *   (d) transition the booking:
- *         hold                 → confirmed (+ apply promo, clear hold)
- *         expired | cancelled  → re-acquire the nights (same conflict check as
- *                                createHold); free → confirmed + fresh
- *                                unitNights + fresh applied redemption; taken →
- *                                'payment_conflict' + schedule full refund +
- *                                apology email
- *         confirmed            → 'duplicate' (a second provider event)
- *   (e) plain-confirm success schedules the confirmation email.
+ * One serializable mutation does everything or nothing. The state machine
+ * enforces two invariants (adversarial-review criticals #1/#2 + several
+ * mediums):
+ *
+ *   (A) SETTLED PAYMENT ROWS ARE IMMUTABLE. If the joined payments row is
+ *       already 'paid' / 'refunded' / 'partially_refunded' (or 'failed'), this
+ *       event is redundant: record the webhookEvent, return 'duplicate', touch
+ *       NOTHING else. No status flips, no promo, no nights, no emails. This is
+ *       the root-cause fix for "redundant provider event resurrects a
+ *       cancelled+refunded booking" and "refunded row re-flipped to paid": a
+ *       row's terminal status — not the booking status — is the idempotency
+ *       source of truth for whether this money was already processed.
+ *
+ *   (B) NEW MONEY (row still 'pending') is ALWAYS recorded, then dispositioned
+ *       by booking state:
+ *         hold                          → confirm (+ apply promo, clear hold)
+ *         expired                       → re-acquire the nights (same conflict
+ *                                         check as createHold); free → confirm
+ *                                         + fresh unitNights + fresh applied
+ *                                         redemption; taken → payment_conflict +
+ *                                         full auto-refund + apology
+ *         cancelled | payment_conflict  → LATE CAPTURE. Never re-acquire, never
+ *                                         change booking status: record the
+ *                                         money, schedule a FULL refund
+ *                                         ('late_capture_after_cancellation') +
+ *                                         apology, return 'late_capture_refunded'.
+ *                                         Promo is NOT re-applied.
+ *         confirmed|checked_in|_out     → SECOND CAPTURE (double-charge): record
+ *                                         the money, schedule a FULL refund
+ *                                         ('duplicate_payment') + apology,
+ *                                         return 'duplicate_payment'. Promo NOT
+ *                                         touched.
+ *         external | blocked | no_show  → can't seat the guest: refund + apology.
+ *
+ * Amount/currency validation: on a mismatch between the captured
+ * amount/currency and the pending row, we record the ACTUAL captured amount,
+ * do NOT confirm (whatever the booking state), schedule a full refund
+ * ('amount_mismatch') + a staff alert, and return 'amount_mismatch'.
+ *
+ * Promo application happens ONLY on the hold-confirm and the successful
+ * expired-re-acquire paths.
  */
 export const confirmFromPayment = internalMutation({
   args: {
@@ -714,8 +809,28 @@ export const confirmFromPayment = internalMutation({
   handler: async (
     ctx,
     args,
-  ): Promise<{ outcome: 'confirmed' | 'payment_conflict' | 'duplicate' | 'orphan' }> => {
+  ): Promise<{
+    outcome:
+      | 'confirmed'
+      | 'payment_conflict'
+      | 'duplicate'
+      | 'orphan'
+      | 'duplicate_payment'
+      | 'late_capture_refunded'
+      | 'amount_mismatch';
+  }> => {
     const now = Date.now();
+
+    /** Record the idempotency ledger row for this event (with booking link). */
+    const recordEvent = async (bookingId?: Id<'bookings'>) => {
+      await ctx.db.insert('webhookEvents', {
+        provider: args.provider,
+        eventId: args.eventId,
+        type: args.eventType,
+        bookingId,
+        processedAt: now,
+      });
+    };
 
     // (a) Idempotency: check-and-insert the webhookEvents row FIRST. A duplicate
     //     delivery of the same provider event id writes nothing else and bails.
@@ -736,67 +851,105 @@ export const confirmFromPayment = internalMutation({
       .first();
     if (!payment || !payment.bookingId) {
       // Record the event so retries of this orphan are also idempotent no-ops.
-      await ctx.db.insert('webhookEvents', {
-        provider: args.provider,
-        eventId: args.eventId,
-        type: args.eventType,
-        processedAt: now,
-      });
+      await recordEvent();
       return { outcome: 'orphan' };
+    }
+
+    // (A) IMMUTABILITY: a payment row that is not 'pending' has already been
+    //     fully processed (paid/refunded/partially_refunded/failed). A later
+    //     authentic event for the same checkout — a Square payment.updated
+    //     re-emission after a refund posts, a Stripe redundant event — must NOT
+    //     re-flip the row, re-acquire nights, re-apply promo, or resurrect the
+    //     booking. Record the event and bail. This is the idempotency source of
+    //     truth, independent of the booking's own status.
+    if (payment.status !== 'pending') {
+      await recordEvent(payment.bookingId);
+      return { outcome: 'duplicate' };
     }
 
     const booking = await ctx.db.get(payment.bookingId);
     if (!booking) {
-      await ctx.db.insert('webhookEvents', {
-        provider: args.provider,
-        eventId: args.eventId,
-        type: args.eventType,
-        processedAt: now,
-      });
+      await recordEvent();
       return { outcome: 'orphan' };
     }
 
-    // A second authentic provider event for an already-confirmed booking (e.g.
-    // Stripe + a redundant payment_intent event): the money is already booked.
-    if (booking.status === 'confirmed' || booking.status === 'checked_in' || booking.status === 'checked_out') {
-      await ctx.db.insert('webhookEvents', {
-        provider: args.provider,
-        eventId: args.eventId,
-        type: args.eventType,
-        bookingId: booking._id,
-        processedAt: now,
-      });
-      return { outcome: 'duplicate' };
-    }
-
-    // (c) Flip the payment to 'paid'. gstCents = tax CONTAINED IN THIS PAYMENT
-    //     (tax-inclusive extraction), never the invoice's full GST — the exact
-    //     adversarial-review invariant confirmSimulated already honours.
     const property = await ctx.db.get(booking.propertyId);
     const taxRateBps = property?.taxRateBps ?? 0;
-    const gstCents = Math.round((args.amountCents * taxRateBps) / (10_000 + taxRateBps));
-    await ctx.db.patch(payment._id, {
-      status: 'paid',
-      paidAt: now,
-      gstCents,
-      providerPaymentId: args.providerPaymentId,
-      // Trust the invoice amount recorded at checkout; the captured amount is
-      // asserted equal by the provider parse. currency stays as recorded.
+
+    // Amount/currency validation. The captured amount/currency must match what
+    // the pending row recorded at checkout. On mismatch we DO record the money
+    // (audit trail) at the ACTUAL captured amount, but we never confirm the
+    // booking — instead refund it and alert staff. (Never re-read taxRateBps to
+    // derive GST against an amount the invoice never agreed to.)
+    const rowCurrency = payment.currency;
+    const amountMismatch = args.amountCents !== payment.amountCents;
+    const currencyMismatch = args.currency !== '' && args.currency !== rowCurrency;
+    if (amountMismatch || currencyMismatch) {
+      await ctx.db.patch(payment._id, {
+        status: 'paid',
+        paidAt: now,
+        // GST extracted from the ACTUAL captured amount so the tax base and the
+        // recorded receivable cannot diverge.
+        amountCents: args.amountCents,
+        gstCents: Math.round((args.amountCents * taxRateBps) / (10_000 + taxRateBps)),
+        currency: args.currency !== '' ? args.currency : rowCurrency,
+        providerPaymentId: args.providerPaymentId,
+      });
+      await recordEvent(booking._id);
+      await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
+        paymentId: payment._id,
+        amountCents: args.amountCents,
+        reason: 'amount_mismatch',
+      });
+      await ctx.scheduler.runAfter(0, internal.email.sendStaffAlert, {
+        propertyId: booking.propertyId,
+        subject: `Payment amount/currency mismatch on booking ${booking.confirmationCode}`,
+        body:
+          `A ${args.provider} capture for booking ${booking.confirmationCode} did not match the ` +
+          `invoiced amount. Captured ${args.amountCents} ${args.currency || rowCurrency}; ` +
+          `expected ${payment.amountCents} ${rowCurrency}. The capture was recorded and a full ` +
+          `refund scheduled; the booking was NOT confirmed. Please investigate.`,
+      });
+      return { outcome: 'amount_mismatch' };
+    }
+
+    // Prior settled rows for this booking — used for GST attribution so the
+    // per-payment GST sums EXACTLY to the invoice GST across a deposit+balance.
+    const bookingPayments = await ctx.db
+      .query('payments')
+      .withIndex('by_booking', (q) => q.eq('bookingId', booking._id))
+      .collect();
+    const settledRows = bookingPayments.filter(
+      (p) =>
+        p._id !== payment._id &&
+        (p.status === 'paid' || p.status === 'partially_refunded' || p.status === 'refunded'),
+    );
+    const priorPaidCents = settledRows.reduce((sum, p) => sum + p.amountCents, 0);
+    const priorGstCents = settledRows.reduce((sum, p) => sum + p.gstCents, 0);
+    const gstCents = gstForPayment({
+      amountCents: args.amountCents,
+      priceBreakdown: booking.priceBreakdown,
+      priorPaidCents,
+      priorGstCents,
+      taxRateBps,
     });
 
-    // Record the idempotency ledger row now that we've committed to processing.
-    await ctx.db.insert('webhookEvents', {
-      provider: args.provider,
-      eventId: args.eventId,
-      type: args.eventType,
-      bookingId: booking._id,
-      processedAt: now,
-    });
+    // (B) NEW MONEY — flip the pending row to 'paid'. gstCents = tax CONTAINED
+    //     IN THIS PAYMENT (invoice-proportional, remainder on the settling
+    //     payment), never the invoice's full GST.
+    const flipToPaid = async () => {
+      await ctx.db.patch(payment._id, {
+        status: 'paid',
+        paidAt: now,
+        gstCents,
+        providerPaymentId: args.providerPaymentId,
+      });
+    };
 
-    // (d) Booking transition.
+    // ── hold → confirmed (happy path). unitNights already exist from createHold.
     if (booking.status === 'hold') {
-      // Happy path: the hold is still live. Confirm, consume the promo, clear
-      // the hold timer. unitNights already exist from createHold.
+      await flipToPaid();
+      await recordEvent(booking._id);
       await applyPromoRedemption(ctx, booking._id);
       await ctx.db.patch(booking._id, {
         status: 'confirmed',
@@ -811,11 +964,13 @@ export const confirmFromPayment = internalMutation({
       return { outcome: 'confirmed' };
     }
 
-    if (booking.status === 'expired' || booking.status === 'cancelled') {
-      // The hold expired (or was cancelled) BEFORE the payment landed — its
-      // nights and promo reservation were already released. The guest paid the
-      // discounted price, so try to RE-ACQUIRE the same nights + prep tail with
-      // the identical conflict check createHold uses.
+    // ── expired → re-acquire the nights (PASSIVE TTL expiry only, never a guest
+    //    cancellation — that is handled below). The guest paid the discounted
+    //    price, so try to RE-ACQUIRE the same nights + prep tail with the
+    //    identical conflict check createHold uses.
+    if (booking.status === 'expired') {
+      await flipToPaid();
+      await recordEvent(booking._id);
       const ratePlan = booking.ratePlanId ? await ctx.db.get(booking.ratePlanId) : null;
       const prepBufferNights = ratePlan?.prepBufferNights ?? 0;
       const blockedUntil = addDays(booking.checkOut, prepBufferNights);
@@ -891,10 +1046,55 @@ export const confirmFromPayment = internalMutation({
       return { outcome: 'confirmed' };
     }
 
-    // Any other status (payment_conflict already, external, blocked, no_show):
-    // the payment is already captured ('paid' above) but we can't seat the
-    // guest. Force a refund + apology. Booking status is left as-is (we don't
-    // own or want to reshape a maintenance block or an external booking).
+    // ── cancelled | payment_conflict → LATE CAPTURE. The guest explicitly
+    //    cancelled (or we already flagged a conflict) BEFORE this money landed.
+    //    NEVER re-acquire and NEVER change booking status — that would resurrect
+    //    a cancelled booking the guest was told succeeded. Record the money,
+    //    schedule a FULL refund + apology. Promo is NOT re-applied.
+    if (booking.status === 'cancelled' || booking.status === 'payment_conflict') {
+      await flipToPaid();
+      await recordEvent(booking._id);
+      await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
+        paymentId: payment._id,
+        amountCents: args.amountCents,
+        reason: 'late_capture_after_cancellation',
+      });
+      await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
+        bookingId: booking._id,
+        kind: 'payment_conflict',
+      });
+      return { outcome: 'late_capture_refunded' };
+    }
+
+    // ── confirmed | checked_in | checked_out → SECOND CAPTURE. The booking is
+    //    already paid for by a different session; this pending row is genuinely
+    //    new money (a double-charge across two tabs / two providers). Record it,
+    //    schedule a FULL refund + apology. Promo NOT touched.
+    if (
+      booking.status === 'confirmed' ||
+      booking.status === 'checked_in' ||
+      booking.status === 'checked_out'
+    ) {
+      await flipToPaid();
+      await recordEvent(booking._id);
+      await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
+        paymentId: payment._id,
+        amountCents: args.amountCents,
+        reason: 'duplicate_payment',
+      });
+      await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
+        bookingId: booking._id,
+        kind: 'payment_conflict',
+      });
+      return { outcome: 'duplicate_payment' };
+    }
+
+    // ── Any remaining status (external, blocked, no_show): the payment is
+    //    captured but we can't seat the guest. Force a refund + apology; leave
+    //    the booking status as-is (we don't own or want to reshape a maintenance
+    //    block or an external booking).
+    await flipToPaid();
+    await recordEvent(booking._id);
     await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
       paymentId: payment._id,
       amountCents: args.amountCents,

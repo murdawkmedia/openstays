@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { query } from './_generated/server';
 import { addDays } from '../shared/pricing';
+import { requireStaff } from './staff';
 
 /**
  * Public availability for one unit type over a date window: which nights are
@@ -48,6 +49,12 @@ export const forUnitType = query({
 /**
  * Admin booking tape data: all active bookings for a property intersecting a
  * date window, grouped by unit. One windowed index read.
+ *
+ * STAFF-ONLY. The payload includes every booking's guest-facing confirmation
+ * code and full occupancy, so it must never be wire-callable by an anonymous
+ * caller (the client-side 'skip' gate is cosmetic). DEMO_MODE is exempt: the
+ * public writable demo has no real auth (synthetic staff via staff.me, nightly
+ * reset), mirroring staff.me / updateProperty.
  */
 export const tapeForProperty = query({
   args: {
@@ -56,6 +63,9 @@ export const tapeForProperty = query({
     days: v.number(),
   },
   handler: async (ctx, args) => {
+    if (process.env.DEMO_MODE !== 'true') {
+      await requireStaff(ctx);
+    }
     const days = Math.max(1, Math.min(120, Math.floor(args.days)));
     const endDate = addDays(args.startDate, days);
 

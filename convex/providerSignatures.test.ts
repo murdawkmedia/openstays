@@ -3,11 +3,12 @@
 // are computed in-test with crypto.subtle so the tests exercise the REAL HMAC
 // path (no mocking). vi.stubEnv supplies synthetic secrets.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { stripeProvider, formEncode, hmacSha256Hex, timingSafeEqual } from './payments/stripe';
+import { stripeProvider, formEncode, hmacSha256Hex, sha256Hex, timingSafeEqual } from './payments/stripe';
 import { squareProvider, hmacSha256Base64 } from './payments/square';
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -64,14 +65,18 @@ describe('stripe.verifyAndParseWebhook', () => {
     vi.stubEnv('STRIPE_WEBHOOK_SECRET', SECRET);
   });
 
-  it('parses a valid checkout.session.completed → payment_succeeded', async () => {
+  it('parses a paid checkout.session.completed → payment_succeeded', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_700_000_000_000);
     const t = Math.floor(Date.now() / 1000);
+    // payment_status:'paid' is required now — a completed session with an
+    // 'unpaid' status (a delayed bank-debit method) is NOT captured money.
     const body = JSON.stringify({
       id: 'evt_1',
       type: 'checkout.session.completed',
-      data: { object: { id: 'cs_123', payment_intent: 'pi_abc', amount_total: 5250, currency: 'cad' } },
+      data: {
+        object: { id: 'cs_123', payment_status: 'paid', payment_intent: 'pi_abc', amount_total: 5250, currency: 'cad' },
+      },
     });
     const parsed = await stripeProvider.verifyAndParseWebhook(await signedRequest(body, t));
     expect(parsed).toEqual({
@@ -79,6 +84,39 @@ describe('stripe.verifyAndParseWebhook', () => {
       kind: 'payment_succeeded',
       checkoutId: 'cs_123',
       providerPaymentId: 'pi_abc',
+      amountCents: 5250,
+      currency: 'CAD',
+    });
+  });
+
+  it("completed with payment_status 'unpaid' → ignored (delayed method not yet settled)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    const t = Math.floor(Date.now() / 1000);
+    const body = JSON.stringify({
+      id: 'evt_unpaid',
+      type: 'checkout.session.completed',
+      data: { object: { id: 'cs_u', payment_status: 'unpaid', payment_intent: 'pi_u', amount_total: 5250, currency: 'cad' } },
+    });
+    const parsed = await stripeProvider.verifyAndParseWebhook(await signedRequest(body, t));
+    expect(parsed).toEqual({ eventId: 'evt_unpaid', kind: 'ignored' });
+  });
+
+  it('async_payment_succeeded → payment_succeeded (delayed method finally settled)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    const t = Math.floor(Date.now() / 1000);
+    const body = JSON.stringify({
+      id: 'evt_async',
+      type: 'checkout.session.async_payment_succeeded',
+      data: { object: { id: 'cs_a', payment_intent: 'pi_a', amount_total: 5250, currency: 'cad' } },
+    });
+    const parsed = await stripeProvider.verifyAndParseWebhook(await signedRequest(body, t));
+    expect(parsed).toEqual({
+      eventId: 'evt_async',
+      kind: 'payment_succeeded',
+      checkoutId: 'cs_a',
+      providerPaymentId: 'pi_a',
       amountCents: 5250,
       currency: 'CAD',
     });
@@ -276,5 +314,83 @@ describe('isConfigured', () => {
     expect(squareProvider.isConfigured()).toBe(false);
     vi.stubEnv('SQUARE_WEBHOOK_SIGNATURE_KEY', 'key');
     expect(squareProvider.isConfigured()).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Refund idempotency keys + HTTP-status-prefixed errors (money-fix)
+// ---------------------------------------------------------------------------
+describe('stripeProvider.refund', () => {
+  it('sends a deterministic Idempotency-Key header derived from (paymentId, amount)', async () => {
+    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_x');
+    // Capture the request init per call. A fresh Response each time — .json()
+    // consumes the body, so a shared instance would be unusable on call 2.
+    const inits: Array<{ headers: Record<string, string> }> = [];
+    const fetchMock = vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      inits.push(init);
+      return new Response(JSON.stringify({ id: 're_1' }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await stripeProvider.refund({
+      providerPaymentId: 'pi_abc',
+      amountCents: 5000,
+      currency: 'CAD',
+      reason: 'guest_cancellation',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(inits[0].headers['Idempotency-Key']).toBe('os-refund-pi_abc-5000');
+    // A refund of a DIFFERENT amount uses a DIFFERENT key (no silent dedupe).
+    await stripeProvider.refund({
+      providerPaymentId: 'pi_abc',
+      amountCents: 7000,
+      currency: 'CAD',
+      reason: 'guest_cancellation',
+    });
+    expect(inits[1].headers['Idempotency-Key']).toBe('os-refund-pi_abc-7000');
+  });
+
+  it('throws an HTTP-status-prefixed error on a non-2xx response', async () => {
+    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_x');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('charge_already_refunded', { status: 402 })));
+    await expect(
+      stripeProvider.refund({ providerPaymentId: 'pi_x', amountCents: 5000, currency: 'CAD', reason: 'r' }),
+    ).rejects.toThrow(/^HTTP 402:/);
+  });
+});
+
+describe('squareProvider.refund', () => {
+  it('uses a collision-safe hashed idempotency key: different amounts → different keys within 45 chars', async () => {
+    vi.stubEnv('SQUARE_ACCESS_TOKEN', 'tok');
+    const captured: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        captured.push(JSON.parse(init.body).idempotency_key);
+        return new Response(JSON.stringify({ refund: { id: 'rf_1' } }), { status: 200 });
+      }),
+    );
+
+    // A 32-char payment id (typical Square length) where the old .slice(0,45)
+    // truncated the amount discriminator away.
+    const longPaymentId = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345';
+    await squareProvider.refund({ providerPaymentId: longPaymentId, amountCents: 10_000, currency: 'CAD', reason: 'r' });
+    await squareProvider.refund({ providerPaymentId: longPaymentId, amountCents: 15_000, currency: 'CAD', reason: 'r' });
+
+    expect(captured).toHaveLength(2);
+    expect(captured[0]).not.toBe(captured[1]); // no collision
+    expect(captured[0].length).toBeLessThanOrEqual(45);
+    expect(captured[1].length).toBeLessThanOrEqual(45);
+    // Deterministic: matches the SHA-256(paymentId:amount)-derived key.
+    expect(captured[0]).toBe(`osrf-${(await sha256Hex(`${longPaymentId}:10000`)).slice(0, 40)}`);
+  });
+
+  it('throws an HTTP-status-prefixed error on a non-2xx response', async () => {
+    vi.stubEnv('SQUARE_ACCESS_TOKEN', 'tok');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('bad', { status: 400 })));
+    await expect(
+      squareProvider.refund({ providerPaymentId: 'p', amountCents: 5000, currency: 'CAD', reason: 'r' }),
+    ).rejects.toThrow(/^HTTP 400:/);
   });
 });

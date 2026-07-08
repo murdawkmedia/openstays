@@ -63,7 +63,7 @@ function toFormState(property: PropertyConfig): PropertyFormState {
 export function AdminSettingsPage() {
   const gate = useStaffGate();
   const { signOut } = useAuthActions();
-  const properties = useQuery(api.properties.configList, gate.status === 'staff' ? {} : 'skip');
+  const properties = useQuery(api.staff.forSettings, gate.status === 'staff' ? {} : 'skip');
 
   if (gate.status === 'loading') return <Spinner label="Checking staff access…" />;
   if (gate.status === 'signed_out') return <Navigate to="/admin/login" replace />;

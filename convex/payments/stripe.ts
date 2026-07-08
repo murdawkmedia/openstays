@@ -65,6 +65,15 @@ export async function hmacSha256Hex(secret: string, message: string): Promise<st
     .join('');
 }
 
+/** SHA-256 of `message`, returned as lowercase hex. */
+export async function sha256Hex(message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const digest = await crypto.subtle.digest('SHA-256', enc.encode(message));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 /** Parse a Stripe-Signature header value ('t=123,v1=abc,v1=def') into parts. */
 function parseStripeSignatureHeader(header: string): { t: number | null; v1: string[] } {
   let t: number | null = null;
@@ -91,6 +100,14 @@ export const stripeProvider: PaymentProvider = {
 
     const body = formEncode({
       mode: 'payment',
+      // Restrict to card (instant-settlement) methods only. Belt-and-suspenders
+      // with the payment_status check in verifyAndParseWebhook: delayed-
+      // notification methods (ACH/PAD/SEPA bank debits) fire
+      // checkout.session.completed with payment_status 'unpaid' days before
+      // funds settle — confirming a booking with $0 captured. Pinning
+      // payment_method_types to card means those methods can't be selected at
+      // all, so an unpaid completed event can never arise here.
+      payment_method_types: ['card'],
       // Stripe wants the checkout session to expire with the hold. Min 30 min
       // from now is guaranteed by the 35-min hold TTL + the <31-min refusal.
       expires_at: Math.floor(req.expiresAtMs / 1000),
@@ -169,6 +186,31 @@ export const stripeProvider: PaymentProvider = {
 
     switch (event.type) {
       case 'checkout.session.completed': {
+        // Only a session whose payment_status is 'paid' means funds are
+        // captured. Delayed-notification methods (ACH/PAD/SEPA) fire completed
+        // with payment_status 'unpaid' at commit time — days before settlement.
+        // Ignore those; the real money arrives later via
+        // checkout.session.async_payment_succeeded (below). (We also pin
+        // payment_method_types:['card'] in createCheckout, so an 'unpaid'
+        // completed should never reach us — this is defense in depth.)
+        if (object.payment_status !== 'paid') {
+          return { eventId, kind: 'ignored' };
+        }
+        return {
+          eventId,
+          kind: 'payment_succeeded',
+          checkoutId: object.id as string | undefined,
+          providerPaymentId:
+            typeof object.payment_intent === 'string' ? object.payment_intent : undefined,
+          amountCents: typeof object.amount_total === 'number' ? object.amount_total : undefined,
+          currency:
+            typeof object.currency === 'string' ? (object.currency as string).toUpperCase() : undefined,
+        };
+      }
+      case 'checkout.session.async_payment_succeeded': {
+        // A delayed-notification method finally settled — same fields as a
+        // 'paid' completed event. This is the event that actually confirms a
+        // bank-debit booking (if such a method were ever enabled).
         return {
           eventId,
           kind: 'payment_succeeded',
@@ -193,17 +235,26 @@ export const stripeProvider: PaymentProvider = {
   refund: async ({ providerPaymentId, amountCents }): Promise<{ providerRefundId: string }> => {
     const secret = process.env.STRIPE_SECRET_KEY;
     if (!secret) throw new Error('STRIPE_SECRET_KEY not configured');
+    // Deterministic Idempotency-Key so a retried refund (e.g. the response was
+    // lost after Stripe already processed it — a network timeout) does NOT
+    // create a SECOND refund on a charge that still has un-refunded balance.
+    // Keyed on (paymentId, amount): a genuine second refund of a DIFFERENT
+    // amount uses a different key. (Adversarial-review HIGH.)
+    const idempotencyKey = `os-refund-${providerPaymentId}-${amountCents}`;
     const res = await fetch(`${STRIPE_API}/v1/refunds`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${secret}`,
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Idempotency-Key': idempotencyKey,
       },
       body: formEncode({ payment_intent: providerPaymentId, amount: amountCents }),
     });
     if (!res.ok) {
       const detail = await res.text();
-      throw new Error(`Stripe refund failed (${res.status}): ${detail}`);
+      // Prefix with the HTTP status so refundPayment can distinguish a 4xx
+      // (permanent — dead-letter, no retry) from a 5xx (transient — retry).
+      throw new Error(`HTTP ${res.status}: Stripe refund failed: ${detail}`);
     }
     const refund = (await res.json()) as { id: string };
     return { providerRefundId: refund.id };
