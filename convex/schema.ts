@@ -334,6 +334,7 @@ export default defineSchema({
     paymentId: v.id('payments'),
     quotedAmountCents: v.number(),
     currency: v.string(),
+    network: v.union(v.literal('signet'), v.literal('mainnet')),
     satsAmount: v.number(),
     bolt11: v.optional(v.string()),
     bridgeActivityId: v.optional(v.string()),

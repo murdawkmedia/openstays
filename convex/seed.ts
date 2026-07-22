@@ -63,7 +63,8 @@ export async function seedConsensusCommons(ctx: MutationCtx): Promise<void> {
   }
   await ctx.db.insert('ratePlans', {
     propertyId, unitTypeId: roomTypeId, name: 'Hackathon rate', active: true, currency: 'CAD',
-    baseNightlyCents: 21_000, seasons: [], minStayNights: 1, maxStayNights: 7,
+    // 19 cents + rounded 13% HST (2 cents) = the fixed CAD 0.21 / 210-sat demo.
+    baseNightlyCents: 19, seasons: [], minStayNights: 1, maxStayNights: 1,
     minLeadTimeHours: 0, maxAdvanceDays: 365, prepBufferNights: 0,
     depositPolicy: { type: 'full', value: 0 },
     cancellationPolicy: [{ daysBefore: 1, refundPercent: 100 }, { daysBefore: 0, refundPercent: 0 }],

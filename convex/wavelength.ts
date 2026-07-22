@@ -1,7 +1,13 @@
 import { ConvexError, v } from 'convex/values';
 import { internalMutation, mutation, query } from './_generated/server';
 import { timingSafeEqual } from './payments/stripe';
-import { DEFAULT_SIGNET_SATS_PER_CURRENCY_UNIT, quoteSignetSats } from '../shared/wavelength';
+import {
+  DEFAULT_SIGNET_SATS_PER_CURRENCY_UNIT,
+  MAINNET_HACKATHON_SATS,
+  parseWavelengthNetwork,
+  quoteSignetSats,
+  type WavelengthNetwork,
+} from '../shared/wavelength';
 
 export function bridgeBearerAuthorized(authorization: string | undefined, expectedToken: string): boolean {
   if (!authorization?.startsWith('Bearer ') || !expectedToken) return false;
@@ -19,13 +25,52 @@ function configuredRate(): number {
   return parsed;
 }
 
+export function configuredNetwork(): WavelengthNetwork {
+  try {
+    return parseWavelengthNetwork(process.env.WAVELENGTH_NETWORK);
+  } catch {
+    throw new ConvexError('INVALID_WAVELENGTH_NETWORK');
+  }
+}
+
+function requireMainnetAcknowledgement(network: WavelengthNetwork): void {
+  if (
+    network === 'mainnet' &&
+    process.env.WAVELENGTH_MAINNET_ACK !== 'I_UNDERSTAND_REAL_SATS'
+  ) {
+    throw new ConvexError('WAVELENGTH_MAINNET_NOT_ACKNOWLEDGED');
+  }
+}
+
+export function configuredBridgeToken(network = configuredNetwork()): string {
+  return network === 'mainnet'
+    ? process.env.WAVELENGTH_MAINNET_BRIDGE_TOKEN ?? ''
+    : process.env.WAVELENGTH_BRIDGE_TOKEN ?? '';
+}
+
+function quoteSats(network: WavelengthNetwork, amountCents: number): number {
+  if (network === 'mainnet') {
+    if (amountCents !== 21) {
+      throw new ConvexError('WAVELENGTH_MAINNET_DEMO_PRICE_REQUIRED');
+    }
+    return MAINNET_HACKATHON_SATS;
+  }
+  return quoteSignetSats(amountCents, configuredRate());
+}
+
 export const available = query({
   args: {},
-  handler: async () => ({
-    available: Boolean(process.env.WAVELENGTH_BRIDGE_TOKEN),
-    network: 'signet' as const,
-    satsPerCurrencyUnit: configuredRate(),
-  }),
+  handler: async () => {
+    const network = configuredNetwork();
+    const acknowledged = network === 'signet' ||
+      process.env.WAVELENGTH_MAINNET_ACK === 'I_UNDERSTAND_REAL_SATS';
+    return {
+      available: Boolean(configuredBridgeToken(network)) && acknowledged,
+      network,
+      satsPerCurrencyUnit: network === 'signet' ? configuredRate() : undefined,
+      fixedSats: network === 'mainnet' ? MAINNET_HACKATHON_SATS : undefined,
+    };
+  },
 });
 
 export const createRequest = mutation({
@@ -35,7 +80,9 @@ export const createRequest = mutation({
     email: v.string(),
   },
   handler: async (ctx, args) => {
-    if (!process.env.WAVELENGTH_BRIDGE_TOKEN) throw new ConvexError('WAVELENGTH_NOT_CONFIGURED');
+    const network = configuredNetwork();
+    requireMainnetAcknowledgement(network);
+    if (!configuredBridgeToken(network)) throw new ConvexError('WAVELENGTH_NOT_CONFIGURED');
     const booking = await ctx.db.get(args.bookingId);
     if (!booking || !booking.guestId || booking.confirmationCode !== args.confirmationCode.trim().toUpperCase()) {
       throw new ConvexError('BOOKING_NOT_FOUND');
@@ -59,7 +106,7 @@ export const createRequest = mutation({
     const amountCents = booking.priceBreakdown.depositDueCents > 0
       ? booking.priceBreakdown.depositDueCents
       : booking.priceBreakdown.totalCents - booking.priceBreakdown.giftCertAppliedCents;
-    const satsAmount = quoteSignetSats(amountCents, configuredRate());
+    const satsAmount = quoteSats(network, amountCents);
     const now = Date.now();
     const paymentId = await ctx.db.insert('payments', {
       propertyId: booking.propertyId,
@@ -78,6 +125,7 @@ export const createRequest = mutation({
       paymentId,
       quotedAmountCents: amountCents,
       currency: property.currency,
+      network,
       satsAmount,
       expiresAt: booking.holdExpiresAt,
       status: 'requested',
@@ -140,6 +188,7 @@ export const claimPending = internalMutation({
 export const publishInvoice = internalMutation({
   args: {
     requestId: v.id('wavelengthRequests'),
+    network: v.union(v.literal('signet'), v.literal('mainnet')),
     bolt11: v.string(),
     bridgeActivityId: v.string(),
     satsAmount: v.number(),
@@ -150,6 +199,7 @@ export const publishInvoice = internalMutation({
     if (!request) throw new ConvexError('WAVELENGTH_REQUEST_NOT_FOUND');
     if (request.status === 'invoice_ready' && request.bolt11 === args.bolt11) return { published: false };
     if (request.status !== 'claimed' && request.status !== 'requested') throw new ConvexError('WAVELENGTH_REQUEST_NOT_CLAIMED');
+    if (args.network !== request.network) throw new ConvexError('WAVELENGTH_NETWORK_MISMATCH');
     if (args.satsAmount !== request.satsAmount) throw new ConvexError('WAVELENGTH_AMOUNT_MISMATCH');
     const bolt11 = args.bolt11.trim();
     const activityId = args.bridgeActivityId.trim();
@@ -170,6 +220,7 @@ export const publishInvoice = internalMutation({
 export const prepareSettlement = internalMutation({
   args: {
     requestId: v.id('wavelengthRequests'),
+    network: v.union(v.literal('signet'), v.literal('mainnet')),
     bolt11: v.string(),
     bridgeActivityId: v.string(),
     paymentHash: v.string(),
@@ -180,6 +231,7 @@ export const prepareSettlement = internalMutation({
     if (!request) throw new ConvexError('WAVELENGTH_REQUEST_NOT_FOUND');
     if (request.status === 'settled') return { duplicate: true, request };
     if (request.status !== 'invoice_ready') throw new ConvexError('WAVELENGTH_INVOICE_NOT_READY');
+    if (request.network !== args.network) throw new ConvexError('WAVELENGTH_NETWORK_MISMATCH');
     if (
       request.bolt11 !== args.bolt11 ||
       request.bridgeActivityId !== args.bridgeActivityId ||
