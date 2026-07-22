@@ -6,9 +6,12 @@ describe('runWaveBridgeOnce', () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url, init });
+      if (url.endsWith('/v1/daemon/get-info')) {
+        return new Response(JSON.stringify({ network: 'signet' }), { status: 200 });
+      }
       if (url.endsWith('/wavelength-bridge/pending')) {
         return new Response(JSON.stringify({ requests: [{
-          _id: 'request_1', status: 'claimed', satsAmount: 21_000, expiresAt: 2_000_000_000_000,
+          _id: 'request_1', status: 'claimed', network: 'signet', satsAmount: 21_000, expiresAt: 2_000_000_000_000,
           bookingId: 'booking_1',
         }] }), { status: 200 });
       }
@@ -23,22 +26,27 @@ describe('runWaveBridgeOnce', () => {
 
     await expect(runWaveBridgeOnce({
       openStaysUrl: 'https://openstays.example', bridgeToken: 'bridge-token', daemonUrl: 'http://127.0.0.1:10031',
+      expectedNetwork: 'signet', daemonMacaroonHex: 'aabbcc',
     }, fetchFn as typeof fetch)).resolves.toEqual({ claimed: 1, invoices: 1, settlements: 0 });
 
     const recv = calls.find((call) => call.url.endsWith('/v1/wallet/recv'))!;
+    expect(recv.init?.headers).toMatchObject({ Macaroon: 'aabbcc' });
     expect(JSON.parse(String(recv.init?.body))).toEqual({ amt_sat: 21_000, memo: 'OpenStays booking booking_1' });
     const publish = calls.find((call) => call.url.endsWith('/wavelength-bridge/invoice'))!;
     expect(publish.init?.headers).toMatchObject({ Authorization: 'Bearer bridge-token' });
     expect(JSON.parse(String(publish.init?.body))).toMatchObject({
-      requestId: 'request_1', bolt11: 'lntbs_invoice', bridgeActivityId: 'activity_1', satsAmount: 21_000,
+      requestId: 'request_1', network: 'signet', bolt11: 'lntbs_invoice', bridgeActivityId: 'activity_1', satsAmount: 21_000,
     });
   });
 
   it('reports only an exact completed receive settlement', async () => {
     const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/v1/daemon/get-info')) {
+        return new Response(JSON.stringify({ network: 'signet' }), { status: 200 });
+      }
       if (url.endsWith('/wavelength-bridge/pending')) {
         return new Response(JSON.stringify({ requests: [{
-          _id: 'request_2', status: 'invoice_ready', satsAmount: 42_000, bolt11: 'lntbs_paid',
+          _id: 'request_2', status: 'invoice_ready', network: 'signet', satsAmount: 42_000, bolt11: 'lntbs_paid',
           bridgeActivityId: 'activity_2', expiresAt: 2_000_000_000_000,
         }] }), { status: 200 });
       }
@@ -54,7 +62,7 @@ describe('runWaveBridgeOnce', () => {
         const body = JSON.parse(String(init?.body));
         expect(body).toEqual({
           requestId: 'request_2', bolt11: 'lntbs_paid', bridgeActivityId: 'activity_2',
-          paymentHash: 'hash_2', satsAmount: 42_000,
+          paymentHash: 'hash_2', satsAmount: 42_000, network: 'signet',
         });
         return new Response(JSON.stringify({ settled: true }), { status: 200 });
       }
@@ -62,6 +70,51 @@ describe('runWaveBridgeOnce', () => {
     });
     await expect(runWaveBridgeOnce({
       openStaysUrl: 'https://openstays.example', bridgeToken: 'bridge-token', daemonUrl: 'http://127.0.0.1:10031',
+      expectedNetwork: 'signet', daemonMacaroonHex: 'aabbcc',
     }, fetchFn as typeof fetch)).resolves.toEqual({ claimed: 1, invoices: 0, settlements: 1 });
+  });
+
+  it('rejects a daemon/request network mismatch before creating an invoice', async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/daemon/get-info')) {
+        return new Response(JSON.stringify({ network: 'signet' }), { status: 200 });
+      }
+      if (url.endsWith('/wavelength-bridge/pending')) {
+        return new Response(JSON.stringify({ requests: [{
+          _id: 'request_mainnet', status: 'claimed', network: 'mainnet', satsAmount: 210,
+          expiresAt: 2_000_000_000_000,
+        }] }), { status: 200 });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+
+    await expect(runWaveBridgeOnce({
+      openStaysUrl: 'https://openstays.example', bridgeToken: 'bridge-token',
+      daemonUrl: 'http://127.0.0.1:10031', expectedNetwork: 'mainnet',
+      daemonMacaroonHex: 'aabbcc',
+    }, fetchFn as typeof fetch)).rejects.toThrow('WAVELENGTH_DAEMON_NETWORK_MISMATCH');
+    expect(fetchFn.mock.calls.some(([url]) => String(url).endsWith('/v1/wallet/recv'))).toBe(false);
+  });
+
+  it('rejects a non-210-sat mainnet request before daemon activity', async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/daemon/get-info')) {
+        return new Response(JSON.stringify({ network: 'mainnet' }), { status: 200 });
+      }
+      if (url.endsWith('/wavelength-bridge/pending')) {
+        return new Response(JSON.stringify({ requests: [{
+          _id: 'request_wrong_amount', status: 'claimed', network: 'mainnet', satsAmount: 211,
+          expiresAt: 2_000_000_000_000,
+        }] }), { status: 200 });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+
+    await expect(runWaveBridgeOnce({
+      openStaysUrl: 'https://openstays.example', bridgeToken: 'bridge-token',
+      daemonUrl: 'http://127.0.0.1:10031', expectedNetwork: 'mainnet',
+      daemonMacaroonHex: 'aabbcc',
+    }, fetchFn as typeof fetch)).rejects.toThrow('WAVELENGTH_MAINNET_AMOUNT_NOT_210');
+    expect(fetchFn.mock.calls.some(([url]) => String(url).includes('/v1/wallet/recv'))).toBe(false);
   });
 });

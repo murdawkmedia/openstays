@@ -8,6 +8,7 @@
 // cli/ fast and keeps the whole package's dependency footprint to exactly
 // one runtime dep (the MCP SDK, needed for `openstays mcp`).
 
+import { readFileSync } from 'node:fs';
 import { ApiError, OpenStaysClient } from './client.js';
 import type {
   BookingStatus,
@@ -401,10 +402,30 @@ async function main(): Promise<void> {
       process.exit(1);
       return;
     }
+    const expectedNetworkValue = process.env.WAVELENGTH_EXPECTED_NETWORK;
+    if (expectedNetworkValue && expectedNetworkValue !== 'signet' && expectedNetworkValue !== 'mainnet') {
+      process.stderr.write('WAVELENGTH_EXPECTED_NETWORK must be signet or mainnet.\n');
+      process.exit(1);
+      return;
+    }
+    const expectedNetwork = expectedNetworkValue === 'signet' || expectedNetworkValue === 'mainnet'
+      ? expectedNetworkValue
+      : undefined;
+    const macaroonPath = process.env.WAVELENGTH_DAEMON_MACAROON_PATH;
+    const daemonMacaroonHex = macaroonPath
+      ? readFileSync(macaroonPath).toString('hex')
+      : undefined;
+    if (expectedNetwork === 'mainnet' && !daemonMacaroonHex) {
+      process.stderr.write('WAVELENGTH_DAEMON_MACAROON_PATH is required for mainnet.\n');
+      process.exit(1);
+      return;
+    }
     await runWaveBridge({
       openStaysUrl,
       bridgeToken,
       daemonUrl: process.env.WAVELENGTH_DAEMON_URL ?? 'http://127.0.0.1:10031',
+      expectedNetwork,
+      daemonMacaroonHex,
       pollMs: process.env.WAVELENGTH_BRIDGE_POLL_MS ? Number(process.env.WAVELENGTH_BRIDGE_POLL_MS) : undefined,
     });
     return;

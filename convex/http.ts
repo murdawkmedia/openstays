@@ -2,7 +2,7 @@ import { httpRouter } from 'convex/server';
 import { httpAction } from './_generated/server';
 import { internal } from './_generated/api';
 import { auth } from './auth';
-import { bridgeBearerAuthorized } from './wavelength';
+import { bridgeBearerAuthorized, configuredBridgeToken } from './wavelength';
 
 const http = httpRouter();
 
@@ -57,7 +57,7 @@ const wavelengthInternal = (internal as unknown as {
 function wavelengthAuthorized(request: Request): boolean {
   return bridgeBearerAuthorized(
     request.headers.get('authorization') ?? undefined,
-    process.env.WAVELENGTH_BRIDGE_TOKEN ?? '',
+    configuredBridgeToken(),
   );
 }
 
