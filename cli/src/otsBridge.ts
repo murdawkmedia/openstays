@@ -7,6 +7,33 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
+type OtsEnvironment = {
+  OTS_COMMAND?: string;
+  OTS_WSL?: string;
+  OTS_WSL_PYTHONPATH?: string;
+};
+
+function windowsPathToWsl(value: string): string {
+  const match = value.match(/^([A-Za-z]):[\\/](.*)$/);
+  if (!match) return value;
+  return `/mnt/${match[1].toLowerCase()}/${match[2].replaceAll('\\', '/')}`;
+}
+
+export function resolveOtsInvocation(args: string[], env: OtsEnvironment = process.env,
+  platform: NodeJS.Platform = process.platform): { command: string; args: string[] } {
+  if (env.OTS_WSL !== 'true') return { command: env.OTS_COMMAND ?? 'ots', args };
+  if (platform !== 'win32') throw new Error('OTS_WSL is supported only on Windows.');
+  const pythonPath = env.OTS_WSL_PYTHONPATH?.trim() || '/root/.local/share/openstays/ots-bridge-python';
+  return {
+    command: 'wsl.exe',
+    args: [
+      '--exec', 'env', `PYTHONPATH=${pythonPath}`,
+      'python3', `${pythonPath}/bin/ots`,
+      ...args.map(windowsPathToWsl),
+    ],
+  };
+}
+
 export type OtsBridgeConfig = { openStaysUrl: string; bridgeToken: string; pollMs?: number };
 type Work = { _id: string; work?: 'stamp' | 'upgrade'; leaseToken?: string; canonicalJson: string; sha256: string;
   proofBase64?: string };
@@ -18,8 +45,10 @@ export type OtsRunner = {
   }>;
 };
 
-async function command(command: string, args: string[]) {
-  return execFileAsync(command, args, { windowsHide: true, timeout: 60_000, maxBuffer: 2 * 1024 * 1024 });
+async function command(otsCommand: string, args: string[]) {
+  const invocation = resolveOtsInvocation(args, { ...process.env, OTS_COMMAND: otsCommand });
+  return execFileAsync(invocation.command, invocation.args,
+    { windowsHide: true, timeout: 60_000, maxBuffer: 2 * 1024 * 1024 });
 }
 
 export function officialOtsRunner(otsCommand = process.env.OTS_COMMAND ?? 'ots'): OtsRunner {

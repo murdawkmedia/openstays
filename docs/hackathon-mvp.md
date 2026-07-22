@@ -100,11 +100,27 @@ processing reject them. All displayed amounts are signet test sats.
 
 ## OpenTimestamps receipt bridge
 
-Install the pinned official Python client into a local environment:
+Install the pinned official Python client into a local environment on Linux or
+macOS:
 
 ```powershell
 python -m pip install -r cli/requirements-ots.txt
 ```
+
+On this Windows demo machine, the client's pinned `python-bitcoinlib`
+dependency cannot discover Python's OpenSSL 3 DLL by its legacy library name.
+Use the tested WSL execution path instead of patching cryptographic packages:
+
+```powershell
+wsl.exe --exec bash -lc 'TARGET="$HOME/.local/share/openstays/ots-bridge-python"; mkdir -p "$TARGET"; python3 -m pip install --target "$TARGET" opentimestamps-client==0.7.2'
+$env:OTS_WSL='true'
+$env:OTS_WSL_PYTHONPATH='/root/.local/share/openstays/ots-bridge-python'
+```
+
+The CLI translates only its temporary receipt/proof paths into WSL mount paths;
+the canonical bytes and SHA-256 check remain unchanged. Native execution remains
+the default everywhere else, and `OTS_COMMAND` can select another native `ots`
+executable.
 
 After an operator creates a fresh secret and writes the same value to the
 selected Convex deployment as `OTS_BRIDGE_TOKEN`, start the worker:
@@ -125,6 +141,12 @@ for a fresh stamp and must never be presented as anchored.
 The guest downloads both the canonical JSON and binary `.ots` proof. Neither
 contains guest identity, email, stay dates, unit details, messages, invoices,
 wallet data, or payment hashes.
+
+The fictional proof at `docs/demo/consensus-receipt-sample.json.ots` was
+submitted to four default public calendars. Its canonical SHA-256 is
+`2bebb8b87c3d27c9a875beae80355a1fde04c6bf66566f60740e4bdbddf132ba`.
+Keep it labeled pending unless `ots upgrade` and `ots info` report a real
+Bitcoin block attestation.
 
 ## 210-sat signet reward
 
