@@ -218,11 +218,13 @@ git commit -m "Expose authenticated mail delivery bridge"
 Run:
 
 ```powershell
-npm --prefix cli install nodemailer@7.0.10
-npm --prefix cli install --save-dev @types/nodemailer@7.0.11
+npm --prefix cli install nodemailer@9.0.3
+npm --prefix cli install --save-dev @types/nodemailer@8.0.1
 ```
 
-Expected: dependencies and lockfile update without audit failure.
+Expected: dependencies and lockfile update without a direct Nodemailer audit
+advisory. (The implementation moved from the originally proposed 7.0.10 pin
+after verification found its high-severity advisory.)
 
 - [ ] **Step 2: Write failing worker tests**
 
