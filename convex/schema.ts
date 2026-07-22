@@ -358,6 +358,59 @@ export default defineSchema({
     .index('by_booking', ['bookingId'])
     .index('by_payment', ['paymentId']),
 
+  consensusReceipts: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.id('bookings'),
+    publicId: v.string(),
+    schemaVersion: v.literal('openstays.consensus-receipt.v1'),
+    canonicalJson: v.string(),
+    sha256: v.string(),
+    status: v.union(
+      v.literal('queued'), v.literal('stamping'), v.literal('submitted'),
+      v.literal('bitcoin_anchored'), v.literal('failed'),
+    ),
+    proofBase64: v.optional(v.string()),
+    calendarCount: v.optional(v.number()),
+    leaseToken: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    bitcoinBlockHeight: v.optional(v.number()),
+    bitcoinBlockTime: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    submittedAt: v.optional(v.number()),
+    anchoredAt: v.optional(v.number()),
+  })
+    .index('by_booking', ['bookingId'])
+    .index('by_publicId', ['publicId'])
+    .index('by_status_createdAt', ['status', 'createdAt']),
+
+  wavelengthRewards: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.id('bookings'),
+    receiptId: v.id('consensusReceipts'),
+    network: v.literal('signet'),
+    satsAmount: v.literal(210),
+    status: v.union(
+      v.literal('eligible'), v.literal('invoice_ready'), v.literal('paying'),
+      v.literal('paid'), v.literal('expired'), v.literal('failed'),
+    ),
+    bolt11: v.optional(v.string()),
+    invoiceExpiresAt: v.optional(v.number()),
+    attemptCount: v.number(),
+    merchantActivityId: v.optional(v.string()),
+    paymentHash: v.optional(v.string()),
+    leaseToken: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    paidAt: v.optional(v.number()),
+  })
+    .index('by_booking', ['bookingId'])
+    .index('by_receipt', ['receiptId'])
+    .index('by_status_createdAt', ['status', 'createdAt']),
+
   // Webhook idempotency ledger.
   webhookEvents: defineTable({
     provider: v.string(),

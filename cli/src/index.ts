@@ -18,6 +18,7 @@ import type {
 import { runMcpServer } from './mcp.js';
 import { runWaveBridge } from './waveBridge.js';
 import { runMailBridge } from './mailBridge.js';
+import { runOtsBridge } from './otsBridge.js';
 
 export const VERSION = '0.1.0';
 
@@ -46,6 +47,7 @@ const KNOWN_COMMANDS = new Set([
   'mcp',
   'wave-bridge',
   'mail-bridge',
+  'ots-bridge',
 ]);
 
 /** Parse argv (post `node index.js`) into a command + flags. Pure, no I/O. */
@@ -163,6 +165,7 @@ Commands:
   mcp                                       Run as an MCP stdio server
   wave-bridge                               Run the local Wavelength signet merchant bridge
   mail-bridge [--once]                      Deliver queued OpenStays mail through SMTP
+  ots-bridge                                Stamp and upgrade Consensus Receipts
 
 Global flags:
   --json          Print raw JSON instead of a human summary
@@ -177,6 +180,7 @@ Env vars:
   WAVELENGTH_BRIDGE_TOKEN  Shared secret for authenticated bridge endpoints
   WAVELENGTH_DAEMON_URL    waved REST gateway (default http://127.0.0.1:10031)
   MAIL_BRIDGE_TOKEN        Shared secret for authenticated mail bridge endpoints
+  OTS_BRIDGE_TOKEN         Separate shared secret for OpenTimestamps bridge endpoints
   SMTP_HOST / SMTP_PORT    SMTP server (defaults 127.0.0.1:1025 for Mailpit)
 `;
 
@@ -408,31 +412,38 @@ async function main(): Promise<void> {
       return;
     }
     const expectedNetworkValue = process.env.WAVELENGTH_EXPECTED_NETWORK;
-    if (expectedNetworkValue && expectedNetworkValue !== 'signet' && expectedNetworkValue !== 'mainnet') {
-      process.stderr.write('WAVELENGTH_EXPECTED_NETWORK must be signet or mainnet.\n');
+    if (expectedNetworkValue && expectedNetworkValue !== 'signet') {
+      process.stderr.write('WAVELENGTH_EXPECTED_NETWORK must be signet.\n');
       process.exit(1);
       return;
     }
-    const expectedNetwork = expectedNetworkValue === 'signet' || expectedNetworkValue === 'mainnet'
-      ? expectedNetworkValue
-      : undefined;
+    const expectedNetwork = expectedNetworkValue === 'signet' ? expectedNetworkValue : undefined;
     const macaroonPath = process.env.WAVELENGTH_DAEMON_MACAROON_PATH;
     const daemonMacaroonHex = macaroonPath
       ? readFileSync(macaroonPath).toString('hex')
       : undefined;
-    if (expectedNetwork === 'mainnet' && !daemonMacaroonHex) {
-      process.stderr.write('WAVELENGTH_DAEMON_MACAROON_PATH is required for mainnet.\n');
-      process.exit(1);
-      return;
-    }
     await runWaveBridge({
       openStaysUrl,
       bridgeToken,
       daemonUrl: process.env.WAVELENGTH_DAEMON_URL ?? 'http://127.0.0.1:10031',
       expectedNetwork,
       daemonMacaroonHex,
+      maxRewardFeeSats: process.env.WAVELENGTH_REWARD_MAX_FEE_SATS ? Number(process.env.WAVELENGTH_REWARD_MAX_FEE_SATS) : 210,
       pollMs: process.env.WAVELENGTH_BRIDGE_POLL_MS ? Number(process.env.WAVELENGTH_BRIDGE_POLL_MS) : undefined,
     });
+    return;
+  }
+
+  if (parsed.command === 'ots-bridge') {
+    const openStaysUrl = parsed.url ?? process.env.OPENSTAYS_URL;
+    const bridgeToken = process.env.OTS_BRIDGE_TOKEN;
+    if (!openStaysUrl || !bridgeToken) {
+      process.stderr.write('OPENSTAYS_URL and OTS_BRIDGE_TOKEN are required.\n');
+      process.exit(1);
+      return;
+    }
+    await runOtsBridge({ openStaysUrl, bridgeToken,
+      pollMs: process.env.OTS_BRIDGE_POLL_MS ? Number(process.env.OTS_BRIDGE_POLL_MS) : undefined });
     return;
   }
 

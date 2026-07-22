@@ -5,9 +5,10 @@ export type WaveBridgeConfig = {
   expectedNetwork?: WavelengthNetwork;
   daemonMacaroonHex?: string;
   pollMs?: number;
+  maxRewardFeeSats?: number;
 };
 
-export type WavelengthNetwork = 'signet' | 'mainnet';
+export type WavelengthNetwork = 'signet';
 
 type PendingRequest = {
   _id: string;
@@ -34,7 +35,7 @@ async function daemonNetwork(
     `${daemonUrl}/v1/daemon/get-info`,
     { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}' },
   );
-  if (info.network !== 'signet' && info.network !== 'mainnet') {
+  if (info.network !== 'signet') {
     throw new Error('INVALID_WAVELENGTH_DAEMON_NETWORK');
   }
   return info.network;
@@ -56,7 +57,7 @@ async function jsonRequest<T>(
 export async function runWaveBridgeOnce(
   config: WaveBridgeConfig,
   fetchFn: typeof fetch = fetch,
-): Promise<{ claimed: number; invoices: number; settlements: number }> {
+): Promise<{ claimed: number; invoices: number; settlements: number; rewardsPaid: number; rewardsFailed: number }> {
   const openStaysUrl = config.openStaysUrl.replace(/\/$/, '');
   const daemonUrl = config.daemonUrl.replace(/\/$/, '');
   const authHeaders = { Authorization: `Bearer ${config.bridgeToken}` };
@@ -72,13 +73,12 @@ export async function runWaveBridgeOnce(
   );
   let invoices = 0;
   let settlements = 0;
+  let rewardsPaid = 0;
+  let rewardsFailed = 0;
 
   for (const request of pending.requests) {
     if (request.network !== actualNetwork) {
       throw new Error('WAVELENGTH_REQUEST_NETWORK_MISMATCH');
-    }
-    if (request.network === 'mainnet' && request.satsAmount !== 210) {
-      throw new Error('WAVELENGTH_MAINNET_AMOUNT_NOT_210');
     }
     if (request.status === 'requested' || request.status === 'claimed') {
       const received = await jsonRequest<{
@@ -147,7 +147,60 @@ export async function runWaveBridgeOnce(
     });
     settlements += 1;
   }
-  return { claimed: pending.requests.length, invoices, settlements };
+  const rewards = await jsonRequest<{ rewards: Array<{
+    _id: string; status: 'paying'; network: 'signet'; satsAmount: number; bolt11: string;
+    invoiceExpiresAt: number; leaseToken: string; merchantActivityId?: string; paymentHash?: string;
+  }> }>(fetchFn, `${openStaysUrl}/wavelength-bridge/rewards/pending`, { headers: authHeaders });
+  const maxFee = config.maxRewardFeeSats ?? 210;
+  for (const reward of rewards.rewards) {
+    try {
+      if (reward.network !== 'signet' || reward.satsAmount !== 210 || reward.invoiceExpiresAt <= Date.now() + 30_000) {
+        throw new Error('INVALID_SIGNET_REWARD');
+      }
+      let activityId = reward.merchantActivityId;
+      let paymentHash = reward.paymentHash;
+      if (!activityId) {
+        const prepared = await jsonRequest<{
+          send_intent_id: string; amount_sat: string | number; expected_total_outflow_sat: string | number;
+          total_outflow_known: boolean; rail: string; payment_hash: string; expires_at_unix: number;
+        }>(fetchFn, `${daemonUrl}/v1/wallet/prepare-send`, { method: 'POST',
+          headers: { ...localDaemonHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoice: reward.bolt11, max_fee_sat: maxFee, note: 'OpenStays consensus reward' }) });
+        if (Number(prepared.amount_sat) !== 210 || !prepared.total_outflow_known ||
+          Number(prepared.expected_total_outflow_sat) > 210 + maxFee || prepared.rail.toUpperCase().includes('ONCHAIN') ||
+          !prepared.payment_hash || prepared.expires_at_unix * 1000 <= Date.now() + 30_000) throw new Error('WAVELENGTH_REWARD_QUOTE_MISMATCH');
+        const sent = await jsonRequest<{ entry: { id: string }; actual_amount_sat: string | number }>(
+          fetchFn, `${daemonUrl}/v1/wallet/send`, { method: 'POST',
+            headers: { ...localDaemonHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ send_intent_id: prepared.send_intent_id }) });
+        if (!sent.entry?.id || Number(sent.actual_amount_sat) !== 210) throw new Error('WAVELENGTH_REWARD_SEND_MISMATCH');
+        activityId = sent.entry.id;
+        paymentHash = prepared.payment_hash;
+        await jsonRequest(fetchFn, `${openStaysUrl}/wavelength-bridge/rewards/dispatched`, { method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ rewardId: reward._id,
+            leaseToken: reward.leaseToken, merchantActivityId: activityId, paymentHash }) });
+      }
+      const inspection = await jsonRequest<{ entry?: { id?: string; kind?: string; status?: string; amount_sat?: string | number;
+        request?: { lightning_invoice?: { invoice?: string; payment_hash?: string } }; progress?: { payment_hash?: string } } }>(
+        fetchFn, `${daemonUrl}/v1/wallet/inspect/activity`, { method: 'POST',
+          headers: { ...localDaemonHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: activityId }) });
+      const entry = inspection.entry;
+      const observedHash = entry?.progress?.payment_hash ?? entry?.request?.lightning_invoice?.payment_hash;
+      if (entry?.id !== activityId || entry.kind !== 'ENTRY_KIND_SEND' || entry.status !== 'ENTRY_STATUS_COMPLETE' ||
+        Number(entry.amount_sat) !== 210 || entry.request?.lightning_invoice?.invoice !== reward.bolt11 || observedHash !== paymentHash) continue;
+      await jsonRequest(fetchFn, `${openStaysUrl}/wavelength-bridge/rewards/paid`, { method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ rewardId: reward._id,
+          leaseToken: reward.leaseToken, network: 'signet', satsAmount: 210, bolt11: reward.bolt11,
+          merchantActivityId: activityId, paymentHash }) });
+      rewardsPaid += 1;
+    } catch (error) {
+      await jsonRequest(fetchFn, `${openStaysUrl}/wavelength-bridge/rewards/failed`, { method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ rewardId: reward._id,
+          leaseToken: reward.leaseToken, reason: error instanceof Error ? error.message : String(error), retryable: false }) });
+      rewardsFailed += 1;
+    }
+  }
+  return { claimed: pending.requests.length, invoices, settlements, rewardsPaid, rewardsFailed };
 }
 
 export async function runWaveBridge(config: WaveBridgeConfig): Promise<void> {
@@ -160,8 +213,8 @@ export async function runWaveBridge(config: WaveBridgeConfig): Promise<void> {
   for (;;) {
     try {
       const result = await runWaveBridgeOnce(config);
-      if (result.invoices > 0 || result.settlements > 0) {
-        process.stdout.write(`${new Date().toISOString()} invoices=${result.invoices} settlements=${result.settlements}\n`);
+      if (result.invoices > 0 || result.settlements > 0 || result.rewardsPaid > 0 || result.rewardsFailed > 0) {
+        process.stdout.write(`${new Date().toISOString()} invoices=${result.invoices} settlements=${result.settlements} rewards_paid=${result.rewardsPaid} rewards_failed=${result.rewardsFailed}\n`);
       }
     } catch (error) {
       process.stderr.write(`${new Date().toISOString()} wave-bridge: ${error instanceof Error ? error.message : String(error)}\n`);

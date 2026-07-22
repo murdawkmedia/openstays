@@ -10,6 +10,8 @@ type TimelineInput = {
   openRefundCount: number;
   channelMapped: boolean;
   channelDirty: boolean;
+  receiptStatus?: string;
+  rewardStatus?: string;
 };
 
 export type ConsensusStep = {
@@ -28,6 +30,8 @@ export function buildConsensusTimeline(input: TimelineInput): ConsensusStep[] {
     { key: 'observed', label: 'Payment observed', state: input.openRefundCount > 0 ? 'attention' : input.paid ? 'reached' : 'pending', detail: input.openRefundCount > 0 ? `${input.openRefundCount} manual refund case${input.openRefundCount === 1 ? '' : 's'} requires resolution.` : input.paid ? 'The authoritative payment rail reported settlement.' : 'Waiting for authoritative settlement.' },
     { key: 'confirmed', label: 'Booking confirmed', state: confirmed ? 'reached' : 'pending', detail: confirmed ? 'Payment and availability agree on one booking state.' : 'Confirmation waits for payment and availability consensus.' },
     { key: 'notified', label: 'Notification sent', state: input.emailDelivered ? 'reached' : 'pending', detail: `${input.emailDelivered ? 'Reservation email recorded' : 'Reservation email queued'} · ${input.messageCount} message${input.messageCount === 1 ? '' : 's'} in the booking thread.` },
+    { key: 'timestamped', label: 'Consensus receipt timestamped', state: input.receiptStatus === 'submitted' || input.receiptStatus === 'bitcoin_anchored' ? 'reached' : input.receiptStatus === 'failed' ? 'attention' : 'pending', detail: input.receiptStatus === 'bitcoin_anchored' ? 'OpenTimestamps proof is independently anchored to Bitcoin.' : input.receiptStatus === 'submitted' ? 'OpenTimestamps calendars accepted the privacy-safe receipt commitment.' : input.receiptStatus === 'failed' ? 'Timestamp submission needs staff attention.' : 'Waiting for the canonical receipt and calendar proof.' },
+    { key: 'rewarded', label: 'Guest consensus reward', state: input.rewardStatus === 'paid' ? 'reached' : input.rewardStatus === 'failed' ? 'attention' : 'pending', detail: input.rewardStatus === 'paid' ? 'The guest wallet received exactly 210 signet sats.' : input.rewardStatus === 'paying' || input.rewardStatus === 'invoice_ready' ? 'The merchant bridge is reconciling the 210-sat payout.' : 'A one-time 210 signet sats reward unlocks after timestamp submission.' },
     { key: 'channel', label: 'Channel synchronization ready', state: input.channelMapped && !input.channelDirty ? 'reached' : 'ready', detail: !input.channelMapped ? 'Channex adapter ready, not connected.' : input.channelDirty ? 'Availability changed; adapter has a pending synchronization.' : 'Connected channel state is clean.' },
   ];
 }
@@ -42,13 +46,15 @@ export const forGuest = query({
     if (!booking || !guest || guest.normalizedEmail !== args.email.trim().toLowerCase()) {
       throw new ConvexError({ code: 'NOT_FOUND', message: 'Booking not found.' });
     }
-    const [payments, emails, refunds, messages, property, channel] = await Promise.all([
+    const [payments, emails, refunds, messages, property, channel, receipt, reward] = await Promise.all([
       ctx.db.query('payments').withIndex('by_booking', (q) => q.eq('bookingId', booking._id)).collect(),
       ctx.db.query('emailLog').withIndex('by_booking', (q) => q.eq('bookingId', booking._id)).collect(),
       ctx.db.query('refundCases').withIndex('by_booking', (q) => q.eq('bookingId', booking._id)).collect(),
       ctx.db.query('bookingMessages').withIndex('by_booking_createdAt', (q) => q.eq('bookingId', booking._id)).collect(),
       ctx.db.get(booking.propertyId),
       ctx.db.query('channelSync').withIndex('by_property', (q) => q.eq('propertyId', booking.propertyId)).first(),
+      ctx.db.query('consensusReceipts').withIndex('by_booking', (q) => q.eq('bookingId', booking._id)).unique(),
+      ctx.db.query('wavelengthRewards').withIndex('by_booking', (q) => q.eq('bookingId', booking._id)).unique(),
     ]);
     return buildConsensusTimeline({
       statusHistory: booking.statusHistory.map((entry) => entry.status),
@@ -59,6 +65,8 @@ export const forGuest = query({
       openRefundCount: refunds.filter((refund) => refund.status === 'open').length,
       channelMapped: Boolean(property?.channexPropertyId),
       channelDirty: Boolean(channel?.dirtySince),
+      receiptStatus: receipt?.status,
+      rewardStatus: reward?.status,
     });
   },
 });

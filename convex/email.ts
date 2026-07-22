@@ -3,7 +3,7 @@ import { internalAction, internalMutation, internalQuery } from './_generated/se
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import type { BookingEmailData } from './emailTemplates';
-import { renderBookingMessage, renderCancellation, renderConfirmation, renderManualRefundCompleted, renderManualRefundRequired, renderPaymentConflict } from './emailTemplates';
+import { renderBookingMessage, renderCancellation, renderConfirmation, renderConsensusReceiptReady, renderManualRefundCompleted, renderManualRefundRequired, renderPaymentConflict } from './emailTemplates';
 
 /** getEmailContext's return shape: template data + delivery-only fields. */
 export type EmailContext = BookingEmailData & {
@@ -97,12 +97,15 @@ export const sendBookingEmail = internalAction({
       v.literal('confirmation'),
       v.literal('cancellation'),
       v.literal('payment_conflict'),
+      v.literal('consensus_receipt'),
     ),
     // Cancellation only: the policy-computed refund amount, passed by
     // cancelByGuest. For stripe/square the refunds[] row is written only AFTER
     // the provider round-trip, so deriving the refund from the context here
     // would race the refund and render "Refund: $0.00". This override wins.
     refundCents: v.optional(v.number()),
+    receiptId: v.optional(v.string()),
+    receiptSha256: v.optional(v.string()),
     attempt: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<void> => {
@@ -128,6 +131,9 @@ export const sendBookingEmail = internalAction({
     let rendered;
     if (args.kind === 'confirmation') {
       rendered = renderConfirmation(context);
+    } else if (args.kind === 'consensus_receipt') {
+      if (!args.receiptId || !args.receiptSha256) return;
+      rendered = renderConsensusReceiptReady({ ...context, receiptId: args.receiptId, receiptSha256: args.receiptSha256 });
     } else if (args.kind === 'cancellation') {
       // Prefer the caller's policy-computed refund (cancelByGuest) over the
       // context value derived from refunds[] (which lags the provider refund).
@@ -493,8 +499,10 @@ async function retryOrFail(
         fn: typeof internal.email.sendBookingEmail,
         args: {
           bookingId: Id<'bookings'>;
-          kind: 'confirmation' | 'cancellation' | 'payment_conflict';
+          kind: 'confirmation' | 'cancellation' | 'payment_conflict' | 'consensus_receipt';
           refundCents?: number;
+          receiptId?: string;
+          receiptSha256?: string;
           attempt: number;
         },
       ) => Promise<unknown>;
@@ -503,8 +511,10 @@ async function retryOrFail(
   logId: Id<'emailLog'>,
   args: {
     bookingId: Id<'bookings'>;
-    kind: 'confirmation' | 'cancellation' | 'payment_conflict';
+    kind: 'confirmation' | 'cancellation' | 'payment_conflict' | 'consensus_receipt';
     refundCents?: number;
+    receiptId?: string;
+    receiptSha256?: string;
     attempt?: number;
   },
   error: string,
@@ -517,6 +527,8 @@ async function retryOrFail(
       // Carry the refund override across retries so a retried cancellation email
       // still shows the policy amount.
       refundCents: args.refundCents,
+      receiptId: args.receiptId,
+      receiptSha256: args.receiptSha256,
       attempt: attempt + 1,
     });
     return;

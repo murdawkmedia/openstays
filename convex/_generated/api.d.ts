@@ -20,6 +20,7 @@ import type * as channel_index from "../channel/index.js";
 import type * as channel_ingest from "../channel/ingest.js";
 import type * as channel_types from "../channel/types.js";
 import type * as consensus from "../consensus.js";
+import type * as consensusReceipts from "../consensusReceipts.js";
 import type * as crons from "../crons.js";
 import type * as demo from "../demo.js";
 import type * as email from "../email.js";
@@ -42,6 +43,7 @@ import type * as refunds from "../refunds.js";
 import type * as seed from "../seed.js";
 import type * as staff from "../staff.js";
 import type * as wavelength from "../wavelength.js";
+import type * as wavelengthRewards from "../wavelengthRewards.js";
 
 import type {
   ApiFromModules,
@@ -62,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   "channel/ingest": typeof channel_ingest;
   "channel/types": typeof channel_types;
   consensus: typeof consensus;
+  consensusReceipts: typeof consensusReceipts;
   crons: typeof crons;
   demo: typeof demo;
   email: typeof email;
@@ -84,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   seed: typeof seed;
   staff: typeof staff;
   wavelength: typeof wavelength;
+  wavelengthRewards: typeof wavelengthRewards;
 }>;
 
 /**

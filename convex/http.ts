@@ -54,11 +54,20 @@ http.route({
 const wavelengthInternal = (internal as unknown as {
   wavelength: Record<string, Parameters<typeof httpAction>[0]>;
 }).wavelength as Record<string, any>;
+const receiptInternal = (internal as any).consensusReceipts as Record<string, any>;
+const rewardInternal = (internal as any).wavelengthRewards as Record<string, any>;
 
 function wavelengthAuthorized(request: Request): boolean {
   return bridgeBearerAuthorized(
     request.headers.get('authorization') ?? undefined,
     configuredBridgeToken(),
+  );
+}
+
+function otsAuthorized(request: Request): boolean {
+  return bridgeBearerAuthorized(
+    request.headers.get('authorization') ?? undefined,
+    process.env.OTS_BRIDGE_TOKEN?.trim() ?? '',
   );
 }
 
@@ -137,6 +146,48 @@ http.route({
     if (!wavelengthAuthorized(request)) return json({ error: 'unauthorized' }, 401);
     const requests = await ctx.runMutation(wavelengthInternal.claimPending, { limit: 10 });
     return json({ requests });
+  }),
+});
+
+http.route({
+  path: '/ots-bridge/pending', method: 'GET',
+  handler: httpAction(async (ctx, request) => {
+    if (!otsAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    return json({ receipts: await ctx.runMutation(receiptInternal.claimPending, { limit: 10 }) });
+  }),
+});
+
+for (const route of [
+  { path: '/ots-bridge/proof', fn: 'publishProof' },
+  { path: '/ots-bridge/anchored', fn: 'markAnchored' },
+  { path: '/ots-bridge/failed', fn: 'markFailed' },
+] as const) http.route({
+  path: route.path, method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    if (!otsAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    try { return json(await ctx.runMutation(receiptInternal[route.fn], await request.json())); }
+    catch (error) { return json({ error: error instanceof Error ? error.message : String(error) }, 400); }
+  }),
+});
+
+http.route({
+  path: '/wavelength-bridge/rewards/pending', method: 'GET',
+  handler: httpAction(async (ctx, request) => {
+    if (!wavelengthAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    return json({ rewards: await ctx.runMutation(rewardInternal.claimPending, { limit: 10 }) });
+  }),
+});
+
+for (const route of [
+  { path: '/wavelength-bridge/rewards/dispatched', fn: 'markDispatched' },
+  { path: '/wavelength-bridge/rewards/paid', fn: 'markPaid' },
+  { path: '/wavelength-bridge/rewards/failed', fn: 'markFailed' },
+] as const) http.route({
+  path: route.path, method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    if (!wavelengthAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    try { return json(await ctx.runMutation(rewardInternal[route.fn], await request.json())); }
+    catch (error) { return json({ error: error instanceof Error ? error.message : String(error) }, 400); }
   }),
 });
 

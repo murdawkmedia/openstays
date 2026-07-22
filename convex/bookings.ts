@@ -558,6 +558,7 @@ export const confirmSimulated = mutation({
       bookingId: booking._id,
       kind: 'confirmation',
     });
+    await ctx.scheduler.runAfter(0, (internal as any).consensusReceipts.ensureForBooking, { bookingId: booking._id });
     return { confirmationCode: booking.confirmationCode };
   },
 });
@@ -1140,6 +1141,7 @@ export const confirmFromPayment = internalMutation({
         bookingId: booking._id,
         kind: 'confirmation',
       });
+      await ctx.scheduler.runAfter(0, (internal as any).consensusReceipts.ensureForBooking, { bookingId: booking._id });
       return { outcome: 'confirmed' };
     }
 
@@ -1232,6 +1234,7 @@ export const confirmFromPayment = internalMutation({
         bookingId: booking._id,
         kind: 'confirmation',
       });
+      await ctx.scheduler.runAfter(0, (internal as any).consensusReceipts.ensureForBooking, { bookingId: booking._id });
       return { outcome: 'confirmed' };
     }
 
