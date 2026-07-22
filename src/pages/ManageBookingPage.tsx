@@ -8,6 +8,7 @@ import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
 import { formatMoney } from '../lib/money';
 import { formatDisplayDate } from '../lib/dates';
 import { NotFoundPage } from './NotFoundPage';
+import { ConsensusReceiptSummary } from '../components/ConsensusReceiptSummary';
 
 export function ManageBookingPage() {
   const { code } = useParams<{ code: string }>();
@@ -30,6 +31,9 @@ export function ManageBookingPage() {
     (api as any).consensus.forGuest,
     code && email.trim().includes('@') ? { confirmationCode: code, email: email.trim() } : 'skip',
   ) as Array<{ key: string; label: string; state: 'reached' | 'pending' | 'attention' | 'ready'; detail: string }> | undefined;
+  const guestAuth = code && email.trim().includes('@') ? { confirmationCode: code, email: email.trim() } : 'skip';
+  const receipt = useQuery((api as any).consensusReceipts.forGuest, guestAuth) as any;
+  const reward = useQuery((api as any).wavelengthRewards.forGuest, guestAuth) as any;
 
   if (!code) return <NotFoundPage />;
   if (booking === undefined) return <Spinner label="Loading booking…" />;
@@ -63,6 +67,14 @@ export function ManageBookingPage() {
     } finally {
       setSendingMessage(false);
     }
+  }
+
+  function download(name: string, data: BlobPart, type: string) {
+    const anchor = document.createElement('a');
+    anchor.href = URL.createObjectURL(new Blob([data], { type }));
+    anchor.download = name;
+    anchor.click();
+    URL.revokeObjectURL(anchor.href);
   }
 
   return (
@@ -124,6 +136,17 @@ export function ManageBookingPage() {
             </li>
           ))}</ol>
         </section> : null}
+
+        {receipt ? <ConsensusReceiptSummary receipt={receipt} reward={reward ?? null}
+          rewardUrl={`/wallet/reward/${encodeURIComponent(code)}?email=${encodeURIComponent(email.trim())}`}
+          onDownloadJson={() => download(`${receipt.publicId}.json`, receipt.canonicalJson, 'application/json')}
+          onDownloadProof={() => {
+            if (!receipt.proofBase64) return;
+            const binary = atob(receipt.proofBase64);
+            const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+            download(`${receipt.publicId}.json.ots`, bytes, 'application/octet-stream');
+          }}
+        /> : null}
 
         {result ? (
           <div className="mt-6 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">

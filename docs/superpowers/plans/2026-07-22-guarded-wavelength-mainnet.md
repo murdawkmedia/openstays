@@ -1,4 +1,7 @@
-# Guarded Wavelength Mainnet Implementation Plan
+# Guarded Wavelength Mainnet Implementation Plan (superseded)
+
+> Historical pre-kickoff plan only. The active hackathon implementation is
+> signet-only; mainnet launch scripts and UI paths have been retired.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` only when the user explicitly asked for delegated workers; otherwise use `executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

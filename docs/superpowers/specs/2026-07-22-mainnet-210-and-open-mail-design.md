@@ -1,4 +1,7 @@
-# OpenStays 210-sat mainnet and open mail design
+# OpenStays 210-sat mainnet and open mail design (superseded)
+
+> Historical pre-kickoff design only. The active hackathon implementation is
+> signet-only; it cannot create, claim, or process a Wavelength mainnet request.
 
 **Date:** 2026-07-22
 

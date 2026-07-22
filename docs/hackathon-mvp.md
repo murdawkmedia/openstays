@@ -94,26 +94,52 @@ completed receive whose request, invoice, activity, and snapshotted sats amount
 match. Replays are no-ops. The clearly synthetic quote is
 `ceil(amountCents × rate / 100)` at 1,000 signet sats per currency unit.
 
-Signet remains the fallback. The guarded mainnet profile uses a fictional
-one-night CAD 0.21 booking and exactly 210 real sats. It displays a BOLT11
-invoice for a separate external Lightning wallet; it never auto-pays or mounts
-the embedded browser wallet. Mainnet has a separate data directory, token, and
-loopback ports 11029/11031, requires TLS/macaroons and `--allow-mainnet`, and
-forbids `--allow-insecure-mainnet`.
+Wavelength is signet-only. Any legacy mainnet rows remain readable for schema
+compatibility, but active configuration, UI, request claiming, and bridge
+processing reject them. All displayed amounts are signet test sats.
 
-Before running either mainnet startup script, confirm the operator and swap
-endpoints plus 210-sat receive support with the Lightning Labs contact. Then set
-the reviewed endpoints and run the daemon only with an explicit acknowledgement:
+## OpenTimestamps receipt bridge
+
+Install the pinned official Python client into a local environment:
 
 ```powershell
-$env:WAVELENGTH_MAINNET_OPERATOR_HOST='<reviewed-host>'
-$env:WAVELENGTH_MAINNET_SWAP_HOST='<reviewed-host>'
-.\scripts\start-wavelength-mainnet.ps1 -AcknowledgeRealSats
-.\scripts\start-mainnet-bridge.ps1 -AcknowledgeRealSats
+python -m pip install -r cli/requirements-ots.txt
 ```
 
-Startup alone creates no wallet, invoice, or payment. Stop again for fresh
-approval immediately before creating or paying the 210-sat invoice.
+After an operator creates a fresh secret and writes the same value to the
+selected Convex deployment as `OTS_BRIDGE_TOKEN`, start the worker:
+
+```powershell
+$env:OPENSTAYS_URL='https://<deployment>.convex.site'
+$env:OTS_BRIDGE_TOKEN='<same-token>'
+npm --prefix cli run start -- ots-bridge
+```
+
+Do not reuse the Wavelength token. The worker reconstructs the stored canonical
+UTF-8 JSON, checks its SHA-256, stamps it with the official `ots` client's
+default public calendars, validates the proof commitment, and uploads the
+bounded `.ots` proof. Submission unlocks the reward immediately; a later proof
+upgrade reports an authoritative Bitcoin block attestation. Pending is expected
+for a fresh stamp and must never be presented as anchored.
+
+The guest downloads both the canonical JSON and binary `.ots` proof. Neither
+contains guest identity, email, stay dates, unit details, messages, invoices,
+wallet data, or payment hashes.
+
+## 210-sat signet reward
+
+After proof submission, the authenticated guest opens the receipt card and
+taps **Claim 210 signet sats**. The browser's self-custodial Wavelength wallet
+creates an amount-bearing invoice; its seed and password stay in the browser.
+The existing merchant bridge prepares the outgoing payment, verifies signet,
+the exact 210-sat principal, expiry, off-chain rail, and fee cap, then sends and
+reconciles the completed activity before marking the reward paid.
+
+The default fee ceiling is 210 sats. Override it only for signet testing:
+
+```powershell
+$env:WAVELENGTH_REWARD_MAX_FEE_SATS='210'
+```
 
 ## OpenStays Mail
 
@@ -148,20 +174,16 @@ refund externally, then record a provider reference or Bitcoin transaction ID.
 Only that mutation appends the refund ledger. Staff get the required-action
 notice; guests get completion email only after resolution.
 
-## Five-minute judge demo
+## Three-minute judge demo
 
-1. Create a fictional Consensus Commons Node Room hold.
-2. Choose Zaprite sandbox, simulate paid, and trigger the nudge; show that the
-   server fetch—not webhook content—confirms it.
-3. Open Manage Booking with code + normalized email; show “Consensus reached”
-   and a guest/staff message round trip.
-4. Repeat with Wavelength: use the embedded signet wallet, or—only after a
-   fresh real-money approval—the isolated 210-sat mainnet invoice with an
-   external wallet; show bridge settlement and confirmation.
-5. Simulate overpayment/cancellation, resolve the manual case with a demo
-   reference, and show the ledger/status transition.
-6. Point out “Channex — adapter ready, not connected”; no certification or OTA
-   mapping is claimed.
+1. Explain how availability, payment, and notifications converge on one booking.
+2. Complete a Wavelength signet booking payment and show “Consensus reached.”
+3. Show the privacy-safe receipt hash, download JSON and `.ots`, and distinguish
+   submitted from Bitcoin-anchored.
+4. Claim exactly 210 signet sats into the embedded self-custodial guest wallet.
+5. Show guest/staff chat, the optional Zaprite reconciliation/refund operations,
+   and “Channex — adapter ready, not connected.”
+6. Show `git diff btcpp-toronto-2026-pre-kickoff..HEAD` as the honest build window.
 
 ## Verification gates
 
@@ -174,6 +196,21 @@ npm --prefix cli run typecheck
 npm --prefix cli run build
 ```
 
-Zaprite and real-sat Wavelength acceptance require operator-started services
-and remain deliberately separate from automated gates. Local Mailpit capture
-is safe to run without external delivery.
+Live Zaprite, Wavelength signet, and OpenTimestamps acceptance require
+operator-started services and test funds. Local Mailpit capture is safe to run
+without external delivery.
+
+## Competition baseline
+
+Annotated tag `btcpp-toronto-2026-pre-kickoff` points to commit `5c3038e`.
+`HACKATHON_BASELINE.md` inventories the substantial pre-existing booking,
+payment, messaging, email, refund, and channel-adapter work. Judge-facing
+evidence is:
+
+```powershell
+git diff --stat btcpp-toronto-2026-pre-kickoff..HEAD
+git diff btcpp-toronto-2026-pre-kickoff..HEAD
+```
+
+The OpenTimestamps receipt and one-time signet reward are the post-kickoff
+feature. PowerShell 7 is optional; Windows PowerShell 5.1 is sufficient.

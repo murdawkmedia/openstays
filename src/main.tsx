@@ -20,6 +20,7 @@ import { AboutPage } from './pages/AboutPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 const WavelengthWalletPage = lazy(() => import('./pages/WavelengthWalletPage'));
+const ConsensusRewardPage = lazy(() => import('./pages/ConsensusRewardPage'));
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
 if (!convexUrl) {
@@ -46,6 +47,7 @@ createRoot(rootElement).render(
             <Route path="/confirmation/:code" element={<ConfirmationPage />} />
             <Route path="/manage/:code" element={<ManageBookingPage />} />
             <Route path="/wallet/:bookingId" element={<Suspense fallback={<p className="p-8">Loading signet wallet…</p>}><WavelengthWalletPage /></Suspense>} />
+            <Route path="/wallet/reward/:code" element={<Suspense fallback={<p className="p-8">Loading reward wallet…</p>}><ConsensusRewardPage /></Suspense>} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/admin" element={<AdminTapePage />} />
             <Route path="/admin/operations" element={<AdminOperationsPage />} />

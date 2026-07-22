@@ -1,11 +1,12 @@
 # OpenStays
 
 > **Bitcoin++ Toronto 2026 hackathon branch:** “Consensus Commons” adds
-> authoritative Zaprite sandbox reconciliation, Wavelength signet plus a
-> guarded exact-210-sat mainnet profile, provider-neutral OpenStays Mail,
+> authoritative Zaprite sandbox reconciliation, Wavelength signet payments,
+> privacy-safe OpenTimestamps receipts, one-time 210 signet-sat rewards,
+> provider-neutral OpenStays Mail,
 > a bridge and browser wallet, booking-scoped chat, manual refund operations,
 > and a consensus timeline. These rails are experimental and local-first; no
-> production Zaprite, general-purpose Wavelength mainnet, Channex
+> production Zaprite, Wavelength mainnet, Channex
 > certification, or customer inventory is included. See
 > [the hackathon runbook](./docs/hackathon-mvp.md).
 
@@ -110,7 +111,7 @@ guide (getting a key, every command, MCP client config).
 |---|---|---|
 | Backend | [Convex](https://convex.dev) | Serializable transactions (booking safety), realtime queries, crons, file storage, HTTP endpoints. Free tier; self-hostable. |
 | Frontend | React + Vite + TypeScript + Tailwind | Static output — host anywhere (GitHub Pages, Cloudflare Pages, Netlify…). |
-| Payments | Stripe + Square; experimental Zaprite + Wavelength | Hosted providers share an interface; Wavelength stays a separate authenticated bridge rail, with signet fallback and an isolated 210-sat mainnet demo profile. |
+| Payments | Stripe + Square; experimental Zaprite + Wavelength | Hosted providers share an interface; Wavelength stays a separate authenticated, signet-only bridge rail. |
 | Email | OpenStays Mail | Provider-neutral durable queue with generic SMTP, local Mailpit, optional Resend, and safe log-only fallback. |
 
 ## Project principles

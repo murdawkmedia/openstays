@@ -214,15 +214,23 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   automatic. Zaprite/Wavelength remain paid while an idempotent refund case is
   open; only staff completion with an external reference appends the ledger or
   permits a guest success notice.
-- 2026-07-22 (Consensus Commons): Wavelength remains a separate bridge rail.
-  Signet is the fallback; hackathon mainnet is an explicit, isolated profile
-  capped at exactly 210 sats for a CAD 0.21 fictional booking. Mainnet uses a
-  separate wallet/data directory, token, ports, TLS/macaroons, external payer
-  wallet, `--allow-mainnet`, and never `--allow-insecure-mainnet`. The browser
-  never receives the bridge token or merchant seed/password. Settlement
-  requires matching network, request, invoice, snapshotted sats, completed
-  receive activity, and payment hash. Confirm operator/swap endpoints and the
-  210-sat receive minimum with Lightning Labs before starting or funding it.
+- 2026-07-22 (Consensus Commons): Wavelength is a signet-only bridge rail.
+  Legacy mainnet schema values remain readable, but active configuration,
+  claims, bridge processing, scripts, and UI reject them. The browser never
+  sends wallet seeds/passwords or receives the bridge token. Settlement
+  requires matching request, signet network, invoice, snapshotted sats,
+  completed activity, and payment hash.
+- 2026-07-22 (Consensus Receipt): the canonical privacy-safe JSON and SHA-256
+  commitment are immutable. Only proof and attestation fields advance.
+  `OTS_BRIDGE_TOKEN` authenticates a local worker; the worker verifies the
+  canonical bytes/hash and official-client proof before reporting submission
+  or a Bitcoin block attestation. A submitted proof is not described as
+  Bitcoin-anchored.
+- 2026-07-22 (Consensus Reward): proof submission creates exactly one eligible
+  210-sat signet reward. The merchant bridge prepares and validates the
+  amount-bearing invoice, fee cap, signet daemon, send activity, and payment
+  hash before authoritative settlement. Reward invoices may be replaced only
+  after expiry or definitive failure; paid rewards are immutable.
 - 2026-07-22 (OpenStays Mail): Convex is authoritative for rendered email,
   idempotency, leases, retries, and audit state. `mail_bridge` exposes only
   bearer-authenticated bounded claims and acknowledgements; the local worker

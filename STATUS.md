@@ -7,13 +7,19 @@
 - Worktree: `openstays-btcpp-consensus-mvp`
 - Branch: `codex/btcpp-consensus-mvp`
 - `main` remains untouched; no push, deploy, or merge has been performed.
-- Baseline: 292 root tests and 51 CLI tests passed; both compile/build sets passed.
-- Final automated gates: 338 root tests and 59 CLI tests passed; root and
-  CLI typechecks/builds plus the documentation build passed. Existing Node
+- Competition baseline: annotated local tag
+  `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
+  `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
+- Final automated gates: 344 root tests and 62 CLI tests passed; root and CLI
+  typechecks/builds plus the documentation build passed. The existing Node
   `TimeoutNegativeWarning` remains non-fatal in the test runner.
 - Added: manual provider refund cases, authoritative Zaprite reconciliation,
   Wavelength signet bridge/wallet, booking chat and alerts, staff operations,
   fictional Consensus Commons seed/branding, and a consensus timeline.
+- Post-kickoff addition: immutable privacy-safe OpenTimestamps consensus
+  receipts, authenticated local OTS worker endpoints/CLI, guest proof downloads,
+  and a one-time exact-210-sat Wavelength signet reward with prepared-send and
+  completed-activity reconciliation.
 - OpenStays Mail now renders into a durable provider-neutral Convex queue and
   delivers through an authenticated generic SMTP worker. Resend and log-only
   remain supported; the pinned Mailpit profile is loopback capture only.
@@ -42,9 +48,14 @@
 - Zaprite webhook content is untrusted; authenticated fetch is authoritative.
 - Zaprite/Wavelength refunds remain paid until staff records an external
   reference; no premature guest success email.
-- Wavelength signet remains the fallback. The isolated mainnet profile is
-  opt-in, external-wallet-only, and hard-capped at exactly 210 sats; its
-  network and amount are snapshotted and rechecked by Convex and the bridge.
+- Wavelength is signet-only. Legacy mainnet schema rows remain readable, but
+  active configuration, UI, claims, tests, scripts, and bridges reject them.
+- Receipt canonical JSON/hash never mutate. A valid submitted proof unlocks
+  the reward; `bitcoin_anchored` requires a later verified Bitcoin block
+  attestation and is never inferred from calendar submission.
+- Each submitted receipt permits one exact 210 signet-sat reward. The bridge
+  checks the prepared payment, fee cap, invoice, payment hash, and completed
+  merchant activity before recording payment.
 - Channex is adapter-ready but not connected/certified.
 - Convex owns email rendering, deduplication, queue leases, retries, and audit;
   SMTP/Resend are replaceable delivery adapters. Public demo mode stays
@@ -54,15 +65,18 @@
 
 ## Remaining acceptance
 
-- Guarded Wavelength mainnet code, external-wallet UI, and fail-closed startup
-  scripts are implemented locally. No mainnet daemon, wallet, invoice, or
-  payment has been created.
-- Before any real sats move, confirm the mainnet operator/swap endpoints and
-  210-sat receive support with Murphy's Lightning Labs contact, then stop for a
-  fresh payment approval.
+- Create a fresh `OTS_BRIDGE_TOKEN` only after Murphy's explicit credential
+  approval, write it to the dedicated Murdawk Convex project, and start the
+  local `openstays ots-bridge` worker.
+- Stamp the fictional sample receipt early; show it honestly as submitted while
+  pending, and upgrade it before the expo if public calendars have anchored it.
+- Fund the signet merchant/guest test wallets and execute the 210-sat reward
+  acceptance. No mainnet wallet, invoice, or payment is in scope.
 - Execute the complete browser/demo flow against the running local stack.
 - Confirm the dedicated Zaprite checkout has its Test Payment connection, then
   run the first sandbox order/payment/reconciliation acceptance.
-- Murphy accepts the demo; only then merge locally into `main`.
+- Create/select the dedicated Murdawk Media Convex project later. Do not inspect
+  or use CBAP credentials/deployments.
+- Murphy accepts the demo; only then consider a separately approved local merge.
 
 See [docs/hackathon-mvp.md](./docs/hackathon-mvp.md).
