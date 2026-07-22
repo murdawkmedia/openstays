@@ -9,3 +9,5 @@ docs/.vitepress/dist/
 .env.*.local
 *.log
 .DS_Store
+public/wavewalletdk/*
+!public/wavewalletdk/README.md

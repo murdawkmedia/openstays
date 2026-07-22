@@ -15,6 +15,7 @@ import type {
   OpenStaysClientOptions,
 } from './client.js';
 import { runMcpServer } from './mcp.js';
+import { runWaveBridge } from './waveBridge.js';
 
 export const VERSION = '0.1.0';
 
@@ -41,6 +42,7 @@ const KNOWN_COMMANDS = new Set([
   'cancel',
   'promo-preview',
   'mcp',
+  'wave-bridge',
 ]);
 
 /** Parse argv (post `node index.js`) into a command + flags. Pure, no I/O. */
@@ -156,6 +158,7 @@ Commands:
   promo-preview --code <c> --property <slug> --unit-type <slug>
                                              Preview a promo code
   mcp                                       Run as an MCP stdio server
+  wave-bridge                               Run the local Wavelength signet merchant bridge
 
 Global flags:
   --json          Print raw JSON instead of a human summary
@@ -167,6 +170,8 @@ Global flags:
 Env vars:
   OPENSTAYS_URL       Deployment's .convex.site origin
   OPENSTAYS_API_KEY   'osk_' + 48 hex chars (see docs/automation.md)
+  WAVELENGTH_BRIDGE_TOKEN  Shared secret for authenticated bridge endpoints
+  WAVELENGTH_DAEMON_URL    waved REST gateway (default http://127.0.0.1:10031)
 `;
 
 function printTable(rows: Array<Record<string, unknown>>): string {
@@ -385,6 +390,23 @@ async function main(): Promise<void> {
       return;
     }
     await runMcpServer({ baseUrl, apiKey });
+    return;
+  }
+
+  if (parsed.command === 'wave-bridge') {
+    const openStaysUrl = parsed.url ?? process.env.OPENSTAYS_URL;
+    const bridgeToken = process.env.WAVELENGTH_BRIDGE_TOKEN;
+    if (!openStaysUrl || !bridgeToken) {
+      process.stderr.write('OPENSTAYS_URL and WAVELENGTH_BRIDGE_TOKEN are required.\n');
+      process.exit(1);
+      return;
+    }
+    await runWaveBridge({
+      openStaysUrl,
+      bridgeToken,
+      daemonUrl: process.env.WAVELENGTH_DAEMON_URL ?? 'http://127.0.0.1:10031',
+      pollMs: process.env.WAVELENGTH_BRIDGE_POLL_MS ? Number(process.env.WAVELENGTH_BRIDGE_POLL_MS) : undefined,
+    });
     return;
   }
 

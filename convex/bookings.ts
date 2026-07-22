@@ -28,6 +28,55 @@ const MAX_ACTIVE_HOLDS_PER_EMAIL = 3;
 
 const ACTIVE_KINDS = ['hold', 'confirmed', 'checked_in', 'external', 'blocked'] as const;
 
+async function dispositionProviderRefund(
+  ctx: MutationCtx,
+  payment: Doc<'payments'>,
+  bookingId: Id<'bookings'>,
+  amountCents: number,
+  reason: string,
+  now = Date.now(),
+): Promise<'automatic' | 'manual'> {
+  if (payment.provider === 'stripe' || payment.provider === 'square') {
+    await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
+      paymentId: payment._id,
+      amountCents,
+      reason,
+    });
+    return 'automatic';
+  }
+  if (payment.provider !== 'zaprite' && payment.provider !== 'wavelength') {
+    throw new ConvexError({ code: 'REFUND_MODE_UNSUPPORTED', message: 'Payment does not use a provider refund.' });
+  }
+
+  const existing = await ctx.db
+    .query('refundCases')
+    .withIndex('by_payment_status', (q) =>
+      q.eq('paymentId', payment._id).eq('status', 'open'),
+    )
+    .filter((q) =>
+      q.and(q.eq(q.field('reason'), reason), q.eq(q.field('amountCents'), amountCents)),
+    )
+    .first();
+  if (!existing) {
+    const refundCaseId = await ctx.db.insert('refundCases', {
+      propertyId: payment.propertyId,
+      paymentId: payment._id,
+      bookingId,
+      amountCents,
+      currency: payment.currency,
+      reason,
+      status: 'open',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.scheduler.runAfter(0, (internal as any).email.sendRefundCaseNotice, {
+      refundCaseId,
+      kind: 'required',
+    });
+  }
+  return 'manual';
+}
+
 export const createHold = mutation({
   args: {
     unitId: v.id('units'),
@@ -579,14 +628,13 @@ export const cancelByGuest = mutation({
       if (remainingRefund <= 0) break;
       const thisRefund = Math.min(remainingRefund, payment.amountCents);
       if (thisRefund <= 0) continue;
-      if (payment.provider === 'stripe' || payment.provider === 'square') {
-        // Provider refund runs in a scheduled action; recordRefund writes the
-        // refunds[] row + status only after the provider confirms.
-        await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
-          paymentId: payment._id,
-          amountCents: thisRefund,
-          reason: 'guest_cancellation',
-        });
+      if (
+        payment.provider === 'stripe' ||
+        payment.provider === 'square' ||
+        payment.provider === 'zaprite' ||
+        payment.provider === 'wavelength'
+      ) {
+        await dispositionProviderRefund(ctx, payment, booking._id, thisRefund, 'guest_cancellation', now);
       } else if (payment.provider === 'simulated' || payment.provider === 'manual') {
         await ctx.db.patch(payment._id, {
           status: thisRefund >= payment.amountCents ? 'refunded' : 'partially_refunded',
@@ -757,6 +805,70 @@ export const getPayment = internalQuery({
   },
 });
 
+export const listPendingZapritePayments = internalQuery({
+  args: { limit: v.number() },
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(Math.floor(args.limit), 1), 50);
+    const rows = await ctx.db.query('payments').collect();
+    return rows
+      .filter(
+        (payment) =>
+          payment.provider === 'zaprite' &&
+          payment.status === 'pending' &&
+          payment.bookingId !== undefined &&
+          payment.providerCheckoutId !== undefined,
+      )
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, limit)
+      .map((payment) => ({
+        paymentId: payment._id,
+        bookingId: payment.bookingId!,
+        orderId: payment.providerCheckoutId!,
+        amountCents: payment.amountCents,
+        currency: payment.currency,
+        propertyId: payment.propertyId,
+      }));
+  },
+});
+
+export const recordZapriteOverpayment = internalMutation({
+  args: {
+    paymentId: v.id('payments'),
+    excessCents: v.number(),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    if (!Number.isInteger(args.excessCents) || args.excessCents <= 0) return;
+    const payment = await ctx.db.get(args.paymentId);
+    if (!payment || payment.provider !== 'zaprite' || !payment.bookingId) return;
+    const expectedAmount = payment.amountCents;
+    const existing = await ctx.db
+      .query('refundCases')
+      .withIndex('by_payment_status', (q) =>
+        q.eq('paymentId', payment._id).eq('status', 'open'),
+      )
+      .filter((q) => q.eq(q.field('reason'), 'overpayment'))
+      .first();
+    if (existing) return;
+    const now = Date.now();
+    await ctx.db.patch(payment._id, { amountCents: expectedAmount + args.excessCents });
+    const refundCaseId = await ctx.db.insert('refundCases', {
+      propertyId: payment.propertyId,
+      paymentId: payment._id,
+      bookingId: payment.bookingId,
+      amountCents: args.excessCents,
+      currency: payment.currency,
+      reason: 'overpayment',
+      status: 'open',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.scheduler.runAfter(0, (internal as any).email.sendRefundCaseNotice, {
+      refundCaseId,
+      kind: 'required',
+    });
+  },
+});
+
 /**
  * The provider checkout ids of a booking's still-'pending' payment rows for a
  * given provider — so createCheckoutSession can best-effort expire other live
@@ -766,7 +878,7 @@ export const getPayment = internalQuery({
 export const getPendingCheckoutIds = internalQuery({
   args: {
     bookingId: v.id('bookings'),
-    provider: v.union(v.literal('stripe'), v.literal('square')),
+    provider: v.union(v.literal('stripe'), v.literal('square'), v.literal('zaprite'), v.literal('wavelength')),
   },
   handler: async (ctx, args): Promise<string[]> => {
     const rows = await ctx.db
@@ -789,7 +901,7 @@ export const getPendingCheckoutIds = internalQuery({
 export const recordPendingPayment = internalMutation({
   args: {
     bookingId: v.id('bookings'),
-    provider: v.union(v.literal('stripe'), v.literal('square')),
+    provider: v.union(v.literal('stripe'), v.literal('square'), v.literal('zaprite'), v.literal('wavelength')),
     providerCheckoutId: v.string(),
     amountCents: v.number(),
     currency: v.string(),
@@ -869,7 +981,7 @@ export const recordPendingPayment = internalMutation({
  */
 export const confirmFromPayment = internalMutation({
   args: {
-    provider: v.union(v.literal('stripe'), v.literal('square')),
+    provider: v.union(v.literal('stripe'), v.literal('square'), v.literal('zaprite'), v.literal('wavelength')),
     eventId: v.string(),
     eventType: v.string(),
     checkoutId: v.string(),
@@ -967,11 +1079,7 @@ export const confirmFromPayment = internalMutation({
         providerPaymentId: args.providerPaymentId,
       });
       await recordEvent(booking._id);
-      await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
-        paymentId: payment._id,
-        amountCents: args.amountCents,
-        reason: 'amount_mismatch',
-      });
+      await dispositionProviderRefund(ctx, payment, booking._id, args.amountCents, 'amount_mismatch', now);
       await ctx.scheduler.runAfter(0, internal.email.sendStaffAlert, {
         propertyId: booking.propertyId,
         subject: `Payment amount/currency mismatch on booking ${booking.confirmationCode}`,
@@ -1062,11 +1170,7 @@ export const confirmFromPayment = internalMutation({
           statusHistory: [...booking.statusHistory, { status: 'payment_conflict', ts: now }],
           updatedAt: now,
         });
-        await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
-          paymentId: payment._id,
-          amountCents: args.amountCents,
-          reason: 'payment_after_expiry',
-        });
+        await dispositionProviderRefund(ctx, payment, booking._id, args.amountCents, 'payment_after_expiry', now);
         await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
           bookingId: booking._id,
           kind: 'payment_conflict',
@@ -1139,11 +1243,7 @@ export const confirmFromPayment = internalMutation({
     if (booking.status === 'cancelled' || booking.status === 'payment_conflict') {
       await flipToPaid();
       await recordEvent(booking._id);
-      await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
-        paymentId: payment._id,
-        amountCents: args.amountCents,
-        reason: 'late_capture_after_cancellation',
-      });
+      await dispositionProviderRefund(ctx, payment, booking._id, args.amountCents, 'late_capture_after_cancellation', now);
       await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
         bookingId: booking._id,
         kind: 'payment_conflict',
@@ -1162,11 +1262,7 @@ export const confirmFromPayment = internalMutation({
     ) {
       await flipToPaid();
       await recordEvent(booking._id);
-      await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
-        paymentId: payment._id,
-        amountCents: args.amountCents,
-        reason: 'duplicate_payment',
-      });
+      await dispositionProviderRefund(ctx, payment, booking._id, args.amountCents, 'duplicate_payment', now);
       await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
         bookingId: booking._id,
         kind: 'payment_conflict',
@@ -1180,11 +1276,7 @@ export const confirmFromPayment = internalMutation({
     //    block or an external booking).
     await flipToPaid();
     await recordEvent(booking._id);
-    await ctx.scheduler.runAfter(0, internal.payments.webhooks.refundPayment, {
-      paymentId: payment._id,
-      amountCents: args.amountCents,
-      reason: 'payment_after_expiry',
-    });
+    await dispositionProviderRefund(ctx, payment, booking._id, args.amountCents, 'payment_after_expiry', now);
     await ctx.scheduler.runAfter(0, internal.email.sendBookingEmail, {
       bookingId: booking._id,
       kind: 'payment_conflict',
@@ -1202,7 +1294,7 @@ export const confirmFromPayment = internalMutation({
  */
 export const markCheckoutFailed = internalMutation({
   args: {
-    provider: v.union(v.literal('stripe'), v.literal('square')),
+    provider: v.union(v.literal('stripe'), v.literal('square'), v.literal('zaprite')),
     eventId: v.string(),
     eventType: v.optional(v.string()),
     checkoutId: v.string(),

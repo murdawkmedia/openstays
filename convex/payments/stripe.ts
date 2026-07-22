@@ -92,6 +92,7 @@ function parseStripeSignatureHeader(header: string): { t: number | null; v1: str
 
 export const stripeProvider: PaymentProvider = {
   name: 'stripe',
+  refundMode: 'automatic',
   isConfigured: () => Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET),
 
   createCheckout: async (req: CheckoutRequest): Promise<CheckoutSession> => {

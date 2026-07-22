@@ -447,6 +447,50 @@ describe('confirmFromPayment: payment_conflict (nights re-taken)', () => {
   });
 });
 
+describe('confirmFromPayment: manual-refund conflict', () => {
+  it('opens one Zaprite refund case instead of scheduling an automatic refund', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = convexTest(schema, modules);
+    const fx = await seedFixture(t);
+    const first = await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13)));
+    const paymentId = await t.mutation(internal.bookings.recordPendingPayment, {
+      bookingId: first.bookingId,
+      provider: 'zaprite' as never,
+      providerCheckoutId: 'zap_conflict',
+      amountCents: first.price.totalCents,
+      currency: 'CAD',
+    });
+
+    vi.setSystemTime(Date.now() + 36 * 60 * 1000);
+    await t.mutation(internal.bookings.expireHolds, {});
+    const second = await t.mutation(api.bookings.createHold, holdArgs(fx, D(10), D(13), 'other@example.com'));
+    await t.mutation(api.bookings.confirmSimulated, { bookingId: second.bookingId });
+
+    const result = await t.mutation(internal.bookings.confirmFromPayment, {
+      provider: 'zaprite' as never,
+      eventId: 'zaprite:zap_conflict:PAID',
+      eventType: 'authoritative_reconciliation',
+      checkoutId: 'zap_conflict',
+      providerPaymentId: 'zap_conflict',
+      amountCents: first.price.totalCents,
+      currency: 'CAD',
+    });
+    expect(result.outcome).toBe('payment_conflict');
+
+    const cases = await t.run(async (ctx) =>
+      ctx.db.query('refundCases').withIndex('by_payment_status', (q) =>
+        q.eq('paymentId', paymentId).eq('status', 'open'),
+      ).collect(),
+    );
+    expect(cases).toHaveLength(1);
+    expect(cases[0].reason).toBe('payment_after_expiry');
+    const scheduled = await scheduledNames(t);
+    expect(scheduled.some((job) => job.name.includes('refundPayment'))).toBe(false);
+    await drain(t);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 5. markCheckoutFailed flips pending → failed; booking stays hold.
 // ---------------------------------------------------------------------------
@@ -632,6 +676,65 @@ describe('cancelByGuest: provider-paid booking schedules a provider refund', () 
     expect(settled!.refunds).toHaveLength(1);
     expect(settled!.refunds[0].amountCents).toBe(total);
     expect(settled!.refunds[0].providerRefundId).toBe('re_test_1');
+  });
+});
+
+describe('cancelByGuest: manual-refund providers open a staff case', () => {
+  it('keeps a Zaprite payment paid until staff records the external refund', async () => {
+    vi.useFakeTimers();
+    const t = convexTest(schema, modules);
+    const fx = await seedFixture(t);
+    const hold = await t.mutation(api.bookings.createHold, holdArgs(fx, D(30), D(32)));
+
+    const paymentId = await t.run(async (ctx) =>
+      ctx.db.insert('payments', {
+        propertyId: fx.propertyId,
+        bookingId: hold.bookingId,
+        provider: 'zaprite' as never,
+        providerCheckoutId: 'zap_order_manual_refund',
+        providerPaymentId: 'zap_payment_manual_refund',
+        amountCents: hold.price.totalCents,
+        gstCents: hold.price.gstCents,
+        currency: 'CAD',
+        status: 'paid',
+        refunds: [],
+        createdAt: Date.now(),
+        paidAt: Date.now(),
+      }),
+    );
+    await t.run(async (ctx) =>
+      ctx.db.patch(hold.bookingId, {
+        status: 'confirmed',
+        holdExpiresAt: undefined,
+      }),
+    );
+
+    await t.mutation(api.bookings.cancelByGuest, {
+      confirmationCode: hold.confirmationCode,
+      email: 'guest@example.com',
+    });
+
+    const payment = await t.run(async (ctx) => ctx.db.get(paymentId));
+    expect(payment!.status).toBe('paid');
+    expect(payment!.refunds).toHaveLength(0);
+
+    const cases = await t.run(async (ctx) =>
+      ctx.db.query('refundCases').withIndex('by_payment_status', (q) =>
+        q.eq('paymentId', paymentId).eq('status', 'open'),
+      ).collect(),
+    );
+    expect(cases).toHaveLength(1);
+    expect(cases[0]).toMatchObject({
+      bookingId: hold.bookingId,
+      amountCents: hold.price.totalCents,
+      currency: 'CAD',
+      reason: 'guest_cancellation',
+      status: 'open',
+    });
+
+    const scheduled = await scheduledNames(t);
+    expect(scheduled.some((job) => job.name.includes('refundPayment'))).toBe(false);
+    await drain(t);
   });
 });
 

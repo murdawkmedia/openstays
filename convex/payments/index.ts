@@ -1,10 +1,12 @@
 import type { PaymentProvider, ProviderName } from './types';
 import { stripeProvider } from './stripe';
 import { squareProvider } from './square';
+import { zapriteProvider } from './zaprite';
 
 const providers: Record<ProviderName, PaymentProvider> = {
   stripe: stripeProvider,
   square: squareProvider,
+  zaprite: zapriteProvider,
 };
 
 export function getProvider(name: ProviderName): PaymentProvider {

@@ -259,6 +259,8 @@ export default defineSchema({
     provider: v.union(
       v.literal('stripe'),
       v.literal('square'),
+      v.literal('zaprite'),
+      v.literal('wavelength'),
       v.literal('manual'),
       v.literal('gift_certificate'),
       v.literal('simulated'), // DEMO_MODE only
@@ -293,6 +295,67 @@ export default defineSchema({
     .index('by_contract', ['seasonalContractId'])
     .index('by_provider_checkout', ['provider', 'providerCheckoutId'])
     .index('by_property_createdAt', ['propertyId', 'createdAt']),
+
+  // Providers without a safe refund API remain paid until a staff member
+  // records the external refund. One disposition is tracked independently of
+  // the append-only payment refund ledger so failures cannot disappear.
+  refundCases: defineTable({
+    propertyId: v.id('properties'),
+    paymentId: v.id('payments'),
+    bookingId: v.id('bookings'),
+    amountCents: v.number(),
+    currency: v.string(),
+    reason: v.string(),
+    status: v.union(v.literal('open'), v.literal('completed')),
+    externalReference: v.optional(v.string()),
+    resolvedBy: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index('by_payment_status', ['paymentId', 'status'])
+    .index('by_status_createdAt', ['status', 'createdAt'])
+    .index('by_booking', ['bookingId']),
+
+  bookingMessages: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.id('bookings'),
+    authorRole: v.union(v.literal('guest'), v.literal('staff')),
+    authorName: v.string(),
+    text: v.string(),
+    createdAt: v.number(),
+  })
+    .index('by_booking_createdAt', ['bookingId', 'createdAt'])
+    .index('by_property_createdAt', ['propertyId', 'createdAt']),
+
+  wavelengthRequests: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.id('bookings'),
+    paymentId: v.id('payments'),
+    quotedAmountCents: v.number(),
+    currency: v.string(),
+    satsAmount: v.number(),
+    bolt11: v.optional(v.string()),
+    bridgeActivityId: v.optional(v.string()),
+    paymentHash: v.optional(v.string()),
+    expiresAt: v.number(),
+    status: v.union(
+      v.literal('requested'),
+      v.literal('claimed'),
+      v.literal('invoice_ready'),
+      v.literal('settled'),
+      v.literal('expired'),
+      v.literal('failed'),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    settledAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+  })
+    .index('by_status_createdAt', ['status', 'createdAt'])
+    .index('by_booking', ['bookingId'])
+    .index('by_payment', ['paymentId']),
 
   // Webhook idempotency ledger.
   webhookEvents: defineTable({

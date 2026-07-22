@@ -3,7 +3,7 @@ import { internalAction, internalMutation, internalQuery } from './_generated/se
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import type { BookingEmailData } from './emailTemplates';
-import { renderCancellation, renderConfirmation, renderPaymentConflict } from './emailTemplates';
+import { renderBookingMessage, renderCancellation, renderConfirmation, renderManualRefundCompleted, renderManualRefundRequired, renderPaymentConflict } from './emailTemplates';
 
 /** getEmailContext's return shape: template data + delivery-only fields. */
 export type EmailContext = BookingEmailData & {
@@ -252,6 +252,153 @@ export const sendStaffAlert = internalAction({
       status: 'failed',
       error: `HTTP ${response.status}: ${errorText}`,
     });
+  },
+});
+
+/** One idempotent alert per booking message, sent to the opposite party. */
+export const sendBookingMessageAlert = internalAction({
+  args: { messageId: v.id('bookingMessages') },
+  handler: async (ctx, args): Promise<void> => {
+    const context = await ctx.runQuery((internal as any).email.getMessageEmailContext, args);
+    if (!context) return;
+    const templateKey = `booking_message:${args.messageId}:${context.recipientRole}`;
+    const prior = await ctx.runQuery(internal.email.getPriorLogStatus, {
+      bookingId: context.bookingId,
+      templateKey,
+    });
+    if (prior === 'sent' || prior === 'logged') return;
+    const rendered = renderBookingMessage(context);
+    const demoMode = process.env.DEMO_MODE === 'true';
+    const apiKey = process.env.RESEND_API_KEY;
+    const baseLog = {
+      propertyId: context.propertyId,
+      to: context.to,
+      templateKey,
+      subject: rendered.subject,
+      bookingId: context.bookingId,
+    };
+    if (demoMode || !apiKey) {
+      await ctx.runMutation(internal.email.writeLog, { ...baseLog, status: 'logged' });
+      return;
+    }
+    const logId = await ctx.runMutation(internal.email.writeLog, { ...baseLog, status: 'queued' });
+    const from = process.env.EMAIL_FROM ?? `${context.propertyName} <no-reply@example.com>`;
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to: context.to, subject: rendered.subject, html: rendered.html, text: rendered.text }),
+      });
+      if (!response.ok) {
+        await ctx.runMutation(internal.email.updateLog, { logId, status: 'failed', error: `HTTP ${response.status}: ${await safeText(response)}` });
+        return;
+      }
+      const body = await response.json().catch(() => null) as { id?: string } | null;
+      await ctx.runMutation(internal.email.updateLog, { logId, status: 'sent', providerMessageId: body?.id });
+    } catch (error) {
+      await ctx.runMutation(internal.email.updateLog, { logId, status: 'failed', error: error instanceof Error ? error.message : 'Network error' });
+    }
+  },
+});
+
+export const getMessageEmailContext = internalQuery({
+  args: { messageId: v.id('bookingMessages') },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    if (!message) return null;
+    const booking = await ctx.db.get(message.bookingId);
+    if (!booking) return null;
+    const [property, unitType, guest] = await Promise.all([
+      ctx.db.get(booking.propertyId),
+      ctx.db.get(booking.unitTypeId),
+      booking.guestId ? ctx.db.get(booking.guestId) : null,
+    ]);
+    if (!property || !guest) return null;
+    const recipientRole = message.authorRole === 'guest' ? 'staff' : 'guest';
+    const siteUrl = process.env.SITE_URL ?? '';
+    return {
+      bookingId: booking._id,
+      propertyId: property._id,
+      to: recipientRole === 'staff' ? property.email : guest.email,
+      recipientRole,
+      recipientName: recipientRole === 'staff' ? `${property.name} staff` : guest.name,
+      authorName: message.authorName,
+      messageText: message.text,
+      guestName: guest.name,
+      propertyName: property.name,
+      propertyEmail: property.email,
+      propertyPhone: property.phone,
+      unitTypeName: unitType?.name ?? '',
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      nights: booking.nights,
+      confirmationCode: booking.confirmationCode,
+      currency: property.currency,
+      taxLabel: property.taxLabel ?? 'Tax',
+      totalCents: booking.priceBreakdown?.totalCents ?? 0,
+      paidCents: 0,
+      balanceDueCents: booking.priceBreakdown?.totalCents ?? 0,
+      manageUrl: recipientRole === 'staff' ? `${siteUrl}/admin/operations?booking=${booking._id}` : `${siteUrl}/manage/${booking.confirmationCode}`,
+    };
+  },
+});
+
+/** Staff is alerted when a case opens; the guest is told only after resolution. */
+export const sendRefundCaseNotice = internalAction({
+  args: { refundCaseId: v.id('refundCases'), kind: v.union(v.literal('required'), v.literal('completed')) },
+  handler: async (ctx, args): Promise<void> => {
+    const refund = await ctx.runQuery((internal as any).email.getRefundEmailContext, { refundCaseId: args.refundCaseId });
+    if (!refund) return;
+    const bookingContext = await ctx.runQuery(internal.email.getEmailContext, { bookingId: refund.bookingId });
+    if (!bookingContext) return;
+    if (args.kind === 'completed' && (!refund.externalReference || refund.status !== 'completed')) return;
+    const templateKey = `manual_refund:${args.refundCaseId}:${args.kind}`;
+    const prior = await ctx.runQuery(internal.email.getPriorLogStatus, { bookingId: refund.bookingId, templateKey });
+    if (prior === 'sent' || prior === 'logged') return;
+    const recipient = args.kind === 'required' ? refund.propertyEmail : bookingContext.guestEmail;
+    const templateData = {
+      ...bookingContext,
+      manageUrl: args.kind === 'required'
+        ? `${process.env.SITE_URL ?? ''}/admin/operations`
+        : bookingContext.manageUrl,
+      refundCents: refund.amountCents,
+      reason: refund.reason,
+    };
+    const rendered = args.kind === 'required'
+      ? renderManualRefundRequired(templateData)
+      : renderManualRefundCompleted({ ...templateData, externalReference: refund.externalReference! });
+    const baseLog = { propertyId: refund.propertyId, to: recipient, templateKey, subject: rendered.subject, bookingId: refund.bookingId };
+    const apiKey = process.env.RESEND_API_KEY;
+    if (process.env.DEMO_MODE === 'true' || !apiKey) {
+      await ctx.runMutation(internal.email.writeLog, { ...baseLog, status: 'logged' });
+      return;
+    }
+    const logId = await ctx.runMutation(internal.email.writeLog, { ...baseLog, status: 'queued' });
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: process.env.EMAIL_FROM ?? `${bookingContext.propertyName} <no-reply@example.com>`, to: recipient, subject: rendered.subject, html: rendered.html, text: rendered.text }),
+      });
+      if (!response.ok) {
+        await ctx.runMutation(internal.email.updateLog, { logId, status: 'failed', error: `HTTP ${response.status}: ${await safeText(response)}` });
+        return;
+      }
+      const body = await response.json().catch(() => null) as { id?: string } | null;
+      await ctx.runMutation(internal.email.updateLog, { logId, status: 'sent', providerMessageId: body?.id });
+    } catch (error) {
+      await ctx.runMutation(internal.email.updateLog, { logId, status: 'failed', error: error instanceof Error ? error.message : 'Network error' });
+    }
+  },
+});
+
+export const getRefundEmailContext = internalQuery({
+  args: { refundCaseId: v.id('refundCases') },
+  handler: async (ctx, args) => {
+    const refund = await ctx.db.get(args.refundCaseId);
+    if (!refund) return null;
+    const property = await ctx.db.get(refund.propertyId);
+    if (!property) return null;
+    return { ...refund, propertyEmail: property.email };
   },
 });
 

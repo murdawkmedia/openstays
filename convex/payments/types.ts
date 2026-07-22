@@ -16,7 +16,7 @@
 // checkout UI only offers configured providers (see availability in index.ts).
 // ---------------------------------------------------------------------------
 
-export type ProviderName = 'stripe' | 'square';
+export type ProviderName = 'stripe' | 'square' | 'zaprite';
 
 export type CheckoutRequest = {
   /** Our booking id + code, round-tripped through provider metadata. */
@@ -60,6 +60,7 @@ export type ParsedWebhookEvent = {
 
 export interface PaymentProvider {
   readonly name: ProviderName;
+  readonly refundMode: 'automatic' | 'manual';
   /** True when this deployment has the env vars to run this provider. */
   isConfigured(): boolean;
   createCheckout(req: CheckoutRequest): Promise<CheckoutSession>;

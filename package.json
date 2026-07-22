@@ -16,11 +16,14 @@
     "convex:codegen": "convex codegen",
     "seed": "convex run seed:run",
     "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs"
+    "docs:build": "vitepress build docs",
+    "wavelength:runtime": "powershell -ExecutionPolicy Bypass -File scripts/install-wavelength-runtime.ps1"
   },
   "dependencies": {
     "@auth/core": "^0.41.2",
     "@convex-dev/auth": "^0.0.94",
+    "@lightninglabs/wavelength-react": "^0.1.0",
+    "@lightninglabs/wavelength-web": "^0.1.0",
     "convex": "^1.31.0",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.544.0",

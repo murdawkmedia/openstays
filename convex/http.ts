@@ -2,6 +2,7 @@ import { httpRouter } from 'convex/server';
 import { httpAction } from './_generated/server';
 import { internal } from './_generated/api';
 import { auth } from './auth';
+import { bridgeBearerAuthorized } from './wavelength';
 
 const http = httpRouter();
 
@@ -37,6 +38,90 @@ function webhookRoute(provider: 'stripe' | 'square', path: string) {
 
 webhookRoute('stripe', '/webhooks/stripe');
 webhookRoute('square', '/webhooks/square');
+
+http.route({
+  path: '/webhooks/zaprite',
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    const result = await ctx.runAction(internal.payments.webhooks.handleZapriteNudge, {
+      requestUrl: request.url,
+    });
+    return new Response(null, { status: result.status });
+  }),
+});
+
+const wavelengthInternal = (internal as unknown as {
+  wavelength: Record<string, Parameters<typeof httpAction>[0]>;
+}).wavelength as Record<string, any>;
+
+function wavelengthAuthorized(request: Request): boolean {
+  return bridgeBearerAuthorized(
+    request.headers.get('authorization') ?? undefined,
+    process.env.WAVELENGTH_BRIDGE_TOKEN ?? '',
+  );
+}
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+http.route({
+  path: '/wavelength-bridge/pending',
+  method: 'GET',
+  handler: httpAction(async (ctx, request) => {
+    if (!wavelengthAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    const requests = await ctx.runMutation(wavelengthInternal.claimPending, { limit: 10 });
+    return json({ requests });
+  }),
+});
+
+http.route({
+  path: '/wavelength-bridge/invoice',
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    if (!wavelengthAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    try {
+      const body = await request.json();
+      const result = await ctx.runMutation(wavelengthInternal.publishInvoice, body);
+      return json(result);
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  }),
+});
+
+http.route({
+  path: '/wavelength-bridge/settled',
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    if (!wavelengthAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    try {
+      const body = await request.json();
+      const prepared = await ctx.runMutation(wavelengthInternal.prepareSettlement, body);
+      if (prepared.duplicate) return json({ settled: false, duplicate: true });
+      const waveRequest = prepared.request;
+      await ctx.runMutation(internal.bookings.confirmFromPayment, {
+        provider: 'wavelength',
+        eventId: `wavelength:${waveRequest._id}:${body.paymentHash}`,
+        eventType: 'bridge_settled',
+        checkoutId: waveRequest._id,
+        providerPaymentId: body.paymentHash,
+        amountCents: waveRequest.quotedAmountCents,
+        currency: waveRequest.currency,
+      });
+      const result = await ctx.runMutation(wavelengthInternal.markSettled, {
+        requestId: waveRequest._id,
+        paymentHash: body.paymentHash,
+      });
+      return json({ ...result, duplicate: false });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  }),
+});
 
 /**
  * Channel manager (Channex) webhook — a low-latency NUDGE to poll the booking

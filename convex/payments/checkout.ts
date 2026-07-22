@@ -46,7 +46,7 @@ const MIN_REMAINING_MS = 31 * 60 * 1000;
 export const createCheckoutSession = action({
   args: {
     bookingId: v.id('bookings'),
-    provider: v.union(v.literal('stripe'), v.literal('square')),
+    provider: v.union(v.literal('stripe'), v.literal('square'), v.literal('zaprite')),
     // Proof of ownership: the confirmation code the guest already holds. Without
     // it, a bare bookingId (enumerable via the cancel URL / a leak) would let an
     // attacker mint provider sessions against anyone else's hold — real

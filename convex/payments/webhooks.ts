@@ -2,6 +2,7 @@ import { v } from 'convex/values';
 import { internalAction } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { getProvider } from './index';
+import { classifyZapriteOrder, getZapriteOrder, zapriteProvider } from './zaprite';
 
 /**
  * Webhook processing pipeline (M1, builder B; signatures FIXED — http.ts
@@ -75,6 +76,75 @@ export const handleWebhook = internalAction({
       });
     }
     return { status: 200 };
+  },
+});
+
+export const handleZapriteNudge = internalAction({
+  args: { requestUrl: v.string() },
+  handler: async (ctx, args): Promise<{ status: number }> => {
+    const authenticated = await zapriteProvider.verifyAndParseWebhook({
+      body: '',
+      headers: {},
+      requestUrl: args.requestUrl,
+    });
+    if (authenticated === null) return { status: 400 };
+    await ctx.scheduler.runAfter(0, internal.payments.webhooks.reconcileZapritePending, { limit: 25 });
+    return { status: 200 };
+  },
+});
+
+export const reconcileZapritePending = internalAction({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<{ checked: number; confirmed: number }> => {
+    if (!process.env.ZAPRITE_API_KEY) return { checked: 0, confirmed: 0 };
+    const pending = await ctx.runQuery(internal.bookings.listPendingZapritePayments, {
+      limit: args.limit ?? 25,
+    });
+    let confirmed = 0;
+    for (const payment of pending) {
+      try {
+        const order = await getZapriteOrder(payment.orderId);
+        const disposition = classifyZapriteOrder({
+          order,
+          orderId: payment.orderId,
+          bookingId: payment.bookingId,
+          amountCents: payment.amountCents,
+          currency: payment.currency,
+        });
+        if (disposition.disposition === 'wait') continue;
+        if (disposition.disposition === 'mismatch') {
+          await ctx.runAction(internal.email.sendStaffAlert, {
+            propertyId: payment.propertyId,
+            subject: `Zaprite reconciliation mismatch for order ${payment.orderId}`,
+            body: `OpenStays refused Zaprite order ${payment.orderId}: ${disposition.reason}. No booking was confirmed.`,
+          });
+          continue;
+        }
+        const result = await ctx.runMutation(internal.bookings.confirmFromPayment, {
+          provider: 'zaprite',
+          eventId: `zaprite:${payment.orderId}:${disposition.status}:${disposition.paidCents}:${disposition.excessCents}`,
+          eventType: 'authoritative_reconciliation',
+          checkoutId: payment.orderId,
+          providerPaymentId: payment.orderId,
+          amountCents: disposition.paidCents,
+          currency: payment.currency,
+        });
+        if (result.outcome !== 'duplicate' && result.outcome !== 'orphan') confirmed += 1;
+        if (disposition.excessCents > 0) {
+          await ctx.runMutation(internal.bookings.recordZapriteOverpayment, {
+            paymentId: payment.paymentId,
+            excessCents: disposition.excessCents,
+          });
+        }
+      } catch (error) {
+        await ctx.runAction(internal.email.sendStaffAlert, {
+          propertyId: payment.propertyId,
+          subject: `Zaprite reconciliation failed for order ${payment.orderId}`,
+          body: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return { checked: pending.length, confirmed };
   },
 });
 

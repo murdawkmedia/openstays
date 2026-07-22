@@ -12,6 +12,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe('provider refund disposition', () => {
+  it('keeps Stripe and Square on automatic refunds', () => {
+    expect(stripeProvider.refundMode).toBe('automatic');
+    expect(squareProvider.refundMode).toBe('automatic');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Shared pure helpers
 // ---------------------------------------------------------------------------

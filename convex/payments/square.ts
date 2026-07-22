@@ -51,6 +51,7 @@ export async function hmacSha256Base64(secret: string, message: string): Promise
 
 export const squareProvider: PaymentProvider = {
   name: 'square',
+  refundMode: 'automatic',
   isConfigured: () =>
     Boolean(
       process.env.SQUARE_ACCESS_TOKEN &&

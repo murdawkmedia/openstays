@@ -211,3 +211,66 @@ export function renderPaymentConflict(data: BookingEmailData): RenderedEmail {
   ].join('\n');
   return { subject, html, text };
 }
+
+export function renderBookingMessage(
+  data: BookingEmailData & { recipientName: string; authorName: string; messageText: string },
+): RenderedEmail {
+  const subject = `New booking message — ${data.confirmationCode}`;
+  const safeMessage = escapeHtml(data.messageText).replace(/\n/g, '<br>');
+  const html = wrapHtml(data, [
+    `<p style="margin:0 0 12px;">Hi ${escapeHtml(data.recipientName)},</p>`,
+    `<p style="margin:0 0 12px;">${escapeHtml(data.authorName)} sent a message about booking ${escapeHtml(data.confirmationCode)}:</p>`,
+    `<blockquote style="margin:16px 0;padding:12px 16px;background:#f9fafb;border-left:4px solid #10b981;">${safeMessage}</blockquote>`,
+    manageLinkHtml(data),
+    '<p style="margin:12px 0 0;color:#6b7280;">Reply inside OpenStays so the conversation stays with the booking.</p>',
+  ].join(''));
+  const text = [
+    `Hi ${data.recipientName},`, '',
+    `${data.authorName} sent a message about booking ${data.confirmationCode}:`, '',
+    data.messageText, '',
+    `Reply in OpenStays: ${data.manageUrl}`,
+  ].join('\n');
+  return { subject, html, text };
+}
+
+type ManualRefundData = BookingEmailData & { refundCents: number; reason: string };
+
+export function renderManualRefundRequired(data: ManualRefundData): RenderedEmail {
+  const amount = formatMoney(data.refundCents, data.currency);
+  const subject = `Manual refund required — ${data.confirmationCode}`;
+  const text = [
+    `A manual refund of ${amount} is required for booking ${data.confirmationCode}.`,
+    `Reason: ${data.reason.replace(/_/g, ' ')}`,
+    '',
+    `Resolve it in OpenStays: ${data.manageUrl}`,
+    '',
+    'The payment remains paid until an external reference or Bitcoin transaction ID is recorded.',
+  ].join('\n');
+  const html = wrapHtml(data, [
+    `<p><strong>A manual refund of ${escapeHtml(amount)} is required</strong> for booking ${escapeHtml(data.confirmationCode)}.</p>`,
+    `<p>Reason: ${escapeHtml(data.reason.replace(/_/g, ' '))}</p>`,
+    manageLinkHtml(data),
+    '<p style="color:#6b7280;">The payment remains paid until an external reference or Bitcoin transaction ID is recorded.</p>',
+  ].join(''));
+  return { subject, html, text };
+}
+
+export function renderManualRefundCompleted(
+  data: ManualRefundData & { externalReference: string },
+): RenderedEmail {
+  const amount = formatMoney(data.refundCents, data.currency);
+  const subject = `Refund completed — ${data.confirmationCode}`;
+  const text = [
+    `Hi ${data.guestName},`, '',
+    `Your refund of ${amount} for booking ${data.confirmationCode} has been completed.`,
+    `Reference: ${data.externalReference}`, '',
+    `Manage your booking: ${data.manageUrl}`,
+  ].join('\n');
+  const html = wrapHtml(data, [
+    `<p>Hi ${escapeHtml(data.guestName)},</p>`,
+    `<p>Your refund of <strong>${escapeHtml(amount)}</strong> for booking ${escapeHtml(data.confirmationCode)} has been completed.</p>`,
+    `<p>Reference: <code>${escapeHtml(data.externalReference)}</code></p>`,
+    manageLinkHtml(data),
+  ].join(''));
+  return { subject, html, text };
+}
