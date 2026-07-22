@@ -8,7 +8,7 @@ living version.
 |---|---|
 | **M0** | Scaffold + demo. Schema v1, hold/expiry/conflict-proof booking core, GST/deposit/refund pricing math, per-unit iCal export, simulated demo payment path, Pinewood Flats seed, minimal public booking flow. |
 | **M1** (shipped in source) | Payments, staff auth, transactional email, and two-way iCal are implemented and test-covered; each deployment still completes its own provider configuration/live acceptance. |
-| **Consensus Commons** (experimental) | Bitcoin++ Toronto MVP: Zaprite sandbox reconciliation, Wavelength signet bridge/wallet, booking chat, manual refund cases, and consensus timeline. Not production rails. |
+| **Consensus Commons** (experimental) | Bitcoin++ Toronto MVP: Zaprite sandbox reconciliation, Wavelength signet plus a guarded exact-210-sat mainnet profile, booking chat, manual refund cases, OpenStays Mail, and consensus timeline. Not production rails. |
 | **M2** | Front-desk core: front-desk booking views, add-ons folio, Square in the front-desk flow, manual (cash/e-transfer/terminal) payment recording. |
 | **M3** | Hardening — load testing, edge-case coverage on the availability/hold core. |
 | **M4** | Seasonal site contracts (the `seasonalContracts` table goes from skeletal to fully wired — invoicing schedules, renewal offers), gift certificates (ledger goes from skeletal to redeemable), reporting. Agreement e-signing for seasonal contracts: a lightweight built-in flow (client-side PDF + on-device signature capture) as the default, with an optional [DocuSeal](https://github.com/docusealco/docuseal) integration for remote, email-based signing with audit trails — DocuSeal is open source, self-hostable, and consumed over its API as a separate service, so it pairs cleanly with this MIT codebase. Renewal season is the killer use case: emailing a couple hundred seasonal agreements beats collecting signatures one clipboard at a time. |
@@ -23,8 +23,8 @@ living version.
 - [x] **Staff/admin authentication** — Convex Auth email+password sign-in;
       a signed-up user grants nothing until an active `staffProfiles` row
       exists (bootstrap command or owner grant).
-- [x] **Transactional email** — guest confirmation/cancellation email via
-      Resend, with a log-only fallback when unconfigured.
+- [x] **Transactional email** — durable provider-neutral OpenStays Mail queue,
+      generic SMTP bridge and Mailpit capture, optional Resend, and log-only fallback.
 - [x] **iCal import** — a 15-minute cron pulls external calendars in;
       imports never clobber internal bookings, conflicts are flagged for
       staff to resolve manually.

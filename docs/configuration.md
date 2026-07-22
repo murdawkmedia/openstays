@@ -160,9 +160,11 @@ VITE_CONVEX_URL=
 #   AUTH_MICROSOFT_ENTRA_ID_ID / AUTH_MICROSOFT_ENTRA_ID_SECRET
 #   AUTH_MICROSOFT_ENTRA_ID_ISSUER  optional, restricts sign-in to one tenant
 #
-# Email (M1, in progress):
+# Email (M1+):
+#   EMAIL_PROVIDER              'resend' | 'mail_bridge' | 'log_only'
 #   RESEND_API_KEY
 #   EMAIL_FROM
+#   MAIL_BRIDGE_TOKEN
 #
 # Channel manager (Channex, M6 — scaffolded, dormant until connected):
 #   CHANNEX_API_KEY              the 'user-api-key' value; unset = channel sync off
@@ -181,12 +183,11 @@ committed to this repo. The `settings` table is for non-secret deployment
 prefs only (branding, GST number, default provider) — see
 [self-hosting](/self-hosting) for the exact setup commands for each provider.
 
-Everything below is **not fully live in a default deployment**: the payments,
-auth, and email variables are **M1 — in progress** (code paths exist in this
-snapshot but aren't fully wired end-to-end yet), and the `CHANNEX_*` variables
-are **M6 — scaffolded, dormant** (present but doing nothing until an operator
-connects Channel manager). In every case, unsetting the variable degrades
-gracefully — the relevant feature is simply off, never an error. See
+Payment, authentication, and email code paths are shipped, but every deployment
+must supply and live-test its own provider credentials. The `CHANNEX_*`
+variables remain **M6 — scaffolded, dormant** until an operator connects a
+channel manager. In every case, unsetting a variable degrades gracefully —
+the relevant feature is simply off or log-only, never a booking error. See
 [Payments](/concepts/payments), [Channels](/channels), and the
 [roadmap](/roadmap) for what's implemented today versus what's landing next.
 
@@ -199,8 +200,10 @@ gracefully — the relevant feature is simply off, never an error. See
 | `SQUARE_WEBHOOK_SIGNATURE_KEY` | Verifies incoming `/webhooks/square` requests are authentically from Square. | Same as above. |
 | `SQUARE_ENV` | `'sandbox'` or `'production'` — selects which Square API base URL and credentials set applies. | Defaults to sandbox behavior; always set explicitly for a real deployment so you don't accidentally run production traffic against sandbox credentials (or vice versa). |
 | `SITE_URL` | Frontend origin used to build Checkout success/cancel redirect URLs, Payment Link redirects, and links inside guest emails. | Checkout session creation and email links can't be built correctly — set this before enabling any real provider. |
-| `RESEND_API_KEY` | Bearer token for the Resend API, used to actually send guest/staff transactional email. | Email sends degrade to an `emailLog` row with `status: 'logged'` instead of a real send — nothing errors, nothing blocks the booking flow, but guests don't receive email. This is also the default on `DEMO_MODE=true` deployments regardless of this key. |
-| `EMAIL_FROM` | The `From:` address/name Resend sends as, e.g. `'Pinewood Flats <stays@pinewood.example>'`. | Falls back to a generic sender identity (or the send is only logged if `RESEND_API_KEY` is also unset) — set this alongside `RESEND_API_KEY` so confirmation emails look like they came from your property. |
+| `EMAIL_PROVIDER` | Selects `resend`, `mail_bridge`, or `log_only`. | Uses Resend when its key exists; otherwise safely logs. `DEMO_MODE=true` always forces log-only. |
+| `RESEND_API_KEY` | Server-held bearer token for the optional Resend provider. | Resend is unavailable; choose the SMTP bridge or log-only mode. |
+| `EMAIL_FROM` | The stored sender identity, e.g. `'Pinewood Flats <stays@pinewood.example>'`. | Falls back to a generic identity. Set it for either Resend or SMTP. |
+| `MAIL_BRIDGE_TOKEN` | Random bearer secret shared by Convex and the local SMTP worker. It never enters Vite/browser state. | Authenticated SMTP claims are disabled. |
 | `DEMO_MODE` | `"true"` ONLY on the public demo deployment. Enables simulated payments (`bookings.confirmSimulated`) and the nightly reset cron. | Real payment providers and real staff-managed data are in play — this is the correct state for every real operator deployment. |
 | `JWT_PRIVATE_KEY` | Convex Auth's RS256 private key (PKCS8 PEM) used to sign staff session JWTs. | Staff sign-in cannot issue valid sessions — the `/admin/login` flow will fail. Generate this once per deployment; see [self-hosting](/self-hosting). |
 | `JWKS` | The matching public JWKS document Convex Auth uses to verify the JWTs `JWT_PRIVATE_KEY` signs. | Same as above — these two are generated together and both required. |
@@ -220,3 +223,19 @@ staff/admin sign-in methods layered on top of the same session machinery —
 none of them changes what a signed-in account can do; that's still entirely
 gated on a `staffProfiles` row (see
 [Staff & auth](/concepts/staff-auth)).
+
+## SMTP delivery and local capture
+
+`openstays mail-bridge` reads `OPENSTAYS_URL`, `MAIL_BRIDGE_TOKEN`, and the
+standard local worker variables `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`,
+`SMTP_USERNAME`, `SMTP_PASSWORD`, and `MAIL_BRIDGE_POLL_MS`. Convex—not the
+worker—is authoritative for rendered content, deduplication, queue state,
+leases, and retry audit. The worker sends claimed mail sequentially and never
+puts credentials in its command line or logs.
+
+The included Mailpit profile binds SMTP to `127.0.0.1:1025` and its inbox to
+`127.0.0.1:8025`. It captures mail locally and does not deliver it. Generic
+SMTP keeps deployment portable: an operator can later point the same worker at
+a hosted service or a separately self-hosted Postal instance. Rotate
+`MAIL_BRIDGE_TOKEN` by stopping the worker, setting a new Convex value, and
+restarting it with the matching value.

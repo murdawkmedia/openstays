@@ -1,11 +1,13 @@
 # OpenStays
 
 > **Bitcoin++ Toronto 2026 hackathon branch:** “Consensus Commons” adds
-> authoritative Zaprite sandbox reconciliation, a Wavelength signet merchant
-> bridge and browser wallet, booking-scoped chat, manual refund operations,
+> authoritative Zaprite sandbox reconciliation, Wavelength signet plus a
+> guarded exact-210-sat mainnet profile, provider-neutral OpenStays Mail,
+> a bridge and browser wallet, booking-scoped chat, manual refund operations,
 > and a consensus timeline. These rails are experimental and local-first; no
-> production Zaprite, Wavelength mainnet, Channex certification, or customer
-> inventory is included. See [the hackathon runbook](./docs/hackathon-mvp.md).
+> production Zaprite, general-purpose Wavelength mainnet, Channex
+> certification, or customer inventory is included. See
+> [the hackathon runbook](./docs/hackathon-mvp.md).
 
 **Open-source booking engine and property-management system for independent
 lodging — campgrounds, cabins, glamping, yurts, small resorts.**
@@ -54,8 +56,9 @@ Shipped in the source tree; operator configuration and live acceptance remain de
   method) grants nothing until explicitly promoted to staff. Every staff
   action is recorded in an append-only activity audit log, viewable in
   Settings.
-- **Guest emails** — booking confirmation and cancellation email via Resend,
-  with a safe log-only fallback when unconfigured.
+- **Guest emails** — booking, chat, and refund notices via optional Resend or
+  the authenticated generic SMTP bridge, with loopback Mailpit capture and a
+  safe log-only fallback when unconfigured.
 - **Two-way iCal** — a 15-minute import cron pulls external calendars in
   alongside the existing per-unit export, so a direct Airbnb listing and
   this deployment stay in sync in both directions. Imports never override an
@@ -107,8 +110,8 @@ guide (getting a key, every command, MCP client config).
 |---|---|---|
 | Backend | [Convex](https://convex.dev) | Serializable transactions (booking safety), realtime queries, crons, file storage, HTTP endpoints. Free tier; self-hostable. |
 | Frontend | React + Vite + TypeScript + Tailwind | Static output — host anywhere (GitHub Pages, Cloudflare Pages, Netlify…). |
-| Payments | Stripe + Square; experimental Zaprite + Wavelength signet | Hosted providers share an interface; Wavelength stays a separate authenticated bridge rail. |
-| Email | Resend | Booking, chat, conflict, cancellation, and manual-refund notices with safe log-only fallback. |
+| Payments | Stripe + Square; experimental Zaprite + Wavelength | Hosted providers share an interface; Wavelength stays a separate authenticated bridge rail, with signet fallback and an isolated 210-sat mainnet demo profile. |
+| Email | OpenStays Mail | Provider-neutral durable queue with generic SMTP, local Mailpit, optional Resend, and safe log-only fallback. |
 
 ## Project principles
 

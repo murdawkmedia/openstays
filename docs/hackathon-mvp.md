@@ -102,6 +102,30 @@ $env:WAVELENGTH_MAINNET_SWAP_HOST='<reviewed-host>'
 Startup alone creates no wallet, invoice, or payment. Stop again for fresh
 approval immediately before creating or paying the 210-sat invoice.
 
+## OpenStays Mail
+
+Convex renders each notification once and owns its idempotency key, queue,
+30-second lease, retry schedule, and audit row. The local CLI worker only
+delivers claimed payloads through standard SMTP and reports the result. Resend
+remains supported, but it is no longer required.
+
+For a localhost inbox that cannot deliver externally:
+
+```powershell
+npm run mailpit:install
+npm run mailpit:start
+npm run mail:bridge
+```
+
+Mailpit listens only on SMTP `127.0.0.1:1025` and web
+`http://127.0.0.1:8025`. Its pinned Windows archive is checksum-verified before
+installation. Configure the selected Convex dev deployment with
+`EMAIL_PROVIDER=mail_bridge`, `EMAIL_FROM`, and a random `MAIL_BRIDGE_TOKEN`.
+The startup helper reads that token without echoing it. Set `DEMO_MODE=false`
+for this acceptance because public demo mode deliberately forces log-only
+mail. Mailpit is capture-only; use any operator-approved SMTP service later,
+or self-host Postal, by changing the worker's `SMTP_*` variables.
+
 ## Manual refunds
 
 Zaprite and Wavelength use `refundMode: manual`. Cancellation, payment
@@ -118,8 +142,9 @@ notice; guests get completion email only after resolution.
    server fetch—not webhook content—confirms it.
 3. Open Manage Booking with code + normalized email; show “Consensus reached”
    and a guest/staff message round trip.
-4. Repeat with Wavelength: merchant invoice, embedded signet wallet payment,
-   bridge settlement, confirmation.
+4. Repeat with Wavelength: use the embedded signet wallet, or—only after a
+   fresh real-money approval—the isolated 210-sat mainnet invoice with an
+   external wallet; show bridge settlement and confirmation.
 5. Simulate overpayment/cancellation, resolve the manual case with a demo
    reference, and show the ledger/status transition.
 6. Point out “Channex — adapter ready, not connected”; no certification or OTA
@@ -136,5 +161,6 @@ npm --prefix cli run typecheck
 npm --prefix cli run build
 ```
 
-Live acceptance requires operator-started sandbox/signet services and is
-deliberately separate from automated gates.
+Zaprite and real-sat Wavelength acceptance require operator-started services
+and remain deliberately separate from automated gates. Local Mailpit capture
+is safe to run without external delivery.

@@ -223,3 +223,8 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   requires matching network, request, invoice, snapshotted sats, completed
   receive activity, and payment hash. Confirm operator/swap endpoints and the
   210-sat receive minimum with Lightning Labs before starting or funding it.
+- 2026-07-22 (OpenStays Mail): Convex is authoritative for rendered email,
+  idempotency, leases, retries, and audit state. `mail_bridge` exposes only
+  bearer-authenticated bounded claims and acknowledgements; the local worker
+  is a replaceable SMTP delivery adapter. Mailpit is loopback capture only,
+  Resend remains optional, and `DEMO_MODE=true` always forces log-only mail.

@@ -23,6 +23,7 @@ import type * as consensus from "../consensus.js";
 import type * as crons from "../crons.js";
 import type * as demo from "../demo.js";
 import type * as email from "../email.js";
+import type * as emailDelivery from "../emailDelivery.js";
 import type * as emailTemplates from "../emailTemplates.js";
 import type * as http from "../http.js";
 import type * as ical from "../ical.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   demo: typeof demo;
   email: typeof email;
+  emailDelivery: typeof emailDelivery;
   emailTemplates: typeof emailTemplates;
   http: typeof http;
   ical: typeof ical;
