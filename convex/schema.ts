@@ -481,17 +481,29 @@ export default defineSchema({
   emailLog: defineTable({
     propertyId: v.id('properties'),
     to: v.string(),
+    from: v.optional(v.string()),
     templateKey: v.string(),
     subject: v.string(),
+    html: v.optional(v.string()),
+    text: v.optional(v.string()),
+    provider: v.optional(v.union(v.literal('resend'), v.literal('mail_bridge'), v.literal('log_only'))),
+    idempotencyKey: v.optional(v.string()),
     bookingId: v.optional(v.id('bookings')),
     seasonalContractId: v.optional(v.id('seasonalContracts')),
     status: v.union(v.literal('queued'), v.literal('sent'), v.literal('failed'), v.literal('logged')),
     providerMessageId: v.optional(v.string()),
     error: v.optional(v.string()),
+    attemptCount: v.optional(v.number()),
+    nextAttemptAt: v.optional(v.number()),
+    leaseToken: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
     ts: v.number(),
   })
     .index('by_booking', ['bookingId'])
-    .index('by_ts', ['ts']),
+    .index('by_ts', ['ts'])
+    .index('by_status_nextAttemptAt', ['status', 'nextAttemptAt'])
+    .index('by_idempotencyKey', ['idempotencyKey']),
 
   // ── Channel manager (Channex) — availability-critical, dormant until a
   // property is mapped + CHANNEX_API_KEY is set. See convex/channel/**. ──────
