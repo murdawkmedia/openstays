@@ -3,6 +3,7 @@ import { httpAction } from './_generated/server';
 import { internal } from './_generated/api';
 import { auth } from './auth';
 import { bridgeBearerAuthorized, configuredBridgeToken } from './wavelength';
+import { mailBridgeAuthorized } from './emailDelivery';
 
 const http = httpRouter();
 
@@ -67,6 +68,67 @@ function json(data: unknown, status = 200): Response {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+const emailDeliveryInternal = (internal as unknown as {
+  emailDelivery: Record<string, Parameters<typeof httpAction>[0]>;
+}).emailDelivery as Record<string, any>;
+
+function mailAuthorized(request: Request): boolean {
+  const expectedToken = process.env.MAIL_BRIDGE_TOKEN?.trim();
+  return Boolean(
+    expectedToken &&
+      mailBridgeAuthorized(request.headers.get('authorization') ?? undefined, expectedToken),
+  );
+}
+
+function mailBridgeError(error: unknown): Response {
+  const message = error instanceof Error ? error.message : String(error);
+  return json(
+    { error: message.includes('MAIL_LEASE_MISMATCH') ? 'lease_conflict' : 'invalid_request' },
+    message.includes('MAIL_LEASE_MISMATCH') ? 409 : 400,
+  );
+}
+
+http.route({
+  path: '/mail-bridge/pending',
+  method: 'GET',
+  handler: httpAction(async (ctx, request) => {
+    if (!mailAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    const emails = await ctx.runMutation(emailDeliveryInternal.claimPending, {
+      limit: 25,
+      leaseToken: crypto.randomUUID(),
+    });
+    return json({ emails });
+  }),
+});
+
+http.route({
+  path: '/mail-bridge/delivered',
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    if (!mailAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    try {
+      const body = await request.json();
+      return json(await ctx.runMutation(emailDeliveryInternal.markDelivered, body));
+    } catch (error) {
+      return mailBridgeError(error);
+    }
+  }),
+});
+
+http.route({
+  path: '/mail-bridge/failed',
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    if (!mailAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    try {
+      const body = await request.json();
+      return json(await ctx.runMutation(emailDeliveryInternal.markFailed, body));
+    } catch (error) {
+      return mailBridgeError(error);
+    }
+  }),
+});
 
 http.route({
   path: '/wavelength-bridge/pending',

@@ -78,3 +78,62 @@ describe('durable email claims', () => {
     expect(row?.attemptCount).toBe(1);
   });
 });
+
+describe('mail bridge HTTP endpoints', () => {
+  it('rejects missing and forged bearer credentials before returning mail', async () => {
+    vi.stubEnv('MAIL_BRIDGE_TOKEN', 'mail-secret');
+    const { t } = await queuedEmail();
+    const missing = await t.fetch('/mail-bridge/pending', { method: 'GET' });
+    const forged = await t.fetch('/mail-bridge/pending', {
+      method: 'GET', headers: { Authorization: 'Bearer forged' },
+    });
+    expect(missing.status).toBe(401);
+    expect(forged.status).toBe(401);
+  });
+
+  it('claims a complete payload and acknowledges delivery', async () => {
+    vi.stubEnv('MAIL_BRIDGE_TOKEN', 'mail-secret');
+    const { t, emailLogId } = await queuedEmail();
+    const pending = await t.fetch('/mail-bridge/pending', {
+      method: 'GET', headers: { Authorization: 'Bearer mail-secret' },
+    });
+    expect(pending.status).toBe(200);
+    const body = await pending.json() as { emails: Array<{ _id: string; leaseToken: string; html: string }> };
+    expect(body.emails).toHaveLength(1);
+    expect(body.emails[0]).toMatchObject({ _id: emailLogId, html: '<p>Confirmed</p>' });
+
+    const delivered = await t.fetch('/mail-bridge/delivered', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer mail-secret', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        emailLogId, leaseToken: body.emails[0].leaseToken, providerMessageId: 'smtp-123',
+      }),
+    });
+    expect(delivered.status).toBe(200);
+    expect(await delivered.json()).toEqual({ delivered: true });
+  });
+
+  it('returns a conflict for a mismatched lease and reports valid failures', async () => {
+    vi.stubEnv('MAIL_BRIDGE_TOKEN', 'mail-secret');
+    const { t, emailLogId } = await queuedEmail();
+    const pending = await t.fetch('/mail-bridge/pending', {
+      method: 'GET', headers: { Authorization: 'Bearer mail-secret' },
+    });
+    const body = await pending.json() as { emails: Array<{ leaseToken: string }> };
+    const headers = { Authorization: 'Bearer mail-secret', 'Content-Type': 'application/json' };
+    const conflict = await t.fetch('/mail-bridge/failed', {
+      method: 'POST', headers,
+      body: JSON.stringify({ emailLogId, leaseToken: 'wrong', error: 'nope', retryable: true }),
+    });
+    expect(conflict.status).toBe(409);
+
+    const failed = await t.fetch('/mail-bridge/failed', {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        emailLogId, leaseToken: body.emails[0].leaseToken, error: 'SMTP unavailable', retryable: true,
+      }),
+    });
+    expect(failed.status).toBe(200);
+    expect(await failed.json()).toMatchObject({ failed: true, terminal: false });
+  });
+});
