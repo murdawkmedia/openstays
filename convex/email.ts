@@ -12,6 +12,63 @@ export type EmailContext = BookingEmailData & {
   refundCents: number;
 };
 
+export type EmailProvider = 'resend' | 'mail_bridge' | 'log_only';
+
+type EmailEnvironment = {
+  EMAIL_PROVIDER?: string;
+  RESEND_API_KEY?: string;
+  DEMO_MODE?: string;
+};
+
+export function selectEmailProvider(environment: EmailEnvironment): EmailProvider {
+  if (environment.DEMO_MODE === 'true') return 'log_only';
+  const requested = environment.EMAIL_PROVIDER;
+  if (requested && requested !== 'resend' && requested !== 'mail_bridge' && requested !== 'log_only') {
+    throw new Error('INVALID_EMAIL_PROVIDER');
+  }
+  if (requested === 'mail_bridge') return 'mail_bridge';
+  if (requested === 'log_only') return 'log_only';
+  return environment.RESEND_API_KEY ? 'resend' : 'log_only';
+}
+
+type RenderedEmail = { subject: string; html?: string; text: string };
+
+async function dispatchWithoutResend(
+  ctx: any,
+  args: {
+    propertyId: Id<'properties'>;
+    to: string;
+    from: string;
+    templateKey: string;
+    idempotencyKey: string;
+    rendered: RenderedEmail;
+    bookingId?: Id<'bookings'>;
+  },
+): Promise<boolean> {
+  const provider = selectEmailProvider(process.env);
+  if (provider === 'resend') return false;
+  const existing = await ctx.runQuery((internal as any).email.getLogByIdempotencyKey, {
+    idempotencyKey: args.idempotencyKey,
+  });
+  if (existing) return true;
+  await ctx.runMutation(internal.email.writeLog, {
+    propertyId: args.propertyId,
+    to: args.to,
+    from: args.from,
+    templateKey: args.templateKey,
+    subject: args.rendered.subject,
+    html: args.rendered.html,
+    text: args.rendered.text,
+    bookingId: args.bookingId,
+    provider,
+    idempotencyKey: args.idempotencyKey,
+    status: provider === 'mail_bridge' ? 'queued' : 'logged',
+    attemptCount: provider === 'mail_bridge' ? 0 : undefined,
+    nextAttemptAt: provider === 'mail_bridge' ? Date.now() : undefined,
+  });
+  return true;
+}
+
 /**
  * Transactional email (M1, builder E; signatures FIXED — bookings.ts schedules
  * these, so names/args must not change).
@@ -82,20 +139,19 @@ export const sendBookingEmail = internalAction({
       rendered = renderPaymentConflict(context);
     }
 
-    const demoMode = process.env.DEMO_MODE === 'true';
-    const apiKey = process.env.RESEND_API_KEY;
-
-    if (demoMode || !apiKey) {
-      await ctx.runMutation(internal.email.writeLog, {
-        propertyId: context.propertyId,
-        to: context.guestEmail,
-        templateKey,
-        subject: rendered.subject,
-        bookingId: args.bookingId,
-        status: 'logged',
-      });
+    const from = process.env.EMAIL_FROM ?? `${context.propertyName} <no-reply@example.com>`;
+    if (await dispatchWithoutResend(ctx, {
+      propertyId: context.propertyId,
+      to: context.guestEmail,
+      from,
+      templateKey,
+      idempotencyKey: `booking:${args.bookingId}:${templateKey}`,
+      rendered,
+      bookingId: args.bookingId,
+    })) {
       return;
     }
+    const apiKey = process.env.RESEND_API_KEY!;
 
     const logId = await ctx.runMutation(internal.email.writeLog, {
       propertyId: context.propertyId,
@@ -105,8 +161,6 @@ export const sendBookingEmail = internalAction({
       bookingId: args.bookingId,
       status: 'queued',
     });
-
-    const from = process.env.EMAIL_FROM ?? `${context.propertyName} <no-reply@example.com>`;
 
     let response: Response;
     try {
@@ -185,21 +239,18 @@ export const sendStaffAlert = internalAction({
     if (!property) return; // nothing to send against
     const to = property.email;
 
-    const demoMode = process.env.DEMO_MODE === 'true';
-    const apiKey = process.env.RESEND_API_KEY;
-
-    if (demoMode || !apiKey) {
-      await ctx.runMutation(internal.email.writeLog, {
-        propertyId: args.propertyId,
-        to,
-        templateKey: 'staff_alert',
-        subject: args.subject,
-        status: 'logged',
-      });
+    const from = process.env.EMAIL_FROM ?? `${property.name} <no-reply@example.com>`;
+    if (await dispatchWithoutResend(ctx, {
+      propertyId: args.propertyId,
+      to,
+      from,
+      templateKey: 'staff_alert',
+      idempotencyKey: `staff:${args.propertyId}:${args.subject}:${args.body}`,
+      rendered: { subject: args.subject, text: args.body },
+    })) {
       return;
     }
-
-    const from = process.env.EMAIL_FROM ?? `${property.name} <no-reply@example.com>`;
+    const apiKey = process.env.RESEND_API_KEY!;
     const logId = await ctx.runMutation(internal.email.writeLog, {
       propertyId: args.propertyId,
       to,
@@ -268,8 +319,6 @@ export const sendBookingMessageAlert = internalAction({
     });
     if (prior === 'sent' || prior === 'logged') return;
     const rendered = renderBookingMessage(context);
-    const demoMode = process.env.DEMO_MODE === 'true';
-    const apiKey = process.env.RESEND_API_KEY;
     const baseLog = {
       propertyId: context.propertyId,
       to: context.to,
@@ -277,12 +326,17 @@ export const sendBookingMessageAlert = internalAction({
       subject: rendered.subject,
       bookingId: context.bookingId,
     };
-    if (demoMode || !apiKey) {
-      await ctx.runMutation(internal.email.writeLog, { ...baseLog, status: 'logged' });
+    const from = process.env.EMAIL_FROM ?? `${context.propertyName} <no-reply@example.com>`;
+    if (await dispatchWithoutResend(ctx, {
+      ...baseLog,
+      from,
+      idempotencyKey: templateKey,
+      rendered,
+    })) {
       return;
     }
+    const apiKey = process.env.RESEND_API_KEY!;
     const logId = await ctx.runMutation(internal.email.writeLog, { ...baseLog, status: 'queued' });
-    const from = process.env.EMAIL_FROM ?? `${context.propertyName} <no-reply@example.com>`;
     try {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -368,16 +422,21 @@ export const sendRefundCaseNotice = internalAction({
       ? renderManualRefundRequired(templateData)
       : renderManualRefundCompleted({ ...templateData, externalReference: refund.externalReference! });
     const baseLog = { propertyId: refund.propertyId, to: recipient, templateKey, subject: rendered.subject, bookingId: refund.bookingId };
-    const apiKey = process.env.RESEND_API_KEY;
-    if (process.env.DEMO_MODE === 'true' || !apiKey) {
-      await ctx.runMutation(internal.email.writeLog, { ...baseLog, status: 'logged' });
+    const from = process.env.EMAIL_FROM ?? `${bookingContext.propertyName} <no-reply@example.com>`;
+    if (await dispatchWithoutResend(ctx, {
+      ...baseLog,
+      from,
+      idempotencyKey: templateKey,
+      rendered,
+    })) {
       return;
     }
+    const apiKey = process.env.RESEND_API_KEY!;
     const logId = await ctx.runMutation(internal.email.writeLog, { ...baseLog, status: 'queued' });
     try {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: process.env.EMAIL_FROM ?? `${bookingContext.propertyName} <no-reply@example.com>`, to: recipient, subject: rendered.subject, html: rendered.html, text: rendered.text }),
+        body: JSON.stringify({ from, to: recipient, subject: rendered.subject, html: rendered.html, text: rendered.text }),
       });
       if (!response.ok) {
         await ctx.runMutation(internal.email.updateLog, { logId, status: 'failed', error: `HTTP ${response.status}: ${await safeText(response)}` });
@@ -484,6 +543,16 @@ export const getPriorLogStatus = internalQuery({
   },
 });
 
+export const getLogByIdempotencyKey = internalQuery({
+  args: { idempotencyKey: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query('emailLog')
+      .withIndex('by_idempotencyKey', (q) => q.eq('idempotencyKey', args.idempotencyKey))
+      .first();
+  },
+});
+
 /**
  * Load booking + property + guest → the BookingEmailData shape plus guestEmail
  * and propertyId (needed by sendBookingEmail but not part of the template
@@ -557,12 +626,19 @@ export const writeLog = internalMutation({
   args: {
     propertyId: v.id('properties'),
     to: v.string(),
+    from: v.optional(v.string()),
     templateKey: v.string(),
     subject: v.string(),
+    html: v.optional(v.string()),
+    text: v.optional(v.string()),
+    provider: v.optional(v.union(v.literal('resend'), v.literal('mail_bridge'), v.literal('log_only'))),
+    idempotencyKey: v.optional(v.string()),
     bookingId: v.optional(v.id('bookings')),
     status: v.union(v.literal('queued'), v.literal('sent'), v.literal('failed'), v.literal('logged')),
     providerMessageId: v.optional(v.string()),
     error: v.optional(v.string()),
+    attemptCount: v.optional(v.number()),
+    nextAttemptAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert('emailLog', { ...args, ts: Date.now() });

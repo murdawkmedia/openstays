@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { internal } from './_generated/api';
 import schema from './schema';
 import { renderCancellation } from './emailTemplates';
+import { selectEmailProvider } from './email';
 
 const modules = import.meta.glob('./**/!(*.*.*)*.*s');
 
@@ -339,5 +340,36 @@ describe('sendBookingEmail — real provider (mocked fetch)', () => {
     expect(logs).toHaveLength(1);
     expect(logs[0].status).toBe('failed');
     expect(logs[0].error).toMatch(/422/);
+  });
+});
+
+describe('OpenStays Mail provider selection', () => {
+  it('selects explicit providers and fails closed', () => {
+    expect(selectEmailProvider({ EMAIL_PROVIDER: 'mail_bridge' })).toBe('mail_bridge');
+    expect(selectEmailProvider({ EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 'key' })).toBe('resend');
+    expect(selectEmailProvider({ EMAIL_PROVIDER: 'resend' })).toBe('log_only');
+    expect(selectEmailProvider({ DEMO_MODE: 'true' })).toBe('log_only');
+    expect(() => selectEmailProvider({ EMAIL_PROVIDER: 'smtp' })).toThrow('INVALID_EMAIL_PROVIDER');
+  });
+
+  it('queues one complete rendered payload for the local mail bridge', async () => {
+    vi.stubEnv('EMAIL_PROVIDER', 'mail_bridge');
+    vi.stubEnv('EMAIL_FROM', 'Consensus Commons <stays@openstays.local>');
+    const t = convexTest(schema, modules);
+    const fx = await seedBooking(t);
+
+    await t.action(internal.email.sendBookingEmail, { bookingId: fx.bookingId, kind: 'confirmation' });
+    await t.action(internal.email.sendBookingEmail, { bookingId: fx.bookingId, kind: 'confirmation' });
+
+    const logs = await t.run((ctx) => ctx.db.query('emailLog').collect());
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({
+      provider: 'mail_bridge', status: 'queued',
+      from: 'Consensus Commons <stays@openstays.local>', to: 'jamie@example.com',
+      subject: 'Booking confirmed — OS-7K3M2Q', idempotencyKey: `booking:${fx.bookingId}:confirmation`,
+      attemptCount: 0,
+    });
+    expect(logs[0].html).toContain('OS-7K3M2Q');
+    expect(logs[0].text).toContain('OS-7K3M2Q');
   });
 });
