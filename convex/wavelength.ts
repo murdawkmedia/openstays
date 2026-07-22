@@ -3,7 +3,6 @@ import { internalMutation, mutation, query } from './_generated/server';
 import { timingSafeEqual } from './payments/stripe';
 import {
   DEFAULT_SIGNET_SATS_PER_CURRENCY_UNIT,
-  MAINNET_HACKATHON_SATS,
   parseWavelengthNetwork,
   quoteSignetSats,
   type WavelengthNetwork,
@@ -33,28 +32,11 @@ export function configuredNetwork(): WavelengthNetwork {
   }
 }
 
-function requireMainnetAcknowledgement(network: WavelengthNetwork): void {
-  if (
-    network === 'mainnet' &&
-    process.env.WAVELENGTH_MAINNET_ACK !== 'I_UNDERSTAND_REAL_SATS'
-  ) {
-    throw new ConvexError('WAVELENGTH_MAINNET_NOT_ACKNOWLEDGED');
-  }
+export function configuredBridgeToken(): string {
+  return process.env.WAVELENGTH_BRIDGE_TOKEN ?? '';
 }
 
-export function configuredBridgeToken(network = configuredNetwork()): string {
-  return network === 'mainnet'
-    ? process.env.WAVELENGTH_MAINNET_BRIDGE_TOKEN ?? ''
-    : process.env.WAVELENGTH_BRIDGE_TOKEN ?? '';
-}
-
-function quoteSats(network: WavelengthNetwork, amountCents: number): number {
-  if (network === 'mainnet') {
-    if (amountCents !== 21) {
-      throw new ConvexError('WAVELENGTH_MAINNET_DEMO_PRICE_REQUIRED');
-    }
-    return MAINNET_HACKATHON_SATS;
-  }
+function quoteSats(amountCents: number): number {
   return quoteSignetSats(amountCents, configuredRate());
 }
 
@@ -62,13 +44,10 @@ export const available = query({
   args: {},
   handler: async () => {
     const network = configuredNetwork();
-    const acknowledged = network === 'signet' ||
-      process.env.WAVELENGTH_MAINNET_ACK === 'I_UNDERSTAND_REAL_SATS';
     return {
-      available: Boolean(configuredBridgeToken(network)) && acknowledged,
+      available: Boolean(configuredBridgeToken()),
       network,
-      satsPerCurrencyUnit: network === 'signet' ? configuredRate() : undefined,
-      fixedSats: network === 'mainnet' ? MAINNET_HACKATHON_SATS : undefined,
+      satsPerCurrencyUnit: configuredRate(),
     };
   },
 });
@@ -81,8 +60,7 @@ export const createRequest = mutation({
   },
   handler: async (ctx, args) => {
     const network = configuredNetwork();
-    requireMainnetAcknowledgement(network);
-    if (!configuredBridgeToken(network)) throw new ConvexError('WAVELENGTH_NOT_CONFIGURED');
+    if (!configuredBridgeToken()) throw new ConvexError('WAVELENGTH_NOT_CONFIGURED');
     const booking = await ctx.db.get(args.bookingId);
     if (!booking || !booking.guestId || booking.confirmationCode !== args.confirmationCode.trim().toUpperCase()) {
       throw new ConvexError('BOOKING_NOT_FOUND');
@@ -106,7 +84,7 @@ export const createRequest = mutation({
     const amountCents = booking.priceBreakdown.depositDueCents > 0
       ? booking.priceBreakdown.depositDueCents
       : booking.priceBreakdown.totalCents - booking.priceBreakdown.giftCertAppliedCents;
-    const satsAmount = quoteSats(network, amountCents);
+    const satsAmount = quoteSats(amountCents);
     const now = Date.now();
     const paymentId = await ctx.db.insert('payments', {
       propertyId: booking.propertyId,
@@ -172,6 +150,7 @@ export const claimPending = internalMutation({
     ).flat();
     const claimed = [];
     for (const request of requested) {
+      if (request.network !== 'signet') continue;
       if (request.expiresAt <= now) {
         await ctx.db.patch(request._id, { status: 'expired', updatedAt: now });
         continue;
@@ -188,7 +167,7 @@ export const claimPending = internalMutation({
 export const publishInvoice = internalMutation({
   args: {
     requestId: v.id('wavelengthRequests'),
-    network: v.union(v.literal('signet'), v.literal('mainnet')),
+    network: v.literal('signet'),
     bolt11: v.string(),
     bridgeActivityId: v.string(),
     satsAmount: v.number(),
@@ -220,7 +199,7 @@ export const publishInvoice = internalMutation({
 export const prepareSettlement = internalMutation({
   args: {
     requestId: v.id('wavelengthRequests'),
-    network: v.union(v.literal('signet'), v.literal('mainnet')),
+    network: v.literal('signet'),
     bolt11: v.string(),
     bridgeActivityId: v.string(),
     paymentHash: v.string(),
