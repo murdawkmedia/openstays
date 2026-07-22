@@ -17,7 +17,10 @@
     "seed": "convex run seed:run",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "wavelength:runtime": "powershell -ExecutionPolicy Bypass -File scripts/install-wavelength-runtime.ps1"
+    "wavelength:runtime": "powershell -ExecutionPolicy Bypass -File scripts/install-wavelength-runtime.ps1",
+    "mailpit:install": "powershell -ExecutionPolicy Bypass -File scripts/install-mailpit.ps1",
+    "mailpit:start": "powershell -ExecutionPolicy Bypass -File scripts/start-mailpit.ps1",
+    "mail:bridge": "powershell -ExecutionPolicy Bypass -File scripts/start-mail-bridge.ps1"
   },
   "dependencies": {
     "@auth/core": "^0.41.2",

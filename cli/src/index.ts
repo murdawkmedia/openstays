@@ -162,7 +162,7 @@ Commands:
                                              Preview a promo code
   mcp                                       Run as an MCP stdio server
   wave-bridge                               Run the local Wavelength signet merchant bridge
-  mail-bridge                               Deliver queued OpenStays mail through SMTP
+  mail-bridge [--once]                      Deliver queued OpenStays mail through SMTP
 
 Global flags:
   --json          Print raw JSON instead of a human summary
@@ -453,6 +453,7 @@ async function main(): Promise<void> {
       smtpUsername: process.env.SMTP_USERNAME,
       smtpPassword: process.env.SMTP_PASSWORD,
       pollMs: process.env.MAIL_BRIDGE_POLL_MS ? Number(process.env.MAIL_BRIDGE_POLL_MS) : undefined,
+      once: parsed.flags.once === 'true',
     });
     return;
   }

@@ -10,6 +10,7 @@ export interface MailBridgeOptions {
   smtpUsername?: string;
   smtpPassword?: string;
   pollMs?: number;
+  once?: boolean;
 }
 
 interface QueuedEmail {
@@ -134,6 +135,7 @@ export async function runMailBridge(options: MailBridgeOptions): Promise<void> {
     } catch (error) {
       process.stderr.write(`mail bridge: ${safeErrorMessage(error)}\n`);
     }
+    if (options.once) return;
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 }
