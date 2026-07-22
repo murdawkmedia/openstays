@@ -38,7 +38,7 @@ export function HomePage() {
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-400">Bitcoin++ Toronto · Hackathon MVP</p>
         <h1 className="mt-2 text-3xl font-semibold">Consensus Commons</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-stone-300">Different participants and payment rails reach one authoritative booking state—without double-booking, forged payment confirmation, or silent refund failures.</p>
-        <p className="mt-4 text-xs text-stone-400">All demo inventory is fictional. Zaprite sandbox and Wavelength signet are experimental, separate rails.</p>
+        <p className="mt-4 text-xs text-stone-400">All demo inventory is fictional. Zaprite sandbox and Wavelength are experimental, separate rails.</p>
       </div>
       <h2 className="mb-6 text-2xl font-semibold text-stone-900">Choose a place to stay</h2>
       <div className="grid gap-4 sm:grid-cols-2">

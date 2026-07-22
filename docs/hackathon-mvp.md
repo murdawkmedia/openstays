@@ -25,12 +25,26 @@ Those generated assets are ignored. Vite and `public/_headers` set COOP/COEP.
 The wallet SDK is lazy-loaded only on `/wallet/*`, uses
 `defaultConfig("signet")`, and never sends a seed or password to OpenStays.
 
+## Customer and staff surfaces
+
+OpenStays is the booking engine, not the property's marketing website. A real
+property can link its existing “Book now” button to `/p/<property-slug>` (or
+later embed that route). The public funnel is property → room → availability
+and guest details → checkout → confirmation → manage booking/chat. Staff use
+the separate `/admin`, `/admin/operations`, and `/admin/settings` routes for
+the booking tape, messages, refunds, and configuration. Both surfaces converge
+on the same authoritative Convex booking ledger.
+
+Channex remains an optional server-side distribution adapter for future OTA
+inventory and reservations. It does not sit in the customer checkout path and
+is deliberately not required for this hackathon demo.
+
 ## Zaprite sandbox
 
-Prefer a sandbox organization and custom API checkout dedicated to OpenStays.
-For the local hackathon deployment, Murphy authorized the existing Signal21
-organization-scoped API key and custom checkout; confirm that checkout has the
-Test Payment plugin before creating a demo order. Set:
+Use a sandbox organization and custom API checkout dedicated to OpenStays. The
+isolated hackathon deployment now has its Consensus Commons API key and checkout
+configured. Confirm that checkout has the Test Payment connection before
+creating the first demo order. Set:
 
 ```powershell
 npx convex env set ZAPRITE_API_KEY <sandbox-key>
@@ -45,9 +59,8 @@ fetches each bounded pending order using the server-held key. Only exact
 `PAID`/`COMPLETE` orders settle. `UNDERPAID` waits; `OVERPAID` settles the
 expected amount and opens a manual refund case for excess.
 
-Never use a production payment method for acceptance. A separate sandbox
-checkout keeps the production organization clean and remains the recommended
-configuration after the initial local setup.
+Never use a production payment method for acceptance. Rotate the current API
+key after the hackathon because it was shared through the working session.
 
 ## Wavelength bridge
 

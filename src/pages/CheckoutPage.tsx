@@ -198,7 +198,7 @@ export function CheckoutPage() {
               {paying ? 'Processing…' : 'Complete demo payment'}
             </button>
             <p className="mt-2 text-center text-xs text-stone-400">
-              Demo mode — no real charge. Stripe &amp; Square checkout land in M1.
+              Demo mode — no real charge. Payment state still follows the same booking ledger.
             </p>
           </>
         ) : providerInfo === undefined || propertyConfigs === undefined ? (

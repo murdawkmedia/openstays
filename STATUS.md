@@ -20,10 +20,11 @@
 - Live local runtime: isolated Murdawk Convex dev deployment
   `affable-wildcat-206`, seeded demo inventory, Vite on `127.0.0.1:5173`,
   and a loopback-only Wavelength v0.1.0 signet daemon plus merchant bridge.
-- Signal21's organization-scoped Zaprite API key/custom checkout are configured
-  on the isolated deployment with a dedicated OpenStays webhook. No order or
-  charge was created. Confirm the reused checkout has the Test Payment plugin,
-  or create a dedicated sandbox checkout, before live acceptance.
+- The dedicated Consensus Commons Zaprite API key/custom checkout are configured
+  on the isolated deployment with the OpenStays webhook. Zaprite is visible as
+  the hosted provider. No order or charge was created. Confirm the checkout has
+  the Test Payment connection before live acceptance, and rotate the session-
+  shared key after the hackathon.
 - Wavelength merchant recovery material is stored outside the repository under
   `%LOCALAPPDATA%\OpenStays\wavelength-signet` with user-only ACLs.
 - Mailpit is running on loopback SMTP `127.0.0.1:1025` and inbox
@@ -31,9 +32,10 @@
   deployment. Live acceptance captured exactly one fictional confirmation and
   one fictional staff message alert, both with code, HTML, text, and links.
 - Nodemailer was advanced to 9.0.3 after the original pin surfaced a direct
-  high-severity advisory. CLI audit now has no Nodemailer finding; one high
-  (`fast-uri`) and two moderate findings remain transitive through the existing
-  MCP SDK dependency tree and need an upstream-compatible update.
+  high-severity advisory. The stale `fast-uri` lock entry is also patched. CLI
+  audit now has zero high/critical findings and two moderate findings in the
+  MCP SDK's unused Hono static-file adapter; an upstream-compatible MCP update
+  is the remaining dependency follow-up.
 
 ## Decisions in force
 
@@ -59,8 +61,8 @@
   210-sat receive support with Murphy's Lightning Labs contact, then stop for a
   fresh payment approval.
 - Execute the complete browser/demo flow against the running local stack.
-- Create the dedicated Zaprite sandbox/Test Payment checkout before its first
-  acceptance run; the temporary Signal21 configuration must then be replaced.
+- Confirm the dedicated Zaprite checkout has its Test Payment connection, then
+  run the first sandbox order/payment/reconciliation acceptance.
 - Murphy accepts the demo; only then merge locally into `main`.
 
 See [docs/hackathon-mvp.md](./docs/hackathon-mvp.md).
