@@ -243,12 +243,16 @@ export function CheckoutPage() {
             className={`btn-secondary mt-3 flex w-full items-center justify-center gap-2 ${expired ? 'pointer-events-none opacity-40' : ''}`}
           >
             <span aria-hidden="true">⚡</span>
-            Pay from an embedded Wavelength wallet
+            {wavelengthInfo.network === 'mainnet'
+              ? 'Pay 210 real sats with Wavelength'
+              : 'Pay from an embedded Wavelength wallet'}
           </Link>
         )}
         {wavelengthInfo?.available && (
           <p className="mt-2 text-center text-xs text-stone-500">
-            Signet test sats · fixed hackathon quote · self-custodial
+            {wavelengthInfo.network === 'mainnet'
+              ? 'Real Lightning payment · fixed 210-sat hackathon price'
+              : 'Signet test sats · fixed hackathon quote · self-custodial'}
           </p>
         )}
       </div>
