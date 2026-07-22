@@ -37,6 +37,13 @@
 
 ## Remaining acceptance
 
+- Approved follow-on design: guarded Wavelength mainnet at exactly 210 sats,
+  paid from an external Lightning wallet, plus OpenStays Mail using a local
+  Mailpit/SMTP bridge. Implementation plans are written under
+  `docs/superpowers/plans/`; no mainnet wallet or payment has been created.
+- Before any real sats move, confirm the mainnet operator/swap endpoints and
+  210-sat receive support with Murphy's Lightning Labs contact, then stop for a
+  fresh payment approval.
 - Execute the complete browser/demo flow against the running local stack.
 - Confirm or create a Zaprite sandbox/Test Payment checkout and obtain signet
   faucet funds for live payment acceptance.
