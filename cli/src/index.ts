@@ -181,6 +181,9 @@ Env vars:
   WAVELENGTH_DAEMON_URL    waved REST gateway (default http://127.0.0.1:10031)
   MAIL_BRIDGE_TOKEN        Shared secret for authenticated mail bridge endpoints
   OTS_BRIDGE_TOKEN         Separate shared secret for OpenTimestamps bridge endpoints
+  OTS_COMMAND              Native OpenTimestamps executable (default ots)
+  OTS_WSL                  Set true on Windows to invoke the official client through WSL
+  OTS_WSL_PYTHONPATH       WSL package directory (default /root/.local/share/openstays/ots-bridge-python)
   SMTP_HOST / SMTP_PORT    SMTP server (defaults 127.0.0.1:1025 for Mailpit)
 `;
 

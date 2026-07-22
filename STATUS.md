@@ -14,7 +14,7 @@
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Final automated gates: 344 root tests and 62 CLI tests passed; root and CLI
+- Final automated gates: 344 root tests and 64 CLI tests passed; root and CLI
   typechecks/builds plus the documentation build passed. The existing Node
   `TimeoutNegativeWarning` remains non-fatal in the test runner.
 - Added: manual provider refund cases, authoritative Zaprite reconciliation,
@@ -37,6 +37,21 @@
   shared key after the hackathon.
 - Wavelength merchant recovery material is stored outside the repository under
   `%LOCALAPPDATA%\OpenStays\wavelength-signet` with user-only ACLs.
+- Two independent Wavelength signet wallets are running on loopback. The
+  merchant received two confirmed 10,000-sat faucet deposits and completed its
+  boarding round with 19,490 spendable sats after the operator's 510-sat fee.
+  The guest demo wallet remains intentionally unfunded. A live 210-sat invoice
+  could not yet be created because the public signet operator's `CreateCredit`
+  RPC timed out for both wallets; retry when the service recovers.
+- The pinned official OpenTimestamps client is installed in WSL because its
+  `python-bitcoinlib` dependency could not discover the native Windows Python
+  OpenSSL 3 DLL. The CLI now has a tested WSL invocation/path adapter while
+  preserving native execution by default.
+- `docs/demo/consensus-receipt-sample.json.ots` is a real proof for the
+  fictional sample hash
+  `2bebb8b87c3d27c9a875beae80355a1fde04c6bf66566f60740e4bdbddf132ba`.
+  Four public calendars accepted it; all attestations are currently pending,
+  not Bitcoin-anchored.
 - Mailpit is running on loopback SMTP `127.0.0.1:1025` and inbox
   `127.0.0.1:8025`; the local mail bridge targets only the isolated dev
   deployment. Live acceptance captured exactly one fictional confirmation and
@@ -74,8 +89,10 @@
   local `openstays ots-bridge` worker.
 - Stamp the fictional sample receipt early; show it honestly as submitted while
   pending, and upgrade it before the expo if public calendars have anchored it.
-- Fund the signet merchant/guest test wallets and execute the 210-sat reward
-  acceptance. No mainnet wallet, invoice, or payment is in scope.
+- Retry invoice creation after the Wavelength signet operator's `CreateCredit`
+  RPC recovers, then execute the prepared, fee-capped 210-sat merchant-to-guest
+  reward acceptance. The merchant is funded; no mainnet wallet, invoice, or
+  payment is in scope.
 - Execute the complete browser/demo flow against the running local stack.
 - Confirm the dedicated Zaprite checkout has its Test Payment connection, then
   run the first sandbox order/payment/reconciliation acceptance.

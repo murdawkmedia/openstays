@@ -1,6 +1,29 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { runOtsBridgeOnce, type OtsRunner } from './otsBridge.js';
+import { resolveOtsInvocation, runOtsBridgeOnce, type OtsRunner } from './otsBridge.js';
+
+describe('resolveOtsInvocation', () => {
+  it('keeps the native command unchanged outside WSL mode', () => {
+    expect(resolveOtsInvocation(['info', '/tmp/receipt.json.ots'], { OTS_COMMAND: '/usr/local/bin/ots' }, 'linux'))
+      .toEqual({ command: '/usr/local/bin/ots', args: ['info', '/tmp/receipt.json.ots'] });
+  });
+
+  it('runs the official client through WSL and translates Windows receipt paths', () => {
+    expect(resolveOtsInvocation(
+      ['stamp', 'C:\\Users\\Murphy\\AppData\\Local\\Temp\\openstays-ots-1\\receipt.json'],
+      { OTS_WSL: 'true', OTS_WSL_PYTHONPATH: '/root/.local/share/openstays/ots-bridge-python' },
+      'win32',
+    )).toEqual({
+      command: 'wsl.exe',
+      args: [
+        '--exec', 'env',
+        'PYTHONPATH=/root/.local/share/openstays/ots-bridge-python',
+        'python3', '/root/.local/share/openstays/ots-bridge-python/bin/ots',
+        'stamp', '/mnt/c/Users/Murphy/AppData/Local/Temp/openstays-ots-1/receipt.json',
+      ],
+    });
+  });
+});
 
 describe('runOtsBridgeOnce', () => {
   it('verifies canonical bytes and publishes a calendar proof', async () => {
