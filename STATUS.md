@@ -14,6 +14,15 @@
 - Added: manual provider refund cases, authoritative Zaprite reconciliation,
   Wavelength signet bridge/wallet, booking chat and alerts, staff operations,
   fictional Consensus Commons seed/branding, and a consensus timeline.
+- Live local runtime: isolated Murdawk Convex dev deployment
+  `affable-wildcat-206`, seeded demo inventory, Vite on `127.0.0.1:5173`,
+  and a loopback-only Wavelength v0.1.0 signet daemon plus merchant bridge.
+- Signal21's organization-scoped Zaprite API key/custom checkout are configured
+  on the isolated deployment with a dedicated OpenStays webhook. No order or
+  charge was created. Confirm the reused checkout has the Test Payment plugin,
+  or create a dedicated sandbox checkout, before live acceptance.
+- Wavelength merchant recovery material is stored outside the repository under
+  `%LOCALAPPDATA%\OpenStays\wavelength-signet` with user-only ACLs.
 
 ## Decisions in force
 
@@ -28,8 +37,9 @@
 
 ## Remaining acceptance
 
-- Start local Convex and execute the browser/demo flow.
-- Operator-approved Zaprite sandbox and Wavelength daemon live acceptance.
+- Execute the complete browser/demo flow against the running local stack.
+- Confirm or create a Zaprite sandbox/Test Payment checkout and obtain signet
+  faucet funds for live payment acceptance.
 - Murphy accepts the demo; only then merge locally into `main`.
 
 See [docs/hackathon-mvp.md](./docs/hackathon-mvp.md).

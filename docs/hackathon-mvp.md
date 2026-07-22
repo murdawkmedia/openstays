@@ -27,8 +27,10 @@ The wallet SDK is lazy-loaded only on `/wallet/*`, uses
 
 ## Zaprite sandbox
 
-Create a new sandbox organization and custom API checkout dedicated to
-OpenStays. Do not reuse Signal21's checkout or API key. Set:
+Prefer a sandbox organization and custom API checkout dedicated to OpenStays.
+For the local hackathon deployment, Murphy authorized the existing Signal21
+organization-scoped API key and custom checkout; confirm that checkout has the
+Test Payment plugin before creating a demo order. Set:
 
 ```powershell
 npx convex env set ZAPRITE_API_KEY <sandbox-key>
@@ -43,8 +45,9 @@ fetches each bounded pending order using the server-held key. Only exact
 `PAID`/`COMPLETE` orders settle. `UNDERPAID` waits; `OVERPAID` settles the
 expected amount and opens a manual refund case for excess.
 
-Opening credential-bearing files or creating the sandbox account is a separate
-operator approval step and is not part of repository setup.
+Never use a production payment method for acceptance. A separate sandbox
+checkout keeps the production organization clean and remains the recommended
+configuration after the initial local setup.
 
 ## Wavelength signet bridge
 
@@ -58,10 +61,18 @@ npx convex env set WAVELENGTH_SIGNET_SATS_PER_CURRENCY_UNIT 1000
 Start the bridge from another terminal:
 
 ```powershell
-$env:OPENSTAYS_BASE_URL='https://<deployment>.convex.site'
+$env:OPENSTAYS_URL='https://<deployment>.convex.site'
 $env:WAVELENGTH_BRIDGE_TOKEN='<same-token>'
 $env:WAVELENGTH_DAEMON_URL='http://localhost:10031'
 npm --prefix cli run start -- wave-bridge
+```
+
+On Windows, after `.env.local` points to the intended Convex deployment, the
+helper script retrieves the bridge token without echoing it and starts the
+same bridge hidden:
+
+```powershell
+.\scripts\start-local-bridge.ps1
 ```
 
 The bridge polls pending requests, calls `POST /v1/wallet/recv`, publishes the

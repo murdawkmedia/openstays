@@ -19,6 +19,7 @@ import type * as channel_channex from "../channel/channex.js";
 import type * as channel_index from "../channel/index.js";
 import type * as channel_ingest from "../channel/ingest.js";
 import type * as channel_types from "../channel/types.js";
+import type * as consensus from "../consensus.js";
 import type * as crons from "../crons.js";
 import type * as demo from "../demo.js";
 import type * as email from "../email.js";
@@ -26,16 +27,20 @@ import type * as emailTemplates from "../emailTemplates.js";
 import type * as http from "../http.js";
 import type * as ical from "../ical.js";
 import type * as icalImport from "../icalImport.js";
+import type * as messages from "../messages.js";
 import type * as payments_checkout from "../payments/checkout.js";
 import type * as payments_index from "../payments/index.js";
 import type * as payments_square from "../payments/square.js";
 import type * as payments_stripe from "../payments/stripe.js";
 import type * as payments_types from "../payments/types.js";
 import type * as payments_webhooks from "../payments/webhooks.js";
+import type * as payments_zaprite from "../payments/zaprite.js";
 import type * as promoCodes from "../promoCodes.js";
 import type * as properties from "../properties.js";
+import type * as refunds from "../refunds.js";
 import type * as seed from "../seed.js";
 import type * as staff from "../staff.js";
+import type * as wavelength from "../wavelength.js";
 
 import type {
   ApiFromModules,
@@ -55,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   "channel/index": typeof channel_index;
   "channel/ingest": typeof channel_ingest;
   "channel/types": typeof channel_types;
+  consensus: typeof consensus;
   crons: typeof crons;
   demo: typeof demo;
   email: typeof email;
@@ -62,16 +68,20 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   ical: typeof ical;
   icalImport: typeof icalImport;
+  messages: typeof messages;
   "payments/checkout": typeof payments_checkout;
   "payments/index": typeof payments_index;
   "payments/square": typeof payments_square;
   "payments/stripe": typeof payments_stripe;
   "payments/types": typeof payments_types;
   "payments/webhooks": typeof payments_webhooks;
+  "payments/zaprite": typeof payments_zaprite;
   promoCodes: typeof promoCodes;
   properties: typeof properties;
+  refunds: typeof refunds;
   seed: typeof seed;
   staff: typeof staff;
+  wavelength: typeof wavelength;
 }>;
 
 /**
