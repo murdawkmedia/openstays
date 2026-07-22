@@ -6,7 +6,7 @@ refund intervention, and optional channel synchronization converge on one
 auditable reservation state.
 
 All seeded Consensus Commons inventory is fictional. Zaprite sandbox and
-Wavelength signet are independent demo rails; the project does not claim that a
+Wavelength are independent demo rails; the project does not claim that a
 Wavelength wallet pays a simulated Zaprite invoice.
 
 ## Local startup
@@ -49,7 +49,7 @@ Never use a production payment method for acceptance. A separate sandbox
 checkout keeps the production organization clean and remains the recommended
 configuration after the initial local setup.
 
-## Wavelength signet bridge
+## Wavelength bridge
 
 Run the Wavelength merchant daemon locally on signet, then configure Convex:
 
@@ -80,6 +80,27 @@ invoice, inspects `POST /v1/wallet/inspect/activity`, and reports only a
 completed receive whose request, invoice, activity, and snapshotted sats amount
 match. Replays are no-ops. The clearly synthetic quote is
 `ceil(amountCents × rate / 100)` at 1,000 signet sats per currency unit.
+
+Signet remains the fallback. The guarded mainnet profile uses a fictional
+one-night CAD 0.21 booking and exactly 210 real sats. It displays a BOLT11
+invoice for a separate external Lightning wallet; it never auto-pays or mounts
+the embedded browser wallet. Mainnet has a separate data directory, token, and
+loopback ports 11029/11031, requires TLS/macaroons and `--allow-mainnet`, and
+forbids `--allow-insecure-mainnet`.
+
+Before running either mainnet startup script, confirm the operator and swap
+endpoints plus 210-sat receive support with the Lightning Labs contact. Then set
+the reviewed endpoints and run the daemon only with an explicit acknowledgement:
+
+```powershell
+$env:WAVELENGTH_MAINNET_OPERATOR_HOST='<reviewed-host>'
+$env:WAVELENGTH_MAINNET_SWAP_HOST='<reviewed-host>'
+.\scripts\start-wavelength-mainnet.ps1 -AcknowledgeRealSats
+.\scripts\start-mainnet-bridge.ps1 -AcknowledgeRealSats
+```
+
+Startup alone creates no wallet, invoice, or payment. Stop again for fresh
+approval immediately before creating or paying the 210-sat invoice.
 
 ## Manual refunds
 

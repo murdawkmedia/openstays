@@ -214,7 +214,12 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   automatic. Zaprite/Wavelength remain paid while an idempotent refund case is
   open; only staff completion with an external reference appends the ledger or
   permits a guest success notice.
-- 2026-07-22 (Consensus Commons): Wavelength is a separate signet-only bridge
-  rail. The browser never receives its bearer token or sends seed/password.
-  Settlement requires matching request, invoice, snapshotted sats, completed
-  receive activity, and payment hash.
+- 2026-07-22 (Consensus Commons): Wavelength remains a separate bridge rail.
+  Signet is the fallback; hackathon mainnet is an explicit, isolated profile
+  capped at exactly 210 sats for a CAD 0.21 fictional booking. Mainnet uses a
+  separate wallet/data directory, token, ports, TLS/macaroons, external payer
+  wallet, `--allow-mainnet`, and never `--allow-insecure-mainnet`. The browser
+  never receives the bridge token or merchant seed/password. Settlement
+  requires matching network, request, invoice, snapshotted sats, completed
+  receive activity, and payment hash. Confirm operator/swap endpoints and the
+  210-sat receive minimum with Lightning Labs before starting or funding it.

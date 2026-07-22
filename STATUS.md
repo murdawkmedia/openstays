@@ -29,24 +29,24 @@
 - Zaprite webhook content is untrusted; authenticated fetch is authoritative.
 - Zaprite/Wavelength refunds remain paid until staff records an external
   reference; no premature guest success email.
-- Wavelength is signet-only and separate from Zaprite; the demo quote is
-  snapshotted per request.
+- Wavelength signet remains the fallback. The isolated mainnet profile is
+  opt-in, external-wallet-only, and hard-capped at exactly 210 sats; its
+  network and amount are snapshotted and rechecked by Convex and the bridge.
 - Channex is adapter-ready but not connected/certified.
 - No customer data, credentials, production rail, push, deploy, or merge is in
   scope without explicit approval.
 
 ## Remaining acceptance
 
-- Approved follow-on design: guarded Wavelength mainnet at exactly 210 sats,
-  paid from an external Lightning wallet, plus OpenStays Mail using a local
-  Mailpit/SMTP bridge. Implementation plans are written under
-  `docs/superpowers/plans/`; no mainnet wallet or payment has been created.
+- Guarded Wavelength mainnet code, external-wallet UI, and fail-closed startup
+  scripts are implemented locally. No mainnet daemon, wallet, invoice, or
+  payment has been created. OpenStays Mail implementation is next.
 - Before any real sats move, confirm the mainnet operator/swap endpoints and
   210-sat receive support with Murphy's Lightning Labs contact, then stop for a
   fresh payment approval.
 - Execute the complete browser/demo flow against the running local stack.
-- Confirm or create a Zaprite sandbox/Test Payment checkout and obtain signet
-  faucet funds for live payment acceptance.
+- Create the dedicated Zaprite sandbox/Test Payment checkout before its first
+  acceptance run; the temporary Signal21 configuration must then be replaced.
 - Murphy accepts the demo; only then merge locally into `main`.
 
 See [docs/hackathon-mvp.md](./docs/hackathon-mvp.md).

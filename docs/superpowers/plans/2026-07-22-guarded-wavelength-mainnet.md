@@ -168,7 +168,7 @@ Select the bearer token by configured profile: signet uses
 `WAVELENGTH_BRIDGE_TOKEN`; mainnet uses `WAVELENGTH_MAINNET_BRIDGE_TOKEN`.
 Refuse mainnet availability when its dedicated token is absent. In
 `convex/seed.ts`, set the dedicated one-night Consensus Commons mainnet demo
-rate to 20 cents before 5% GST, producing the required 21-cent total; do not
+rate to 19 cents before rounded 13% HST, producing the required 21-cent total; do not
 change other fictional inventory.
 
 - [ ] **Step 5: Run focused tests and codegen**
