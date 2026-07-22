@@ -1,5 +1,6 @@
 import { internalMutation } from './_generated/server';
 import type { MutationCtx } from './_generated/server';
+import type { Id } from './_generated/dataModel';
 
 /**
  * Seed the fictional "Pinewood Flats Campground" — the ONLY inventory that
@@ -22,9 +23,33 @@ export const run = internalMutation({
       .first();
     if (!pinewood) await seedPinewoodFlats(ctx);
     if (!commons) await seedConsensusCommons(ctx);
+    else await refreshConsensusCommons(ctx, commons._id);
     return { seeded: !pinewood || !commons, pinewoodSeeded: !pinewood, consensusCommonsSeeded: !commons };
   },
 });
+
+/** Keep existing fictional demo deployments aligned with binding hackathon invariants. */
+async function refreshConsensusCommons(
+  ctx: MutationCtx,
+  propertyId: Id<'properties'>,
+): Promise<void> {
+  await ctx.db.patch(propertyId, { taxRateBps: 1300, taxLabel: 'HST' });
+  const nodeRoom = await ctx.db
+    .query('unitTypes')
+    .withIndex('by_property_slug', (q) => q.eq('propertyId', propertyId).eq('slug', 'node-room'))
+    .first();
+  if (!nodeRoom) return;
+  const ratePlan = await ctx.db
+    .query('ratePlans')
+    .withIndex('by_unitType', (q) => q.eq('unitTypeId', nodeRoom._id).eq('active', true))
+    .first();
+  if (!ratePlan) return;
+  await ctx.db.patch(ratePlan._id, {
+    baseNightlyCents: 19,
+    minStayNights: 1,
+    maxStayNights: 1,
+  });
+}
 
 /** Fictional, judge-safe Bitcoin++ Toronto demo inventory. */
 export async function seedConsensusCommons(ctx: MutationCtx): Promise<void> {
