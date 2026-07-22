@@ -6,7 +6,11 @@
 
 - Worktree: `openstays-btcpp-consensus-mvp`
 - Branch: `codex/btcpp-consensus-mvp`
-- `main` remains untouched; no push, deploy, or merge has been performed.
+- `main` remains untouched; no push, successful deploy, or merge has been performed.
+- During development, `npx convex codegen` unexpectedly entered Convex's
+  function-upload path, then exited non-zero on local TypeScript errors. No
+  successful deployment was reported and it was not run again; verify the
+  selected dev deployment before any live acceptance.
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
