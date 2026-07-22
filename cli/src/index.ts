@@ -17,6 +17,7 @@ import type {
 } from './client.js';
 import { runMcpServer } from './mcp.js';
 import { runWaveBridge } from './waveBridge.js';
+import { runMailBridge } from './mailBridge.js';
 
 export const VERSION = '0.1.0';
 
@@ -44,6 +45,7 @@ const KNOWN_COMMANDS = new Set([
   'promo-preview',
   'mcp',
   'wave-bridge',
+  'mail-bridge',
 ]);
 
 /** Parse argv (post `node index.js`) into a command + flags. Pure, no I/O. */
@@ -160,6 +162,7 @@ Commands:
                                              Preview a promo code
   mcp                                       Run as an MCP stdio server
   wave-bridge                               Run the local Wavelength signet merchant bridge
+  mail-bridge                               Deliver queued OpenStays mail through SMTP
 
 Global flags:
   --json          Print raw JSON instead of a human summary
@@ -173,6 +176,8 @@ Env vars:
   OPENSTAYS_API_KEY   'osk_' + 48 hex chars (see docs/automation.md)
   WAVELENGTH_BRIDGE_TOKEN  Shared secret for authenticated bridge endpoints
   WAVELENGTH_DAEMON_URL    waved REST gateway (default http://127.0.0.1:10031)
+  MAIL_BRIDGE_TOKEN        Shared secret for authenticated mail bridge endpoints
+  SMTP_HOST / SMTP_PORT    SMTP server (defaults 127.0.0.1:1025 for Mailpit)
 `;
 
 function printTable(rows: Array<Record<string, unknown>>): string {
@@ -427,6 +432,27 @@ async function main(): Promise<void> {
       expectedNetwork,
       daemonMacaroonHex,
       pollMs: process.env.WAVELENGTH_BRIDGE_POLL_MS ? Number(process.env.WAVELENGTH_BRIDGE_POLL_MS) : undefined,
+    });
+    return;
+  }
+
+  if (parsed.command === 'mail-bridge') {
+    const openStaysUrl = parsed.url ?? process.env.OPENSTAYS_URL;
+    const bridgeToken = process.env.MAIL_BRIDGE_TOKEN;
+    if (!openStaysUrl || !bridgeToken) {
+      process.stderr.write('OPENSTAYS_URL and MAIL_BRIDGE_TOKEN are required.\n');
+      process.exit(1);
+      return;
+    }
+    await runMailBridge({
+      openStaysUrl,
+      bridgeToken,
+      smtpHost: process.env.SMTP_HOST,
+      smtpPort: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
+      smtpSecure: process.env.SMTP_SECURE === 'true',
+      smtpUsername: process.env.SMTP_USERNAME,
+      smtpPassword: process.env.SMTP_PASSWORD,
+      pollMs: process.env.MAIL_BRIDGE_POLL_MS ? Number(process.env.MAIL_BRIDGE_POLL_MS) : undefined,
     });
     return;
   }
