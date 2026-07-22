@@ -10,6 +10,7 @@ export function AppLayout() {
           <Link to="/" className="flex items-center gap-2 text-stone-900">
             <Mountain className="h-6 w-6 text-emerald-700" strokeWidth={2} />
             <span className="font-display text-lg font-semibold">OpenStays</span>
+            <span className="hidden rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-800 sm:inline">Consensus Commons</span>
           </Link>
           <nav className="text-sm text-stone-500">
             <Link to="/admin" className="hover:text-stone-800">

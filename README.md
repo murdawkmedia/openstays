@@ -1,5 +1,12 @@
 # OpenStays
 
+> **Bitcoin++ Toronto 2026 hackathon branch:** “Consensus Commons” adds
+> authoritative Zaprite sandbox reconciliation, a Wavelength signet merchant
+> bridge and browser wallet, booking-scoped chat, manual refund operations,
+> and a consensus timeline. These rails are experimental and local-first; no
+> production Zaprite, Wavelength mainnet, Channex certification, or customer
+> inventory is included. See [the hackathon runbook](./docs/hackathon-mvp.md).
+
 **Open-source booking engine and property-management system for independent
 lodging — campgrounds, cabins, glamping, yurts, small resorts.**
 
@@ -8,11 +15,9 @@ Seba Beach, Alberta, Canada — after getting tired of legacy reservation system
 with no API, no iCal, and seven clicks to book a cabin. OpenStays is dogfooded
 in production on SebaHub's own lodge, cabins, geodomes, yurts, and RV park.
 
-> **Status: early & moving fast.** The booking core (availability, holds,
-> conflict-proof reservations, pricing/GST, cancellation policies, per-unit
-> iCal export) is in and tested. Stripe + Square checkout, staff auth, guest
-> email, and two-way iCal sync are landing now (M1 — in progress). Watch the
-> repo.
+> **Status: early & moving fast.** M1's conflict-proof booking core, Stripe and
+> Square checkout, staff auth, guest email, and two-way iCal sync are shipped
+> and test-covered. Consensus Commons is an experimental hackathon layer.
 
 ## What it is
 
@@ -35,9 +40,9 @@ in production on SebaHub's own lodge, cabins, geodomes, yurts, and RV park.
 - **Money is integer cents. Dates are property-local. Nights are half-open.**
   The boring correctness decisions are made and enforced by tests.
 
-### M1 — in progress
+### M1 — shipped; hackathon rails experimental
 
-Landing now, not yet live for real guests — see the
+Shipped in the source tree; operator configuration and live acceptance remain deployment-specific. See the
 [roadmap](https://murdawkmedia.github.io/openstays/roadmap) for status:
 
 - **Real payments via Stripe & Square** — Stripe Checkout and Square Payment
@@ -102,8 +107,8 @@ guide (getting a key, every command, MCP client config).
 |---|---|---|
 | Backend | [Convex](https://convex.dev) | Serializable transactions (booking safety), realtime queries, crons, file storage, HTTP endpoints. Free tier; self-hostable. |
 | Frontend | React + Vite + TypeScript + Tailwind | Static output — host anywhere (GitHub Pages, Cloudflare Pages, Netlify…). |
-| Payments | Stripe + Square behind one provider interface | Choose either or both per deployment. Manual (cash/e-transfer) entries built in. |
-| Email | Resend | Booking confirmations, cancellations. |
+| Payments | Stripe + Square; experimental Zaprite + Wavelength signet | Hosted providers share an interface; Wavelength stays a separate authenticated bridge rail. |
+| Email | Resend | Booking, chat, conflict, cancellation, and manual-refund notices with safe log-only fallback. |
 
 ## Project principles
 

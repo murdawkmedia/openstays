@@ -206,3 +206,15 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   reserved→applied|released keeps usage caps transactionally accurate;
   discounts snapshot onto the booking (editing a code never rewrites
   history, same principle as bookingAddOns.nameSnapshot).
+
+- 2026-07-22 (Consensus Commons): Zaprite webhooks are authenticated nudges,
+  never settlement authority. The server-held API key fetches exact
+  amount/currency/status; deterministic event IDs make retries harmless.
+- 2026-07-22 (Consensus Commons): refund mode is binding. Stripe/Square remain
+  automatic. Zaprite/Wavelength remain paid while an idempotent refund case is
+  open; only staff completion with an external reference appends the ledger or
+  permits a guest success notice.
+- 2026-07-22 (Consensus Commons): Wavelength is a separate signet-only bridge
+  rail. The browser never receives its bearer token or sends seed/password.
+  Settlement requires matching request, invoice, snapshotted sats, completed
+  receive activity, and payment hash.

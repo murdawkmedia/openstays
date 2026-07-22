@@ -14,6 +14,7 @@ import { NotFoundPage } from './NotFoundPage';
 const PROVIDER_LABELS: Record<string, string> = {
   stripe: 'Pay with card — Stripe',
   square: 'Pay with card — Square',
+  zaprite: 'Pay with Bitcoin or fiat — Zaprite',
 };
 
 /**
@@ -34,6 +35,7 @@ export function CheckoutPage() {
 
   const booking = useQuery(api.bookings.byConfirmationCode, code ? { code } : 'skip');
   const providerInfo = useQuery(api.payments.checkout.availableProviders);
+  const wavelengthInfo = useQuery((api as any).wavelength.available);
   // Single-operator-per-deployment (CLAUDE.md #8): configList always
   // describes the one property this deployment serves.
   const propertyConfigs = useQuery(api.properties.configList);
@@ -88,7 +90,7 @@ export function CheckoutPage() {
     }
   }
 
-  async function handleProviderPay(provider: 'stripe' | 'square') {
+  async function handleProviderPay(provider: 'stripe' | 'square' | 'zaprite') {
     setPaying(true);
     setPayingProvider(provider);
     setPayError(null);
@@ -233,6 +235,21 @@ export function CheckoutPage() {
               </button>
             ))}
           </div>
+        )}
+
+        {wavelengthInfo?.available && (
+          <Link
+            to={`/wallet/${bookingId}?code=${encodeURIComponent(code)}`}
+            className={`btn-secondary mt-3 flex w-full items-center justify-center gap-2 ${expired ? 'pointer-events-none opacity-40' : ''}`}
+          >
+            <span aria-hidden="true">⚡</span>
+            Pay from an embedded Wavelength wallet
+          </Link>
+        )}
+        {wavelengthInfo?.available && (
+          <p className="mt-2 text-center text-xs text-stone-500">
+            Signet test sats · fixed hackathon quote · self-custodial
+          </p>
         )}
       </div>
     </div>

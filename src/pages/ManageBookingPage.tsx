@@ -13,12 +13,23 @@ export function ManageBookingPage() {
   const { code } = useParams<{ code: string }>();
   const booking = useQuery(api.bookings.byConfirmationCode, code ? { code } : 'skip');
   const cancelByGuest = useMutation(api.bookings.cancelByGuest);
+  const postMessage = useMutation((api as any).messages.postGuest);
 
   const [email, setEmail] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ refundCents: number; paidCents: number } | null>(null);
+  const [messageText, setMessageText] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const thread = useQuery(
+    (api as any).messages.listGuest,
+    code && email.trim().includes('@') ? { confirmationCode: code, email: email.trim() } : 'skip',
+  ) as Array<{ _id: string; authorRole: 'guest' | 'staff'; authorName: string; text: string }> | undefined;
+  const consensus = useQuery(
+    (api as any).consensus.forGuest,
+    code && email.trim().includes('@') ? { confirmationCode: code, email: email.trim() } : 'skip',
+  ) as Array<{ key: string; label: string; state: 'reached' | 'pending' | 'attention' | 'ready'; detail: string }> | undefined;
 
   if (!code) return <NotFoundPage />;
   if (booking === undefined) return <Spinner label="Loading booking…" />;
@@ -37,6 +48,20 @@ export function ManageBookingPage() {
       setError(extractErrorMessage(err));
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function handleMessage() {
+    if (!messageText.trim()) return;
+    setSendingMessage(true);
+    setError(null);
+    try {
+      await postMessage({ confirmationCode: code!, email: email.trim(), text: messageText });
+      setMessageText('');
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setSendingMessage(false);
     }
   }
 
@@ -67,6 +92,39 @@ export function ManageBookingPage() {
           </div>
         </dl>
 
+        <section className="mt-6 border-t border-stone-200 pt-6" aria-labelledby="booking-chat-heading">
+          <h2 id="booking-chat-heading" className="text-lg font-semibold text-stone-900">Booking conversation</h2>
+          <p className="mt-1 text-sm text-stone-500">Messages stay with this reservation. Email alerts link back here.</p>
+          <label className="field-label mt-4" htmlFor="conversation-email">Booking email</label>
+          <input id="conversation-email" type="email" className="field-input" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" />
+          {thread ? (
+            <div className="mt-4 space-y-3" aria-live="polite">
+              {thread.length === 0 ? <p className="text-sm text-stone-500">No messages yet. Ask the host anything about your stay.</p> : thread.map((message) => (
+                <article key={message._id} className={`rounded-xl p-3 text-sm ${message.authorRole === 'guest' ? 'ml-8 bg-emerald-50' : 'mr-8 bg-stone-100'}`}>
+                  <p className="text-xs font-semibold text-stone-500">{message.authorName}</p>
+                  <p className="mt-1 whitespace-pre-wrap break-words text-stone-800">{message.text}</p>
+                </article>
+              ))}
+              <textarea className="field-input min-h-24 resize-y" value={messageText} onChange={(event) => setMessageText(event.target.value)} maxLength={2000} placeholder="Write a message…" aria-label="Message" />
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-stone-400">{messageText.length}/2,000</span>
+                <button type="button" className="btn-primary" disabled={sendingMessage || !messageText.trim()} onClick={() => void handleMessage()}>{sendingMessage ? 'Sending…' : 'Send message'}</button>
+              </div>
+            </div>
+          ) : <p className="mt-3 text-sm text-stone-500">Enter the email used for this booking to open the conversation.</p>}
+        </section>
+
+        {consensus ? <section className="mt-6 border-t border-stone-200 pt-6" aria-labelledby="consensus-heading">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Consensus Commons</p>
+          <h2 id="consensus-heading" className="mt-1 text-lg font-semibold text-stone-900">Consensus reached</h2>
+          <ol className="mt-4 space-y-3">{consensus.map((step) => (
+            <li key={step.key} className="grid grid-cols-[1rem_1fr] gap-3">
+              <span className={`mt-1 h-3 w-3 rounded-full ${step.state === 'reached' ? 'bg-emerald-500' : step.state === 'attention' ? 'bg-amber-500' : 'bg-stone-300'}`} aria-hidden="true" />
+              <div><p className="text-sm font-semibold text-stone-800">{step.label}</p><p className="text-xs text-stone-500">{step.detail}</p></div>
+            </li>
+          ))}</ol>
+        </section> : null}
+
         {result ? (
           <div className="mt-6 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             <p className="font-medium">Booking cancelled.</p>
@@ -77,7 +135,7 @@ export function ManageBookingPage() {
         ) : cancellable ? (
           <div className="mt-6 border-t border-stone-200 pt-6">
             <label className="field-label" htmlFor="manage-email">
-              Confirm your email to cancel
+              Confirm your booking email to cancel
             </label>
             <input
               id="manage-email"

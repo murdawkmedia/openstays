@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { ConvexReactClient } from 'convex/react';
@@ -15,8 +15,11 @@ import { ManageBookingPage } from './pages/ManageBookingPage';
 import { AdminTapePage } from './pages/AdminTapePage';
 import { AdminSettingsPage } from './pages/AdminSettingsPage';
 import { AdminLoginPage } from './pages/AdminLoginPage';
+import { AdminOperationsPage } from './pages/AdminOperationsPage';
 import { AboutPage } from './pages/AboutPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+
+const WavelengthWalletPage = lazy(() => import('./pages/WavelengthWalletPage'));
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
 if (!convexUrl) {
@@ -42,8 +45,10 @@ createRoot(rootElement).render(
             <Route path="/checkout/:bookingId" element={<CheckoutPage />} />
             <Route path="/confirmation/:code" element={<ConfirmationPage />} />
             <Route path="/manage/:code" element={<ManageBookingPage />} />
+            <Route path="/wallet/:bookingId" element={<Suspense fallback={<p className="p-8">Loading signet wallet…</p>}><WavelengthWalletPage /></Suspense>} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/admin" element={<AdminTapePage />} />
+            <Route path="/admin/operations" element={<AdminOperationsPage />} />
             <Route path="/admin/settings" element={<AdminSettingsPage />} />
             <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="*" element={<NotFoundPage />} />

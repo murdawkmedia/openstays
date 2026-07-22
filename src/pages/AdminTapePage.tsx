@@ -71,6 +71,9 @@ export function AdminTapePage() {
 
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-stone-900">Booking tape</h1>
+        <Link to="/admin/operations" className="text-sm font-medium text-emerald-700 hover:text-emerald-900">
+          Messages & refunds
+        </Link>
         <Link to="/admin/settings" className="text-sm text-stone-500 hover:text-stone-800">
           Settings →
         </Link>

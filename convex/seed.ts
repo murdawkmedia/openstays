@@ -12,15 +12,63 @@ import type { MutationCtx } from './_generated/server';
 export const run = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const existing = await ctx.db
+    const pinewood = await ctx.db
       .query('properties')
       .withIndex('by_slug', (q) => q.eq('slug', 'pinewood-flats'))
       .first();
-    if (existing) return { seeded: false, reason: 'pinewood-flats already exists' };
-    await seedPinewoodFlats(ctx);
-    return { seeded: true };
+    const commons = await ctx.db
+      .query('properties')
+      .withIndex('by_slug', (q) => q.eq('slug', 'consensus-commons'))
+      .first();
+    if (!pinewood) await seedPinewoodFlats(ctx);
+    if (!commons) await seedConsensusCommons(ctx);
+    return { seeded: !pinewood || !commons, pinewoodSeeded: !pinewood, consensusCommonsSeeded: !commons };
   },
 });
+
+/** Fictional, judge-safe Bitcoin++ Toronto demo inventory. */
+export async function seedConsensusCommons(ctx: MutationCtx): Promise<void> {
+  const propertyId = await ctx.db.insert('properties', {
+    name: 'Consensus Commons',
+    slug: 'consensus-commons',
+    timezone: 'America/Toronto',
+    currency: 'CAD',
+    taxRateBps: 1300,
+    taxLabel: 'HST',
+    email: 'hosts@consensuscommons.example',
+    phone: '555-021-0724',
+    address: '21 Open Block Way, Toronto, ON',
+    checkInTime: '15:00',
+    checkOutTime: '11:00',
+    active: true,
+  });
+  const roomTypeId = await ctx.db.insert('unitTypes', {
+    propertyId,
+    name: 'Node Room',
+    slug: 'node-room',
+    kind: 'room',
+    bookingMode: 'nightly',
+    description: 'A fictional conference stay where independent payment rails converge on one conflict-proof reservation state.',
+    photoUrls: [],
+    maxOccupancy: 2,
+    amenities: ['Fast Wi-Fi', 'Shared hack lounge', 'Signet faucet guide', 'Late-night coffee'],
+    comingSoon: false,
+    sortOrder: 1,
+  });
+  for (let i = 1; i <= 4; i += 1) {
+    await ctx.db.insert('units', {
+      propertyId, unitTypeId: roomTypeId, name: `Node ${i}`, slug: `node-${i}`,
+      status: 'active', icalExportToken: seedToken(`consensus-node-${i}`), icalImports: [], sortOrder: i,
+    });
+  }
+  await ctx.db.insert('ratePlans', {
+    propertyId, unitTypeId: roomTypeId, name: 'Hackathon rate', active: true, currency: 'CAD',
+    baseNightlyCents: 21_000, seasons: [], minStayNights: 1, maxStayNights: 7,
+    minLeadTimeHours: 0, maxAdvanceDays: 365, prepBufferNights: 0,
+    depositPolicy: { type: 'full', value: 0 },
+    cancellationPolicy: [{ daysBefore: 1, refundPercent: 100 }, { daysBefore: 0, refundPercent: 0 }],
+  });
+}
 
 export async function seedPinewoodFlats(ctx: MutationCtx): Promise<void> {
   const propertyId = await ctx.db.insert('properties', {

@@ -50,7 +50,7 @@ export function ChannelsSection() {
               rel="noreferrer"
               className="font-medium text-emerald-700 underline hover:text-emerald-800"
             >
-              Channex
+              Channex — adapter ready, not connected
             </a>
             . A property is not actually live on any OTA until an operator finishes channel + rate
             plan setup and turns on the OTA connection inside the Channex dashboard — mapping the
