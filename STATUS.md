@@ -30,6 +30,10 @@
   `127.0.0.1:8025`; the local mail bridge targets only the isolated dev
   deployment. Live acceptance captured exactly one fictional confirmation and
   one fictional staff message alert, both with code, HTML, text, and links.
+- Nodemailer was advanced to 9.0.3 after the original pin surfaced a direct
+  high-severity advisory. CLI audit now has no Nodemailer finding; one high
+  (`fast-uri`) and two moderate findings remain transitive through the existing
+  MCP SDK dependency tree and need an upstream-compatible update.
 
 ## Decisions in force
 
