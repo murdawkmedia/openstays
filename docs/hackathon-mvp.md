@@ -252,18 +252,22 @@ settled fictional reservation and keep a fresh payable hold in a second tab.
    and channel manager can disagree. OpenStays makes one booking ledger the
    authority.” Show the Consensus Commons landing page.
 2. **0:25–0:55 — payment consensus.** Show the fresh 0.21 CAD hold, its exact
-   1,000-sat Wavelength signet demo invoice, and the self-custodial browser wallet.
+   1,000-sat Wavelength Signet demo invoice, and the self-custodial browser wallet.
+   Every visible BOLT11 is paired with its exact, scannable SVG QR and a copy control;
+   never substitute a screenshot, shortened payload, or a different invoice. Keep every
+   displayed payment rail on Signet.
    If signet is healthy, pay it; otherwise move immediately to the pre-settled
    reservation and state that the pending network action is never treated as
    payment.
-3. **0:55–1:35 — receipt.** Show “Consensus reached,” the canonical receipt
-   hash, and the JSON/`.ots` downloads. Use `OS-A52VVM` to show the genuine
-   Bitcoin attestation at block 959197, then contrast it with the newer pending
-   receipt: calendar submission is real, and a pending proof is never called
-   anchored.
+3. **0:55–1:35 — receipt.** Show “Consensus reached,” the privacy-safe readable
+   preview, expandable canonical JSON, and JSON/`.ots` downloads. Demonstrate the
+   official [OpenTimestamps.org upload workflow](https://opentimestamps.org/) with
+   the downloaded proof. Use `OS-A52VVM` to show its anchored exact mempool block
+   link, then contrast it with the newer pending receipt: calendar submission is
+   real, and a pending proof is never called anchored.
 4. **1:35–2:10 — reward.** Tap **Claim 1,000 signet sats**, show the amount-
-   bearing guest invoice and the paid/reconciled state. The wallet seed and
-   password never leave the browser.
+   bearing guest Signet invoice with its exact scannable/copyable SVG QR, then the
+   paid/reconciled state. The wallet seed and password never leave the browser.
 5. **2:10–2:35 — operations.** Show one chat message, the refund intervention
    queue, and “Channex — adapter ready, not connected.” Mention that Zaprite
    webhook bodies are untrusted and the fetched order is authoritative.
@@ -281,6 +285,9 @@ settled fictional reservation and keep a fresh payable hold in a second tab.
   self-custodial test wallet and require the green **Demo wallet ready** state.
   That means at least 12,000 sats are spendable, enough for twelve 1,000-sat
   booking attempts even if reward returns are delayed.
+- Preserve that funded 12,000-sat wallet. Never create a replacement funding
+  invoice unless the existing merchant send/inbound is confirmed absent; use
+  `localhost` consistently for every wallet, booking, and reward tab.
 - Run a production build and serve it with `npm run preview -- --host 127.0.0.1`.
 - Confirm merchant bridge, OTS bridge, and both signet wallets report healthy.
 - Create the live hold less than ten minutes before the pitch; Wavelength demo
@@ -326,10 +333,15 @@ wallet secrets or automatically pays itself.
 npm test
 npm run typecheck
 npm run build
+npm run docs:build
 npm --prefix cli test
 npm --prefix cli run typecheck
 npm --prefix cli run build
 ```
+
+Before a judge, also accept the receipt and QR presentation at desktop and 390px:
+each visible BOLT11 QR scans/copies the exact displayed invoice, no content
+overflows horizontally, and the browser console is free of warnings and errors.
 
 Live Zaprite, Wavelength signet, and OpenTimestamps acceptance require
 operator-started services and test funds. Local Mailpit capture is safe to run
