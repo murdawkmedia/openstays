@@ -1,21 +1,31 @@
 # OpenStays status
 
-**Updated: 2026-07-23 — judge-opening assets and fresh local demo acceptance.**
+**Updated: 2026-07-23 — final judge-flow hardening in progress.**
 
 ## Current state
 
 - Working branch: `codex/judge-opening-infographics`.
 - The Consensus Commons MVP is merged and pushed on `main` at `3f45b70`.
-  This judge-opening branch is local-only and remains unmerged/unpushed.
+  Final judge-flow hardening is on `codex/judge-opening-infographics`; the
+  branch will remain unmerged and is pushed only after the fresh gates pass.
 - With Murphy's explicit approval, commit `0b45c3f` was uploaded only to the
   isolated `affable-wildcat-206` development deployment. The receipt, reward,
   and bridge routes are live there; no production deployment was touched.
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Fresh 2026-07-23 gates: 357 root tests and 68 CLI tests passed; root and CLI
+- Fresh 2026-07-23 gates: 374 root tests and 69 CLI tests passed; root and CLI
   typechecks/builds plus the documentation build passed. The existing Node
   `TimeoutNegativeWarning` remains non-fatal in the runner.
+- Current unpushed hardening adds exact Wavelength terminal-failure
+  reconciliation, paid-state crash recovery, single-use prepared payments, a
+  tracked Signet deposit address for empty wallets, and bounded/consistent fee
+  validation. Failed or pending money cannot be rewritten as settled.
+- Consensus Commons now has three generated fictional property images, an
+  accessible gallery/lightbox, clickable stay amenities, an idempotent
+  `CONSENSUS10` demo promotion, and honest marketing-consent copy. A fresh
+  desktop/390px production-preview pass found no broken images, horizontal
+  overflow, or browser warnings.
 - Fresh judge walkthrough passed on the production preview: homepage, fictional
   inventory, date picker, guest booking form, authenticated guest chat,
   consensus timeline, receipt/reward card, and desktop/mobile layouts. The
@@ -161,6 +171,13 @@
 
 ## Remaining acceptance
 
+- Upload the current branch functions and seed only to the isolated
+  `affable-wildcat-206` deployment after the explicit configuration gate is
+  approved. Its current server state does not yet include the new failure route
+  or `CONSENSUS10`.
+- Configure isolated-demo Convex Auth (`JWT_PRIVATE_KEY`, `JWKS`, `SITE_URL`)
+  and bootstrap a demo owner; staff account creation currently fails closed
+  because those keys are intentionally absent.
 - Keep the fictional sample receipt labeled pending. Use either genuinely
   anchored live receipt (`OS-A52VVM` at block 959197 or `OS-X2A4RP` at block
   959201) to demonstrate final Bitcoin verification.

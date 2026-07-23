@@ -151,13 +151,41 @@ export const claimPending = internalMutation({
     const payable = [];
     for (const request of [...requested, ...alreadyActive].sort((a, b) => a.createdAt - b.createdAt)) {
       if (request.network !== 'signet') continue;
+      const payment = await ctx.db.get(request.paymentId);
+      const authoritativePayment =
+        payment?.provider === 'wavelength' &&
+        (payment.status === 'paid' || payment.status === 'refunded' || payment.status === 'partially_refunded') &&
+        payment.providerPaymentId?.trim()
+          ? payment
+          : null;
+      if (authoritativePayment) {
+        const authoritativePaymentHash = authoritativePayment.providerPaymentId!.trim();
+        await ctx.db.patch(request._id, {
+          status: 'settled',
+          paymentHash: authoritativePaymentHash,
+          settledAt: authoritativePayment.paidAt ?? now,
+          failureReason: undefined,
+          updatedAt: now,
+        });
+        continue;
+      }
       if (request.expiresAt <= now) {
         await ctx.db.patch(request._id, { status: 'expired', updatedAt: now });
+        if (payment?.status === 'pending') await ctx.db.patch(payment._id, { status: 'failed' });
+        continue;
+      }
+      if (!payment || payment.status !== 'pending') {
+        await ctx.db.patch(request._id, {
+          status: 'failed',
+          failureReason: 'WAVELENGTH_PAYMENT_NOT_PENDING',
+          updatedAt: now,
+        });
         continue;
       }
       const booking = await ctx.db.get(request.bookingId);
       if (!booking || booking.status !== 'hold' || !booking.holdExpiresAt || booking.holdExpiresAt <= now) {
         await ctx.db.patch(request._id, { status: 'failed', failureReason: 'BOOKING_NOT_PAYABLE', updatedAt: now });
+        await ctx.db.patch(payment._id, { status: 'failed' });
         continue;
       }
       if (request.status === 'requested') {
@@ -230,17 +258,77 @@ export const prepareSettlement = internalMutation({
   },
 });
 
+export const markFailed = internalMutation({
+  args: {
+    requestId: v.id('wavelengthRequests'),
+    network: v.literal('signet'),
+    bolt11: v.string(),
+    bridgeActivityId: v.string(),
+    satsAmount: v.number(),
+    terminalStatus: v.union(v.literal('failed'), v.literal('expired')),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request) throw new ConvexError('WAVELENGTH_REQUEST_NOT_FOUND');
+    if (
+      request.network !== args.network ||
+      request.bolt11 !== args.bolt11 ||
+      request.bridgeActivityId !== args.bridgeActivityId ||
+      request.satsAmount !== args.satsAmount
+    ) {
+      throw new ConvexError('WAVELENGTH_FAILURE_MISMATCH');
+    }
+    if (request.status === 'settled' || request.status === 'failed' || request.status === 'expired') {
+      return { failed: false, duplicate: true };
+    }
+    if (request.status !== 'invoice_ready') throw new ConvexError('WAVELENGTH_INVOICE_NOT_READY');
+    const payment = await ctx.db.get(request.paymentId);
+    if (!payment || payment.status !== 'pending') throw new ConvexError('WAVELENGTH_PAYMENT_NOT_PENDING');
+    const reason = args.reason.trim().slice(0, 500) || 'WAVELENGTH_RECEIVE_FAILED';
+    const now = Date.now();
+    await ctx.db.patch(request._id, {
+      status: args.terminalStatus,
+      failureReason: reason,
+      updatedAt: now,
+    });
+    await ctx.db.patch(payment._id, { status: 'failed' });
+    return { failed: true, duplicate: false };
+  },
+});
+
 export const markSettled = internalMutation({
   args: { requestId: v.id('wavelengthRequests'), paymentHash: v.string() },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.requestId);
     if (!request) throw new ConvexError('WAVELENGTH_REQUEST_NOT_FOUND');
     if (request.status === 'settled') return { settled: false };
+    if (
+      request.status !== 'invoice_ready' &&
+      request.status !== 'failed' &&
+      request.status !== 'expired'
+    ) {
+      throw new ConvexError('WAVELENGTH_INVOICE_NOT_READY');
+    }
+    const paymentHash = args.paymentHash.trim();
+    const payment = await ctx.db.get(request.paymentId);
+    if (
+      !payment ||
+      payment.provider !== 'wavelength' ||
+      (payment.status !== 'paid' &&
+        payment.status !== 'refunded' &&
+        payment.status !== 'partially_refunded') ||
+      payment.providerPaymentId?.trim() !== paymentHash
+    ) {
+      throw new ConvexError('WAVELENGTH_PAYMENT_NOT_SETTLED');
+    }
+    const now = Date.now();
     await ctx.db.patch(request._id, {
       status: 'settled',
-      paymentHash: args.paymentHash.trim(),
-      settledAt: Date.now(),
-      updatedAt: Date.now(),
+      paymentHash,
+      settledAt: payment.paidAt ?? now,
+      failureReason: undefined,
+      updatedAt: now,
     });
     return { settled: true };
   },
