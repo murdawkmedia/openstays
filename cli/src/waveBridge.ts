@@ -10,6 +10,19 @@ export type WaveBridgeConfig = {
 
 export type WavelengthNetwork = 'signet';
 
+const CONSENSUS_REWARD_SATS = 1_000;
+const DEFAULT_REWARD_MAX_FEE_SATS = 210;
+
+class BridgeHttpError extends Error {
+  constructor(readonly status: number, url: string, detail: string) {
+    super(`HTTP ${status} from ${url}: ${detail}`);
+  }
+}
+
+function isRetryableRewardError(error: unknown): boolean {
+  return error instanceof TypeError || (error instanceof BridgeHttpError && error.status >= 500);
+}
+
 type PendingRequest = {
   _id: string;
   bookingId?: string;
@@ -49,7 +62,7 @@ async function jsonRequest<T>(
   const response = await fetchFn(url, init);
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`HTTP ${response.status} from ${url}: ${detail}`);
+    throw new BridgeHttpError(response.status, url, detail);
   }
   return (await response.json()) as T;
 }
@@ -151,10 +164,10 @@ export async function runWaveBridgeOnce(
     _id: string; status: 'paying'; network: 'signet'; satsAmount: number; bolt11: string;
     invoiceExpiresAt: number; leaseToken: string; merchantActivityId?: string; paymentHash?: string;
   }> }>(fetchFn, `${openStaysUrl}/wavelength-bridge/rewards/pending`, { headers: authHeaders });
-  const maxFee = config.maxRewardFeeSats ?? 210;
+  const maxFee = config.maxRewardFeeSats ?? DEFAULT_REWARD_MAX_FEE_SATS;
   for (const reward of rewards.rewards) {
     try {
-      if (reward.network !== 'signet' || reward.satsAmount !== 210 || reward.invoiceExpiresAt <= Date.now() + 30_000) {
+      if (reward.network !== 'signet' || reward.satsAmount !== CONSENSUS_REWARD_SATS || reward.invoiceExpiresAt <= Date.now() + 30_000) {
         throw new Error('INVALID_SIGNET_REWARD');
       }
       let activityId = reward.merchantActivityId;
@@ -166,14 +179,14 @@ export async function runWaveBridgeOnce(
         }>(fetchFn, `${daemonUrl}/v1/wallet/prepare-send`, { method: 'POST',
           headers: { ...localDaemonHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ invoice: reward.bolt11, max_fee_sat: maxFee, note: 'OpenStays consensus reward' }) });
-        if (Number(prepared.amount_sat) !== 210 || !prepared.total_outflow_known ||
-          Number(prepared.expected_total_outflow_sat) > 210 + maxFee || prepared.rail.toUpperCase().includes('ONCHAIN') ||
+        if (Number(prepared.amount_sat) !== CONSENSUS_REWARD_SATS || !prepared.total_outflow_known ||
+          Number(prepared.expected_total_outflow_sat) > CONSENSUS_REWARD_SATS + maxFee || prepared.rail.toUpperCase().includes('ONCHAIN') ||
           !prepared.payment_hash || prepared.expires_at_unix * 1000 <= Date.now() + 30_000) throw new Error('WAVELENGTH_REWARD_QUOTE_MISMATCH');
         const sent = await jsonRequest<{ entry: { id: string }; actual_amount_sat: string | number }>(
           fetchFn, `${daemonUrl}/v1/wallet/send`, { method: 'POST',
             headers: { ...localDaemonHeaders, 'Content-Type': 'application/json' },
             body: JSON.stringify({ send_intent_id: prepared.send_intent_id }) });
-        if (!sent.entry?.id || Number(sent.actual_amount_sat) !== 210) throw new Error('WAVELENGTH_REWARD_SEND_MISMATCH');
+        if (!sent.entry?.id || Number(sent.actual_amount_sat) !== CONSENSUS_REWARD_SATS) throw new Error('WAVELENGTH_REWARD_SEND_MISMATCH');
         activityId = sent.entry.id;
         paymentHash = prepared.payment_hash;
         await jsonRequest(fetchFn, `${openStaysUrl}/wavelength-bridge/rewards/dispatched`, { method: 'POST',
@@ -187,16 +200,17 @@ export async function runWaveBridgeOnce(
       const entry = inspection.entry;
       const observedHash = entry?.progress?.payment_hash ?? entry?.request?.lightning_invoice?.payment_hash;
       if (entry?.id !== activityId || entry.kind !== 'ENTRY_KIND_SEND' || entry.status !== 'ENTRY_STATUS_COMPLETE' ||
-        Number(entry.amount_sat) !== 210 || entry.request?.lightning_invoice?.invoice !== reward.bolt11 || observedHash !== paymentHash) continue;
+        Number(entry.amount_sat) !== CONSENSUS_REWARD_SATS || entry.request?.lightning_invoice?.invoice !== reward.bolt11 || observedHash !== paymentHash) continue;
       await jsonRequest(fetchFn, `${openStaysUrl}/wavelength-bridge/rewards/paid`, { method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ rewardId: reward._id,
-          leaseToken: reward.leaseToken, network: 'signet', satsAmount: 210, bolt11: reward.bolt11,
+          leaseToken: reward.leaseToken, network: 'signet', satsAmount: CONSENSUS_REWARD_SATS, bolt11: reward.bolt11,
           merchantActivityId: activityId, paymentHash }) });
       rewardsPaid += 1;
     } catch (error) {
       await jsonRequest(fetchFn, `${openStaysUrl}/wavelength-bridge/rewards/failed`, { method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ rewardId: reward._id,
-          leaseToken: reward.leaseToken, reason: error instanceof Error ? error.message : String(error), retryable: false }) });
+          leaseToken: reward.leaseToken, reason: error instanceof Error ? error.message : String(error),
+          retryable: isRetryableRewardError(error) }) });
       rewardsFailed += 1;
     }
   }
