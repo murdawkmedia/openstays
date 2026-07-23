@@ -14,7 +14,7 @@
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Fresh 2026-07-23 final gates passed 379 root tests, 69 CLI tests, and four
+- Fresh 2026-07-23 final gates passed 386 root tests, 69 CLI tests, and four
   desktop/mobile production-like browser checks. Root and CLI
   typechecks/builds plus the documentation build passed. The existing Node
   `TimeoutNegativeWarning` remains non-fatal in the runner.
@@ -31,8 +31,9 @@
   being absent from the active worktree. The pinned checksum-verified installer
   restored all eight assets; desktop/mobile live-wallet acceptance passed.
   Preview and live browser tests now have an actionable runtime preflight, and
-  the wallet exposes explicit balance refresh plus pending-inbound boarding
-  progress.
+  the wallet exposes pending-inbound boarding progress, a manual balance
+  refresh, and visibility-aware 12-second automatic checks that stop when
+  boarding completes or an error requires manual retry.
 - Consensus Commons now has three generated fictional property images, an
   accessible gallery/lightbox, clickable stay amenities, an idempotent
   `CONSENSUS10` demo promotion, and honest marketing-consent copy. A fresh

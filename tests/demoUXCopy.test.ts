@@ -28,6 +28,15 @@ describe('judge-facing checkout copy', () => {
     expect(source).toContain('Pending inbound');
     expect(source).toContain('balance?.pendingInSat');
   });
+
+  it('automatically checks a visible wallet while inbound sats are boarding', () => {
+    const source = readFileSync(new URL('../src/pages/WavelengthWalletPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('WAVELENGTH_BALANCE_REFRESH_INTERVAL_MS');
+    expect(source).toContain("document.addEventListener('visibilitychange'");
+    expect(source).toContain('shouldAutoRefreshWavelengthBalance');
+    expect(source).toContain('Checking automatically every 12 seconds');
+    expect(source).toContain('Last checked');
+  });
 });
 
 describe('staff auth errors', () => {

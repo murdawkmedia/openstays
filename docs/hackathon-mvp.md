@@ -117,8 +117,10 @@ plus fee exactly matches the total outflow. It refuses unknown fees, a fee over
 empty wallet can create a fresh tracked Signet deposit address before payment.
 Recovery words are hidden by default and are never transmitted. Confirmed
 on-chain funds are shown as pending inbound while they board into Ark, and the
-guest can explicitly refresh the browser wallet balance without reloading or
-reusing a payment intent.
+wallet checks again every 12 seconds while the tab is visible. Automatic checks
+stop when boarding completes, pause in a hidden tab or after an error, and keep
+an explicit refresh button as a safe fallback without reloading or reusing a
+payment intent.
 
 ## Consensus Commons demo inventory
 
