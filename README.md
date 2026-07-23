@@ -1,14 +1,33 @@
 # OpenStays
 
-> **Bitcoin++ Toronto 2026 hackathon branch:** “Consensus Commons” adds
-> authoritative Zaprite sandbox reconciliation, Wavelength signet payments,
-> privacy-safe OpenTimestamps receipts, one-time 1,000 signet-sat rewards,
-> provider-neutral OpenStays Mail,
-> a bridge and browser wallet, booking-scoped chat, manual refund operations,
-> and a consensus timeline. These rails are experimental and local-first; no
-> production Zaprite, Wavelength mainnet, Channex
-> certification, or customer inventory is included. See
-> [the hackathon runbook](./docs/hackathon-mvp.md).
+## Bitcoin++ Toronto 2026: what changed
+
+OpenStays was already a working open-source booking engine before the event.
+This branch adds the **Consensus Receipt + Reward** contribution on top of that
+foundation; it does not claim the entire platform as hackathon-built.
+
+| Already existed before Bitcoin++ | Built during Bitcoin++ |
+| --- | --- |
+| Conflict-proof booking holds and confirmation | Immutable, privacy-safe canonical consensus receipts |
+| Stripe, Square, Zaprite and Wavelength payment foundations | OpenTimestamps submission, proof upgrades and downloadable `.ots` evidence |
+| Zaprite reconciliation, manual refunds, booking chat and outbound email | One-time, exact **1,000-sat Wavelength signet reward** unlocked by a submitted proof |
+| Staff operations, fictional Consensus Commons shell, consensus timeline and dormant Channex adapter | Receipt/reward guest experience, authoritative reward reconciliation and judge-demo proof states |
+
+**Verify the boundary:** read the
+[full baseline disclosure](./HACKATHON_BASELINE.md), inspect
+[pre-kickoff commit `5c3038e`](https://github.com/murdawkmedia/openstays/commit/5c3038e),
+or run:
+
+```powershell
+git diff --stat 5c3038e..HEAD
+git log --oneline 5c3038e..HEAD
+```
+
+> The Consensus Commons rails are experimental and local-first. The demo uses
+> fictional inventory, Wavelength signet test sats, and OpenTimestamps proofs;
+> it does not include production Zaprite, Wavelength mainnet, Channex
+> certification, or customer inventory. See the
+> [hackathon runbook](./docs/hackathon-mvp.md).
 
 **Open-source booking engine and property-management system for independent
 lodging — campgrounds, cabins, glamping, yurts, small resorts.**
