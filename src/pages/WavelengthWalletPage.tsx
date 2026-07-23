@@ -301,6 +301,13 @@ function WalletPayment() {
 
           <section className="card p-6">
             <div className="flex justify-between gap-3"><h2 className="font-semibold">Your self-custodial wallet</h2><span className="text-sm">{phase}</span></div>
+            {phase === 'error' ? (
+              <div role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
+                <p className="font-medium">This browser wallet is already open elsewhere</p>
+                <p className="mt-1 text-sm">Close any other OpenStays wallet tab, then reload this payment page. Your wallet and booking remain safe.</p>
+                <button type="button" className="btn-secondary mt-3" onClick={() => window.location.reload()}>Reload wallet in this tab</button>
+              </div>
+            ) : null}
             {phase === 'needsWallet' || phase === 'locked' ? (
               <div className="mt-4">
                 <label className="field-label" htmlFor="wallet-password">Local wallet password</label>
@@ -385,7 +392,7 @@ function WalletPayment() {
               </div>
             ) : null}
 
-            {displayError ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{displayError}</p> : null}
+            {phase !== 'error' && displayError ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{displayError}</p> : null}
             {create.createData?.mnemonic?.length && !recoverySaved ? (
               <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4">
                 <p className="font-semibold">Save the wallet recovery words privately</p>

@@ -3,6 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { extractErrorMessage } from '../src/components/ErrorMessage';
 
 describe('judge-facing checkout copy', () => {
+  it('offers a safe single-tab recovery when the browser wallet runtime is already in use', () => {
+    const walletSource = readFileSync(new URL('../src/pages/WavelengthWalletPage.tsx', import.meta.url), 'utf8');
+    expect(walletSource).toContain("phase === 'error'");
+    expect(walletSource).toContain('Close any other OpenStays wallet tab');
+    expect(walletSource).toContain('Reload wallet in this tab');
+    expect(walletSource).toContain('window.location.reload()');
+    expect(walletSource).toContain("phase !== 'error' && displayError");
+  });
+
   it('adopts the shared Signet BOLT11 QR on every current invoice surface', () => {
     const walletSource = readFileSync(new URL('../src/pages/WavelengthWalletPage.tsx', import.meta.url), 'utf8');
     const rewardSource = readFileSync(new URL('../src/pages/ConsensusRewardPage.tsx', import.meta.url), 'utf8');
