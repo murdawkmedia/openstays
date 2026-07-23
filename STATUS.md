@@ -14,7 +14,7 @@
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Fresh 2026-07-23 final gates passed 386 root tests, 69 CLI tests, and four
+- Fresh 2026-07-23 final gates passed 395 root tests, 69 CLI tests, and four
   desktop/mobile production-like browser checks. Root and CLI
   typechecks/builds plus the documentation build passed. The existing Node
   `TimeoutNegativeWarning` remains non-fatal in the runner.
@@ -22,9 +22,14 @@
   `/wallet/demo?demoSetup=1`. Pure policy tests require an explicit loopback
   request, pin the target to 12,000 spendable Signet sats, and count only
   complete 1,000-sat attempts. The UI can create one amount-bearing funding
-  invoice and never auto-pays it. Focused UI/policy tests and root typecheck
-  pass; live merchant funding remains pending until both the one-shot outgoing
-  activity and browser spendable balance reconcile.
+  invoice and never auto-pays it. The dedicated `http://localhost:4173` browser
+  origin now holds 12,000 spendable Signet sats and shows all twelve attempts
+  funded. Merchant activity
+  `8f70b3fc4b8c9239033020aed8b6b7eb9e1b5612a1fcccef2496f3c98ff97a66`
+  reconciled as one completed exact `-12000` send on `SEND_RAIL_IN_ARK`, with
+  zero fee and matching invoice/payment hash. No sats remain pending.
+  Desktop and 390px acceptance had no horizontal overflow or browser
+  warning/error logs; removing the setup flag restored the booking-email gate.
 - The pushed hardening adds exact Wavelength terminal-failure reconciliation,
   paid-state crash recovery, single-use prepared payments, a tracked Signet
   deposit address for empty wallets, and bounded/consistent fee validation.

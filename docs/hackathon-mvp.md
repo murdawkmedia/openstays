@@ -274,7 +274,9 @@ settled fictional reservation and keep a fresh payable hold in a second tab.
 
 ### Before each judge group
 
-- Open `http://127.0.0.1:4173/wallet/demo?demoSetup=1`. The setup controls
+- Open `http://localhost:4173/wallet/demo?demoSetup=1`. The funded browser
+  wallet belongs to the `localhost` origin, so use that hostname consistently
+  for the live booking and reward tabs. The setup controls
   remain inert away from a loopback hostname. Unlock the existing
   self-custodial test wallet and require the green **Demo wallet ready** state.
   That means at least 12,000 sats are spendable, enough for twelve 1,000-sat
