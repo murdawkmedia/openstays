@@ -1,23 +1,28 @@
 # OpenStays status
 
-**Updated: 2026-07-22 — Consensus Commons hackathon MVP, local branch.**
+**Updated: 2026-07-23 — judge-opening assets and fresh local demo acceptance.**
 
 ## Current state
 
-- Worktree: `openstays-btcpp-consensus-mvp`
-- Branch: `codex/btcpp-consensus-mvp`
-- `main` remains untouched; no push or merge has been performed.
+- Working branch: `codex/judge-opening-infographics`.
+- The Consensus Commons MVP is merged and pushed on `main` at `3f45b70`.
+  This judge-opening branch is local-only and remains unmerged/unpushed.
 - With Murphy's explicit approval, commit `0b45c3f` was uploaded only to the
   isolated `affable-wildcat-206` development deployment. The receipt, reward,
   and bridge routes are live there; no production deployment was touched.
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Current full gates: 357 root tests and 68 CLI tests passed; root and CLI
-  typechecks/builds plus the documentation build passed. Desktop/mobile public
-  browser smoke passed; the two live-wallet cases skipped without their explicit
-  live inputs. The existing Node `TimeoutNegativeWarning` remains non-fatal in
-  the runner.
+- Fresh 2026-07-23 gates: 357 root tests and 68 CLI tests passed; root and CLI
+  typechecks/builds plus the documentation build passed. The existing Node
+  `TimeoutNegativeWarning` remains non-fatal in the runner.
+- Fresh judge walkthrough passed on the production preview: homepage, fictional
+  inventory, date picker, guest booking form, authenticated guest chat,
+  consensus timeline, receipt/reward card, and desktop/mobile layouts. The
+  390px checks had no horizontal overflow or browser warnings.
+- Three editable 1600×900 judge-opening infographics and matching jot-note
+  scripts are under `docs/demo/judge-opening/`. Variation A, Consensus
+  Convergence, is the recommended 30–40 second opener.
 - Added: manual provider refund cases, authoritative Zaprite reconciliation,
   Wavelength signet bridge/wallet, booking chat and alerts, staff operations,
   fictional Consensus Commons seed/branding, and a consensus timeline.
@@ -112,8 +117,8 @@
   The OTS worker validated and uploaded a 700-byte proof accepted by four
   calendars. The normal background upgrade later verified a Bitcoin attestation
   at block 959197 and advanced it to `bitcoin_anchored`; both browser downloads
-  round-tripped successfully. The newer `OS-X2A4RP` receipt remains honestly
-  `submitted` while its calendar attestations mature.
+  round-tripped successfully. The newer `OS-X2A4RP` receipt has now also
+  matured to a verified Bitcoin attestation at block 959201.
 - Mailpit is running on loopback SMTP `127.0.0.1:1025` and inbox
   `127.0.0.1:8025`; the local mail bridge targets only the isolated dev
   deployment. Current live acceptance delivered the fictional confirmation,
@@ -156,9 +161,11 @@
 
 ## Remaining acceptance
 
-- Keep the fictional sample receipt labeled pending. Use the genuinely anchored
-  `OS-A52VVM` live receipt to demonstrate final Bitcoin verification and the
-  newer `OS-X2A4RP` receipt to explain normal pending maturation.
+- Keep the fictional sample receipt labeled pending. Use either genuinely
+  anchored live receipt (`OS-A52VVM` at block 959197 or `OS-X2A4RP` at block
+  959201) to demonstrate final Bitcoin verification.
+- Use `docs/demo/judge-opening/variation-a-consensus-convergence.png` as the
+  recommended opening visual; B and C remain ready alternatives.
 - Rehearse the three-minute judge path once with Murphy operating the UI; the
   automated production-like desktop/mobile flow and live signet reward payout
   are complete.
