@@ -6,15 +6,14 @@
 
 - Worktree: `openstays-btcpp-consensus-mvp`
 - Branch: `codex/btcpp-consensus-mvp`
-- `main` remains untouched; no push, successful deploy, or merge has been performed.
-- During development, `npx convex codegen` unexpectedly entered Convex's
-  function-upload path, then exited non-zero on local TypeScript errors. No
-  successful deployment was reported and it was not run again; verify the
-  selected dev deployment before any live acceptance.
+- `main` remains untouched; no push or merge has been performed.
+- With Murphy's explicit approval, commit `0b45c3f` was uploaded only to the
+  isolated `affable-wildcat-206` development deployment. The receipt, reward,
+  and bridge routes are live there; no production deployment was touched.
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Current full gates: 350 root tests and 64 CLI tests passed; root and CLI
+- Current full gates: 351 root tests and 64 CLI tests passed; root and CLI
   typechecks/builds plus the documentation build passed. The four-case
   desktop/mobile browser smoke also passed against the live fictional booking.
   The existing Node `TimeoutNegativeWarning` remains non-fatal in the runner.
@@ -30,12 +29,14 @@
   remain supported; the pinned Mailpit profile is loopback capture only.
 - Live local runtime: isolated Murdawk Convex dev deployment
   `affable-wildcat-206`, seeded demo inventory, Vite on `127.0.0.1:5173`,
-  and a loopback-only Wavelength v0.1.0 signet daemon plus merchant bridge.
+  loopback-only Wavelength v0.1.0 wallets/merchant bridge, the WSL-backed OTS
+  worker, and Mailpit plus its SMTP bridge.
 - The dedicated Consensus Commons Zaprite API key/custom checkout are configured
-  on the isolated deployment with the OpenStays webhook. Zaprite is visible as
-  the hosted provider. No order or charge was created. Confirm the checkout has
-  the Test Payment connection before live acceptance, and rotate the session-
-  shared key after the hackathon.
+  on the isolated deployment with the OpenStays webhook. Live acceptance created
+  the fictional CA$0.21 order `od_3nG1v01J53`; Zaprite's own test-payment
+  connection marked it paid, an authenticated nudge triggered authoritative
+  API reconciliation, and OpenStays confirmed booking `OS-A52VVM`. Rotate the
+  session-shared API key after the hackathon.
 - Wavelength merchant recovery material is stored outside the repository under
   `%LOCALAPPDATA%\OpenStays\wavelength-signet` with user-only ACLs.
 - Two independent Wavelength signet wallets are running on loopback. The
@@ -52,6 +53,13 @@
   has no horizontal overflow at the tested mobile viewport. Confirmation query
   parameters use `confirmation` because Convex Auth consumes the reserved
   OAuth `code` parameter.
+- A persistent browser guest wallet was created under
+  `%LOCALAPPDATA%\OpenStays\wavelength-browser-guest-demo`; its password,
+  24-word recovery material, and Chrome profile are protected by a user-only
+  ACL and were never printed. It creates/unlocks correctly. Reward invoice
+  creation is currently blocked before submission by intermittent failures at
+  Wavelength's public signet `CreateCredit` endpoint, so the reward remains
+  honestly `eligible` and no merchant payout was dispatched.
 - The pinned official OpenTimestamps client is installed in WSL because its
   `python-bitcoinlib` dependency could not discover the native Windows Python
   OpenSSL 3 DLL. The CLI now has a tested WSL invocation/path adapter while
@@ -61,10 +69,18 @@
   `2bebb8b87c3d27c9a875beae80355a1fde04c6bf66566f60740e4bdbddf132ba`.
   Four public calendars accepted it; all attestations are currently pending,
   not Bitcoin-anchored.
+- Live acceptance also created receipt
+  `cr_jd7e1w0s3wb1t719gvnsctpsed8b27wp`: its 724-byte canonical JSON hashes to
+  `55172b52543346ce34558f7ac7558fa7e40c5036e17d735d4e96dc6afeacc0bb`.
+  The OTS worker validated and uploaded a 700-byte proof accepted by four
+  calendars. Its state is `submitted`, not Bitcoin-anchored, and both browser
+  downloads round-tripped successfully.
 - Mailpit is running on loopback SMTP `127.0.0.1:1025` and inbox
   `127.0.0.1:8025`; the local mail bridge targets only the isolated dev
-  deployment. Live acceptance captured exactly one fictional confirmation and
-  one fictional staff message alert, both with code, HTML, text, and links.
+  deployment. Current live acceptance delivered the fictional confirmation,
+  consensus-receipt notice, and guest-to-staff message alert for `OS-A52VVM`.
+  The booking-scoped message also persisted and rendered without mobile
+  overflow.
 - Nodemailer was advanced to 9.0.3 after the original pin surfaced a direct
   high-severity advisory. The stale `fast-uri` lock entry is also patched. CLI
   audit now has zero high/critical findings and two moderate findings in the
@@ -97,23 +113,16 @@
 
 ## Remaining acceptance
 
-- Create a fresh `OTS_BRIDGE_TOKEN` only after Murphy's explicit credential
-  approval, write it to the dedicated Murdawk Convex project, and start the
-  local `openstays ots-bridge` worker.
 - Stamp the fictional sample receipt early; show it honestly as submitted while
   pending, and upgrade it before the expo if public calendars have anchored it.
 - Wait for the pending Wavelength payment hash to reach an authoritative
   terminal state, then use a fresh hold/invoice for the next acceptance. Do not
   replay the expired invoice. The merchant is funded; no mainnet wallet,
   invoice, or payment is in scope.
-- Deploying the current Convex functions to the isolated dev deployment is
-  still an explicit user gate. Until then, that stale backend has no receipt or
-  reward routes, so the post-kickoff manage-booking flow cannot be accepted
-  end-to-end against it.
-- Confirm the dedicated Zaprite checkout has its Test Payment connection, then
-  run the first sandbox order/payment/reconciliation acceptance.
-- Create/select the dedicated Murdawk Media Convex project later. Do not inspect
-  or use CBAP credentials/deployments.
+- Retry browser reward invoice creation only after Wavelength's public signet
+  `CreateCredit` endpoint recovers, then keep the guest wallet open through
+  merchant payout reconciliation. Do not bypass or manually mark the reward.
+- Do not inspect or use CBAP credentials/deployments.
 - Murphy accepts the demo; only then consider a separately approved local merge.
 
 See [docs/hackathon-mvp.md](./docs/hackathon-mvp.md).
