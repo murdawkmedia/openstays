@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenStays — Consensus Convergence</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+    body {
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background: #111827;
+      color: #f7f2e8;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .canvas {
+      position: relative;
+      width: 1600px;
+      height: 900px;
+      padding: 54px 72px 44px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 51% 51%, rgba(57, 198, 180, .13), transparent 30%),
+        linear-gradient(rgba(247, 242, 232, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(247, 242, 232, .035) 1px, transparent 1px),
+        #111827;
+      background-size: auto, 48px 48px, 48px 48px, auto;
+    }
+    header { position: relative; z-index: 2; }
+    .eyebrow {
+      margin: 0 0 12px;
+      color: #39c6b4;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: .18em;
+    }
+    h1 {
+      max-width: 1330px;
+      margin: 0;
+      font-size: 72px;
+      line-height: .98;
+      letter-spacing: -.045em;
+    }
+    h1 span { color: #f7931a; }
+    .flow {
+      position: relative;
+      display: grid;
+      grid-template-columns: 410px 360px 410px;
+      align-items: center;
+      justify-content: space-between;
+      height: 410px;
+      margin-top: 38px;
+    }
+    .actors {
+      position: relative;
+      display: grid;
+      gap: 12px;
+      z-index: 2;
+    }
+    .actors::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -138px;
+      width: 118px;
+      height: 4px;
+      border-radius: 4px;
+      background: #f7931a;
+    }
+    .actors::before {
+      content: "";
+      position: absolute;
+      top: calc(50% - 9px);
+      right: -139px;
+      width: 20px;
+      height: 20px;
+      border-top: 4px solid #f7931a;
+      border-right: 4px solid #f7931a;
+      transform: rotate(45deg);
+    }
+    .actors span {
+      display: flex;
+      align-items: center;
+      min-height: 54px;
+      padding: 0 24px;
+      border: 1px solid rgba(247, 242, 232, .23);
+      border-left: 7px solid #f7931a;
+      border-radius: 7px;
+      background: rgba(247, 242, 232, .055);
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+    .openstays {
+      position: relative;
+      z-index: 3;
+      display: grid;
+      place-items: center;
+      width: 360px;
+      height: 220px;
+      border: 3px solid #39c6b4;
+      border-radius: 28px;
+      background: #152b30;
+      box-shadow: 0 0 0 12px rgba(57, 198, 180, .08), 0 24px 60px rgba(0, 0, 0, .35);
+      color: #f7f2e8;
+      font-size: 48px;
+      font-weight: 900;
+      letter-spacing: -.04em;
+      text-align: center;
+    }
+    .openstays small {
+      display: block;
+      margin-top: -48px;
+      color: #39c6b4;
+      font-size: 23px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .truth {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      height: 164px;
+      padding: 20px 34px;
+      border: 2px solid #f7f2e8;
+      border-radius: 82px;
+      background: #f7f2e8;
+      color: #111827;
+      font-size: 40px;
+      font-weight: 950;
+      line-height: 1.05;
+      letter-spacing: -.025em;
+      text-align: center;
+    }
+    .truth::before {
+      content: "";
+      position: absolute;
+      top: calc(50% - 2px);
+      left: -138px;
+      width: 118px;
+      height: 4px;
+      border-radius: 4px;
+      background: #39c6b4;
+    }
+    .truth::after {
+      content: "";
+      position: absolute;
+      top: calc(50% - 9px);
+      left: -30px;
+      width: 20px;
+      height: 20px;
+      border-top: 4px solid #39c6b4;
+      border-right: 4px solid #39c6b4;
+      transform: rotate(45deg);
+    }
+    .proofs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-top: -4px;
+    }
+    .proofs div {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      min-height: 108px;
+      padding: 22px 28px;
+      border-radius: 12px;
+      background: rgba(247, 242, 232, .08);
+      border: 1px solid rgba(247, 242, 232, .15);
+    }
+    .proofs div:first-child { border-top: 5px solid #39c6b4; }
+    .proofs div:last-child { border-top: 5px solid #f7931a; }
+    .proofs strong {
+      padding-right: 24px;
+      font-size: 29px;
+      letter-spacing: -.02em;
+    }
+    .proofs span {
+      padding-left: 24px;
+      border-left: 1px solid rgba(247, 242, 232, .25);
+      color: #d9e1de;
+      font-size: 24px;
+      line-height: 1.25;
+    }
+    footer {
+      position: absolute;
+      right: 72px;
+      bottom: 28px;
+      color: #f7f2e8;
+      font-size: 17px;
+      font-weight: 850;
+      letter-spacing: .28em;
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas" aria-label="OpenStays consensus convergence infographic">
+    <header>
+      <p class="eyebrow">BITCOIN++ TORONTO · OPENSTAYS</p>
+      <h1>BOOKINGS HAVE A <span>CONSENSUS PROBLEM</span></h1>
+    </header>
+    <section class="flow" aria-label="Five systems converge on one booking truth">
+      <div class="actors">
+        <span>GUEST</span>
+        <span>PROPERTY</span>
+        <span>PAYMENT</span>
+        <span>NOTIFICATIONS</span>
+        <span>CHANNELS</span>
+      </div>
+      <div class="openstays">OPENSTAYS<small>authoritative ledger</small></div>
+      <div class="truth">ONE BOOKING TRUTH</div>
+    </section>
+    <section class="proofs" aria-label="Verifiable proof and guest reward">
+      <div><strong>OpenTimestamps</strong><span>privacy-safe Bitcoin proof</span></div>
+      <div><strong>Wavelength</strong><span>1,000 signet sats to the guest</span></div>
+    </section>
+    <footer>OPEN · VERIFIABLE · PORTABLE</footer>
+  </main>
+</body>
+</html>
