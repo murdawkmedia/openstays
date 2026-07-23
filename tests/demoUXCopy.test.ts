@@ -15,7 +15,11 @@ describe('judge-facing checkout copy', () => {
 
   it('does not show background wallet errors before guest authentication begins', () => {
     const source = readFileSync(new URL('../src/pages/WavelengthWalletPage.tsx', import.meta.url), 'utf8');
-    const unauthenticatedSection = source.slice(source.indexOf('{!started ? ('), source.indexOf(') : (', source.indexOf('{!started ? (')));
+    const unauthenticatedStart = source.indexOf('{!demoSetup && !started ? (');
+    const unauthenticatedSection = source.slice(
+      unauthenticatedStart,
+      source.indexOf(') : (', unauthenticatedStart),
+    );
     expect(unauthenticatedSection).toContain('{error ? <p role="alert"');
     expect(unauthenticatedSection).not.toContain('{displayError ?');
   });
@@ -36,6 +40,17 @@ describe('judge-facing checkout copy', () => {
     expect(source).toContain('shouldAutoRefreshWavelengthBalance');
     expect(source).toContain('Checking automatically every 12 seconds');
     expect(source).toContain('Last checked');
+  });
+
+  it('offers an explicit loopback-only demo wallet preflight', () => {
+    const source = readFileSync(new URL('../src/pages/WavelengthWalletPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('useWalletReceive');
+    expect(source).toContain("isLocalDemoWalletSetup(window.location.hostname, searchParams.get('demoSetup'))");
+    expect(source).toContain('receive.receive({');
+    expect(source).toContain('amountSat: DEMO_WALLET_TARGET_SATS');
+    expect(source).toContain('Prepare demo wallet');
+    expect(source).toContain('Demo wallet ready');
+    expect(source).toContain('12 judge attempts');
   });
 });
 
