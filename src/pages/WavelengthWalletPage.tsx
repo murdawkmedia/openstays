@@ -37,6 +37,7 @@ import {
 } from '../lib/wavelengthDemoWallet';
 
 const wavelengthApi = (api as any).wavelength;
+const DEMO_FUNDING_DISPLAY_WINDOW_MS = 10 * 60_000;
 const wavelengthEngine = createWebWalletEngine({
   ...wavelengthRuntimeOptions(window.location.href, wavelengthWorkerUrl),
   config: defaultConfig('signet'),
@@ -58,12 +59,17 @@ function WalletPayment() {
   const [lastBalanceCheckAt, setLastBalanceCheckAt] = useState<number>();
   const [autoRefreshStopped, setAutoRefreshStopped] = useState(false);
   const [demoFundingInvoice, setDemoFundingInvoice] = useState('');
+  const [demoFundingDisplayDeadline, setDemoFundingDisplayDeadline] = useState<number>();
+  const [now, setNow] = useState(() => Date.now());
   const refreshInFlight = useRef(false);
   const createRequest = useMutation(wavelengthApi.createRequest);
   const request = useQuery(
     wavelengthApi.forGuest,
     started && email ? { confirmationCode, email } : 'skip',
   ) as any;
+  const bookingInvoiceActive = Boolean(request?.bolt11 && request.status === 'invoice_ready' && request.expiresAt > now);
+  const bookingInvoiceExpired = Boolean(request?.bolt11 && request.status === 'invoice_ready' && request.expiresAt <= now);
+  const demoFundingInvoiceActive = Boolean(demoFundingInvoice && demoFundingDisplayDeadline && demoFundingDisplayDeadline > now);
   const { phase, error: walletError } = useWallet();
   const balance = useWalletBalance();
   const create = useWalletCreate();
@@ -108,6 +114,12 @@ function WalletPayment() {
     }, WAVELENGTH_BALANCE_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [autoRefreshActive]);
+
+  useEffect(() => {
+    if (!bookingInvoiceActive && !demoFundingInvoiceActive) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [bookingInvoiceActive, demoFundingInvoiceActive]);
 
   async function begin() {
     setError('');
@@ -193,6 +205,7 @@ function WalletPayment() {
         memo: 'OpenStays judge demo wallet preflight',
       });
       setDemoFundingInvoice(result.invoice);
+      setDemoFundingDisplayDeadline(Date.now() + DEMO_FUNDING_DISPLAY_WINDOW_MS);
     } catch (err) {
       setError(explainWavelengthError(err));
     }
@@ -252,7 +265,8 @@ function WalletPayment() {
             <div className="flex justify-between gap-3"><h2 className="font-semibold">Merchant invoice</h2><span className="text-sm">{request?.status ?? 'requesting'}</span></div>
             {request ? <p className="mt-3 text-sm text-stone-600">Fixed demo quote: {request.satsAmount.toLocaleString()} signet sats for {(request.quotedAmountCents / 100).toFixed(2)} {request.currency}.</p> : null}
             {!request?.bolt11 ? <p role="status" className="mt-3 text-sm">Waiting for the local merchant bridge…</p> : null}
-            {request?.bolt11 && request.status === 'invoice_ready' ? <div className="mt-4"><Bolt11Invoice invoice={request.bolt11} amountSats={request.satsAmount} expiresAt={request.expiresAt} label="Booking invoice" /></div> : null}
+            {bookingInvoiceActive ? <div className="mt-4"><Bolt11Invoice invoice={request.bolt11} amountSats={request.satsAmount} expiresAt={request.expiresAt} label="Booking invoice" /></div> : null}
+            {bookingInvoiceExpired ? <p role="status" className="mt-4 text-sm text-stone-600">Invoice expired; waiting for authoritative reconciliation</p> : null}
             {request?.status === 'failed' || request?.status === 'expired' ? (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm text-amber-950">The merchant retired that invoice after authoritative reconciliation. It is safe to request a fresh one.</p>
@@ -326,7 +340,7 @@ function WalletPayment() {
                       >
                         {receive.receivePending ? 'Creating invoice…' : 'Create 12,000-sat funding invoice'}
                       </button>
-                    ) : (
+                    ) : demoFundingInvoiceActive ? (
                       <div className="mt-3">
                         <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Merchant funding invoice</p>
                         <div className="mt-2"><Bolt11Invoice invoice={demoFundingInvoice} amountSats={DEMO_WALLET_TARGET_SATS} label="Demo wallet funding invoice" /></div>
@@ -334,6 +348,8 @@ function WalletPayment() {
                           Waiting for the verified merchant send and spendable wallet balance.
                         </p>
                       </div>
+                    ) : (
+                      <p role="status" className="mt-3 text-sm text-amber-900">Setup window ended. Confirm no merchant send or inbound activity before reloading to create a replacement.</p>
                     )}
                   </div>
                 ) : null}
