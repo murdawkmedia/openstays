@@ -13,7 +13,7 @@
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Current full gates: 356 root tests and 68 CLI tests passed; root and CLI
+- Current full gates: 357 root tests and 68 CLI tests passed; root and CLI
   typechecks/builds plus the documentation build passed. Desktop/mobile public
   browser smoke passed; the two live-wallet cases skipped without their explicit
   live inputs. The existing Node `TimeoutNegativeWarning` remains non-fatal in
@@ -30,10 +30,9 @@
   rows, and includes an idempotent migration limited to inactive unpaid rewards.
   The isolated demo migration upgraded its one eligible unpaid legacy row; an
   immediate replay upgraded zero rows.
-- During required TypeScript binding generation, `npx convex codegen` reported
-  uploading function bundles to the configured isolated development deployment.
-  No `convex dev`, production deploy, or migration command was run. Treat the
-  isolated function/schema refresh as possible and verify it before migration.
+- With Murphy's explicit live-acceptance approval, the current functions were
+  uploaded using `convex dev --once` only to the isolated development
+  deployment. No production deployment was touched.
 - OpenStays Mail now renders into a durable provider-neutral Convex queue and
   delivers through an authenticated generic SMTP worker. Resend and log-only
   remain supported; the pinned Mailpit profile is loopback capture only.
@@ -56,8 +55,8 @@
   with 210 sats of reusable operator credit. A later guest-to-merchant booking
   payment passed `prepare-send` with an exact 210-sat principal and zero fee,
   but remained in `settling` through invoice expiry while the merchant receive
-  remained pending. It was not retried or reported paid; the alpha service must
-  reconcile/refund it before that payment hash is reused.
+  remained pending. It was not retried or reported paid; its OpenStays request
+  is now expired and that payment hash must not be reused.
 - The production browser build now starts exactly one embedded Wavelength
   engine, serves all required runtime assets with cross-origin isolation, and
   has no horizontal overflow at the tested mobile viewport. Confirmation query
@@ -81,6 +80,19 @@
   paid reward with one attempt, and repeated bridge polls produced no second
   payment. The guest wallet and reloaded reward UI both showed 1,000 sats and
   the authoritative paid announcement.
+- A second browser-driven acceptance completed from a fresh public booking
+  through both directions of the signet flow. Booking `OS-X2A4RP` charged the
+  fictional CA$0.21 reservation as a 1,000-sat signet demo quote, confirmed only
+  after the merchant receive completed, produced a receipt accepted by four OTS
+  calendars, and paid one 1,000-sat reward back to the same guest wallet. The
+  wallet moved from 1,000 to 0 to 1,000 sats across reloads. Both booking and
+  reward rows have exactly one authoritative settlement/attempt.
+- Wavelength booking quotes now floor at 1,000 signet sats to match the public
+  operator while keeping the fiat booking amount authoritative. Queue claims
+  mark expired requests expired and cancelled/non-hold requests failed before
+  returning payable work, preventing stale 210-sat requests from blocking the
+  bridge. The first incompatible unpaid test hold was cancelled normally with
+  $0 paid and $0 refunded.
 - A separate, unfunded disposable in-app-browser wallet was abandoned after its
   recovery words appeared in the local automation trace. It never received an
   invoice payment and must not be used. The protected persistent demo wallet's
@@ -123,6 +135,9 @@
   reference; no premature guest success email.
 - Wavelength is signet-only. Legacy mainnet schema rows remain readable, but
   active configuration, UI, claims, tests, scripts, and bridges reject them.
+- Wavelength booking invoices use `max(1,000, ceil(amountCents × rate / 100))`
+  so every public-signet request is at least 1,000 sats; the stored fiat amount
+  remains the authoritative reservation payment amount.
 - Receipt canonical JSON/hash never mutate. A valid submitted proof unlocks
   the reward; `bitcoin_anchored` requires a later verified Bitcoin block
   attestation and is never inferred from calendar submission.

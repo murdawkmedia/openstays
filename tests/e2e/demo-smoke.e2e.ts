@@ -40,7 +40,7 @@ test('live Wavelength checkout loads one isolated wallet engine', async ({ page 
   await page.getByLabel('Booking email').fill(email!);
   await page.getByRole('button', { name: 'Request signet invoice' }).click();
   await expect(page.getByRole('button', { name: 'Create local wallet' })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText('Fixed demo quote: 210 signet sats')).toBeVisible();
+  await expect(page.getByText('Fixed demo quote: 1,000 signet sats')).toBeVisible();
 
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
   expect(await page.evaluate(() => document.querySelectorAll('main').length)).toBe(1);
