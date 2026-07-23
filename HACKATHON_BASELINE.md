@@ -24,5 +24,5 @@ git diff --stat btcpp-toronto-2026-pre-kickoff..HEAD
 git log --oneline btcpp-toronto-2026-pre-kickoff..HEAD
 ```
 
-The post-kickoff objective is a privacy-safe OpenTimestamps consensus receipt
-and a one-time 210-sat Wavelength signet reward claimed by the guest.
+The post-kickoff contribution is a privacy-safe OpenTimestamps consensus
+receipt and a one-time 1,000-sat Wavelength signet reward claimed by the guest.
