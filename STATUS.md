@@ -18,6 +18,13 @@
   desktop/mobile production-like browser checks. Root and CLI
   typechecks/builds plus the documentation build passed. The existing Node
   `TimeoutNegativeWarning` remains non-fatal in the runner.
+- A localhost-only demo-wallet preflight is implemented on
+  `/wallet/demo?demoSetup=1`. Pure policy tests require an explicit loopback
+  request, pin the target to 12,000 spendable Signet sats, and count only
+  complete 1,000-sat attempts. The UI can create one amount-bearing funding
+  invoice and never auto-pays it. Focused UI/policy tests and root typecheck
+  pass; live merchant funding remains pending until both the one-shot outgoing
+  activity and browser spendable balance reconcile.
 - The pushed hardening adds exact Wavelength terminal-failure reconciliation,
   paid-state crash recovery, single-use prepared payments, a tracked Signet
   deposit address for empty wallets, and bounded/consistent fee validation.

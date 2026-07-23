@@ -274,6 +274,11 @@ settled fictional reservation and keep a fresh payable hold in a second tab.
 
 ### Before each judge group
 
+- Open `http://127.0.0.1:4173/wallet/demo?demoSetup=1`. The setup controls
+  remain inert away from a loopback hostname. Unlock the existing
+  self-custodial test wallet and require the green **Demo wallet ready** state.
+  That means at least 12,000 sats are spendable, enough for twelve 1,000-sat
+  booking attempts even if reward returns are delayed.
 - Run a production build and serve it with `npm run preview -- --host 127.0.0.1`.
 - Confirm merchant bridge, OTS bridge, and both signet wallets report healthy.
 - Create the live hold less than ten minutes before the pitch; Wavelength demo
@@ -291,6 +296,27 @@ $env:OPENSTAYS_E2E_CONFIRMATION='<fictional-confirmation-code>'
 $env:OPENSTAYS_E2E_EMAIL='<fictional-booking-email>'
 npm run test:e2e:smoke
 ```
+
+### One-time demo-wallet funding
+
+This is an operator preflight, never part of the public booking flow:
+
+1. On the loopback setup route, create one 12,000-sat amount-bearing Lightning
+   invoice. Do not create a replacement while it is valid or pending.
+2. Verify the local merchant daemon reports Signet before preparing any send.
+3. Prepare the invoice with a 210-sat maximum fee. Require an exact 12,000-sat
+   principal, known totals, an off-chain rail, an unexpired invoice, consistent
+   principal/fee/total fields, and total outflow no greater than 12,210 sats.
+4. Dispatch the daemon's single-use intent once. After an ambiguous response,
+   inspect its activity; never blindly retry the send.
+5. Require a completed outgoing merchant activity bound to that invoice,
+   payment hash, and 12,000-sat principal.
+6. Refresh the browser wallet until it reports at least 12,000 spendable sats.
+   Pending inbound sats do not count as ready.
+
+The wallet password, recovery words, and keys remain in the browser. The page
+shows the invoice for the approved local operator action but never transmits
+wallet secrets or automatically pays itself.
 
 ## Verification gates
 
