@@ -13,10 +13,11 @@
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Current full gates: 351 root tests and 64 CLI tests passed; root and CLI
-  typechecks/builds plus the documentation build passed. The four-case
-  desktop/mobile browser smoke also passed against the live fictional booking.
-  The existing Node `TimeoutNegativeWarning` remains non-fatal in the runner.
+- Current full gates: 356 root tests and 67 CLI tests passed; root and CLI
+  typechecks/builds plus the documentation build passed. Desktop/mobile public
+  browser smoke passed; the two live-wallet cases skipped without their explicit
+  live inputs. The existing Node `TimeoutNegativeWarning` remains non-fatal in
+  the runner.
 - Added: manual provider refund cases, authoritative Zaprite reconciliation,
   Wavelength signet bridge/wallet, booking chat and alerts, staff operations,
   fictional Consensus Commons seed/branding, and a consensus timeline.
@@ -24,6 +25,15 @@
   receipts, authenticated local OTS worker endpoints/CLI, guest proof downloads,
   and a one-time exact-1,000-sat Wavelength signet reward with prepared-send and
   completed-activity reconciliation.
+- The permanent reward principal is now implemented locally as exactly 1,000
+  signet sats. Convex keeps legacy 210-sat rows readable, creates only 1,000-sat
+  rows, and includes an idempotent migration limited to inactive unpaid rewards.
+  The isolated demo migration has not been invoked; its existing eligible row
+  remains legacy until the separately approved live-acceptance step.
+- During required TypeScript binding generation, `npx convex codegen` reported
+  uploading function bundles to the configured isolated development deployment.
+  No `convex dev`, production deploy, or migration command was run. Treat the
+  isolated function/schema refresh as possible and verify it before migration.
 - OpenStays Mail now renders into a durable provider-neutral Convex queue and
   delivers through an authenticated generic SMTP worker. Resend and log-only
   remain supported; the pinned Mailpit profile is loopback capture only.
