@@ -1,4 +1,16 @@
-type Receipt = { publicId: string; status: string; sha256: string; calendarCount?: number; bitcoinBlockHeight?: number; proofBase64?: string };
+import { ConsensusReceiptInspector } from './ConsensusReceiptInspector';
+
+type Receipt = {
+  publicId: string;
+  status: string;
+  sha256: string;
+  canonicalJson: string;
+  schemaVersion: string;
+  calendarCount?: number;
+  bitcoinBlockHeight?: number;
+  bitcoinBlockTime?: number;
+  proofBase64?: string;
+};
 type Reward = { status: string; satsAmount: number } | null;
 
 export function ConsensusReceiptSummary({ receipt, reward, rewardUrl, onDownloadJson, onDownloadProof }: {
@@ -19,6 +31,7 @@ export function ConsensusReceiptSummary({ receipt, reward, rewardUrl, onDownload
       <div><dt className="font-semibold">SHA-256 commitment</dt><dd className="break-all font-mono">{receipt.sha256}</dd></div>
       {receipt.calendarCount ? <div><dt className="font-semibold">Calendars</dt><dd>{receipt.calendarCount} accepted attestation{receipt.calendarCount === 1 ? '' : 's'}</dd></div> : null}
     </dl>
+    <ConsensusReceiptInspector canonicalJson={receipt.canonicalJson} bitcoinBlockHeight={anchored ? receipt.bitcoinBlockHeight : undefined} />
     <div className="mt-4 flex flex-wrap gap-2">
       <button type="button" className="btn-secondary" onClick={onDownloadJson}>Download receipt JSON</button>
       <button type="button" className="btn-secondary" disabled={!receipt.proofBase64} onClick={onDownloadProof}>Download .ots proof</button>
