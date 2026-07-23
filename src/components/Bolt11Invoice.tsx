@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 
+export const BOLT11_QR_MAX_UTF8_BYTES = 2_000;
+
 export type Bolt11InvoiceProps = {
   invoice: string;
   amountSats: number;
@@ -21,6 +23,7 @@ export function Bolt11Invoice({ invoice, amountSats, expiresAt, label }: Bolt11I
   const [copyMessage, setCopyMessage] = useState('');
   const amount = formatSats(amountSats);
   const qrTitle = `${label} QR for ${amount} Signet test sats`;
+  const canRenderQr = new TextEncoder().encode(invoice).byteLength <= BOLT11_QR_MAX_UTF8_BYTES;
   const expiry = expiresAt === undefined ? null : new Date(expiresAt);
   const expiryDateTime = expiry !== null && !Number.isNaN(expiry.getTime()) ? expiry.toISOString() : null;
   const expiryText = expiry !== null && !Number.isNaN(expiry.getTime()) ? expiry.toLocaleString() : null;
@@ -40,14 +43,15 @@ export function Bolt11Invoice({ invoice, amountSats, expiresAt, label }: Bolt11I
       <span className="rounded-full bg-stone-100 px-3 py-1 text-stone-800">Signet test sats</span>
     </div>
     <div className="mt-4 flex justify-center">
-      <QRCodeSVG
+      {canRenderQr ? <QRCodeSVG
         value={invoice}
         size={220}
         level="M"
         marginSize={4}
         title={qrTitle}
+        role="img"
         className="h-auto w-full max-w-[220px]"
-      />
+      /> : <p className="max-w-sm text-center text-sm text-stone-700">QR unavailable for this unusually long invoice. Copy the full BOLT11 below.</p>}
     </div>
     {expiryDateTime ? <p className="mt-3 text-sm text-stone-700">Expires <time dateTime={expiryDateTime}>{expiryText}</time></p> : null}
     <p className="mt-3 break-all font-mono text-xs text-stone-700">{abbreviateInvoice(invoice)}</p>

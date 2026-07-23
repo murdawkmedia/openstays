@@ -35,4 +35,19 @@ describe('Bolt11Invoice', () => {
     expect(qrForInvoice).toContain('<title>Booking invoice QR for 1,000 Signet test sats</title>');
     expect(qrForInvoice).not.toBe(qrForDifferentInvoice);
   });
+
+  it('keeps an unusually long UTF-8 invoice available without attempting an oversized QR', () => {
+    const overCapacityInvoice = `ln${'é'.repeat(1_200)}`;
+    let html = '';
+
+    expect(() => {
+      html = renderInvoice(overCapacityInvoice);
+    }).not.toThrow();
+    expect(html).not.toContain('<svg');
+    expect(html).not.toContain('<title>Booking invoice QR');
+    expect(html).toContain('QR unavailable for this unusually long invoice. Copy the full BOLT11 below.');
+    expect(html).toContain(overCapacityInvoice);
+    expect(html).toContain('Copy BOLT11');
+    expect(html).toContain('Show full invoice');
+  });
 });
