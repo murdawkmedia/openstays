@@ -1,6 +1,7 @@
 import { internalMutation } from './_generated/server';
 import type { MutationCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
+import { CONSENSUS_COMMONS_PHOTO_URLS } from '../shared/consensusCommonsExperience';
 
 /**
  * Seed the fictional "Pinewood Flats Campground" — the ONLY inventory that
@@ -39,6 +40,8 @@ async function refreshConsensusCommons(
     .withIndex('by_property_slug', (q) => q.eq('propertyId', propertyId).eq('slug', 'node-room'))
     .first();
   if (!nodeRoom) return;
+  await ctx.db.patch(nodeRoom._id, { photoUrls: [...CONSENSUS_COMMONS_PHOTO_URLS] });
+  await ensureConsensusPromo(ctx, propertyId, nodeRoom._id);
   const ratePlan = await ctx.db
     .query('ratePlans')
     .withIndex('by_unitType', (q) => q.eq('unitTypeId', nodeRoom._id).eq('active', true))
@@ -74,12 +77,13 @@ export async function seedConsensusCommons(ctx: MutationCtx): Promise<void> {
     kind: 'room',
     bookingMode: 'nightly',
     description: 'A fictional conference stay where independent payment rails converge on one conflict-proof reservation state.',
-    photoUrls: [],
+    photoUrls: [...CONSENSUS_COMMONS_PHOTO_URLS],
     maxOccupancy: 2,
     amenities: ['Fast Wi-Fi', 'Shared hack lounge', 'Signet faucet guide', 'Late-night coffee'],
     comingSoon: false,
     sortOrder: 1,
   });
+  await ensureConsensusPromo(ctx, propertyId, roomTypeId);
   for (let i = 1; i <= 4; i += 1) {
     await ctx.db.insert('units', {
       propertyId, unitTypeId: roomTypeId, name: `Node ${i}`, slug: `node-${i}`,
@@ -93,6 +97,43 @@ export async function seedConsensusCommons(ctx: MutationCtx): Promise<void> {
     minLeadTimeHours: 0, maxAdvanceDays: 365, prepBufferNights: 0,
     depositPolicy: { type: 'full', value: 0 },
     cancellationPolicy: [{ daysBefore: 1, refundPercent: 100 }, { daysBefore: 0, refundPercent: 0 }],
+  });
+}
+
+async function ensureConsensusPromo(
+  ctx: MutationCtx,
+  propertyId: Id<'properties'>,
+  roomTypeId: Id<'unitTypes'>,
+): Promise<void> {
+  const existing = await ctx.db
+    .query('promoCodes')
+    .withIndex('by_code', (q) => q.eq('propertyId', propertyId).eq('normalizedCode', 'CONSENSUS10'))
+    .first();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      code: 'CONSENSUS10',
+      kind: 'percent',
+      valueBps: 1_000,
+      valueCents: undefined,
+      description: 'Consensus Commons demo — 10% off the nightly rate',
+      oncePerGuest: true,
+      appliesToUnitTypes: [roomTypeId],
+      active: true,
+    });
+    return;
+  }
+  await ctx.db.insert('promoCodes', {
+    propertyId,
+    code: 'CONSENSUS10',
+    normalizedCode: 'CONSENSUS10',
+    kind: 'percent',
+    valueBps: 1_000,
+    description: 'Consensus Commons demo — 10% off the nightly rate',
+    oncePerGuest: true,
+    appliesToUnitTypes: [roomTypeId],
+    active: true,
+    redemptionCount: 0,
+    createdAt: Date.now(),
   });
 }
 

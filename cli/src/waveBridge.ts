@@ -128,6 +128,8 @@ export async function runWaveBridgeOnce(
         kind?: string;
         status?: string;
         amount_sat?: string | number;
+        failure_reason?: string;
+        failure_code?: string;
         request?: { lightning_invoice?: { invoice?: string; payment_hash?: string } };
         progress?: { payment_hash?: string };
       };
@@ -138,14 +140,35 @@ export async function runWaveBridgeOnce(
     });
     const entry = inspection.entry;
     const paymentHash = entry?.progress?.payment_hash ?? entry?.request?.lightning_invoice?.payment_hash;
-    const exact =
+    const exactRequest =
       entry?.id === request.bridgeActivityId &&
       entry.kind === 'ENTRY_KIND_RECV' &&
-      entry.status === 'ENTRY_STATUS_COMPLETE' &&
       Number(entry.amount_sat) === request.satsAmount &&
-      entry.request?.lightning_invoice?.invoice === request.bolt11 &&
+      entry.request?.lightning_invoice?.invoice === request.bolt11;
+    const exact =
+      exactRequest &&
+      entry.status === 'ENTRY_STATUS_COMPLETE' &&
       Boolean(paymentHash);
-    if (!exact) continue;
+    if (!exact) {
+      if (exactRequest && entry?.status === 'ENTRY_STATUS_FAILED') {
+        const failureCode = entry.failure_code?.toLowerCase() ?? '';
+        const terminalStatus = failureCode.includes('expired') || failureCode.includes('timed_out') ? 'expired' : 'failed';
+        await jsonRequest(fetchFn, `${openStaysUrl}/wavelength-bridge/failed`, {
+          method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requestId: request._id,
+            network: request.network,
+            bolt11: request.bolt11,
+            bridgeActivityId: request.bridgeActivityId,
+            satsAmount: request.satsAmount,
+            terminalStatus,
+            reason: entry.failure_reason?.trim() || failureCode || 'WAVELENGTH_RECEIVE_FAILED',
+          }),
+        });
+      }
+      continue;
+    }
     await jsonRequest(fetchFn, `${openStaysUrl}/wavelength-bridge/settled`, {
       method: 'POST',
       headers: { ...authHeaders, 'Content-Type': 'application/json' },

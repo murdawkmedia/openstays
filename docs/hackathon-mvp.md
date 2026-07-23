@@ -91,7 +91,12 @@ same bridge hidden:
 The bridge polls pending requests, calls `POST /v1/wallet/recv`, publishes the
 invoice, inspects `POST /v1/wallet/inspect/activity`, and reports only a
 completed receive whose request, invoice, activity, and snapshotted sats amount
-match. Replays are no-ops. The clearly synthetic quote is
+match. A terminal receive failure is reported through the authenticated
+`POST /wavelength-bridge/failed` endpoint with those same identifiers; this
+closes the request and linked pending payment so the guest can create a fresh
+invoice. An authoritative paid/refunded payment self-heals an interrupted
+request using its recorded payment hash, while failed or pending money can
+never become settled. Exact replays are no-ops. The clearly synthetic quote is
 `max(1,000, ceil(amountCents × rate / 100))` at 1,000 signet sats per currency
 unit. The 1,000-sat floor matches Wavelength's public signet operator minimum;
 the fiat amount remains the authoritative booking amount.
@@ -99,6 +104,22 @@ the fiat amount remains the authoritative booking amount.
 Wavelength is signet-only. Any legacy mainnet rows remain readable for schema
 compatibility, but active configuration, UI, request claiming, and bridge
 processing reject them. All displayed amounts are signet test sats.
+
+The browser wallet shows a prepared-payment review and verifies that principal
+plus fee exactly matches the total outflow. It refuses unknown fees, a fee over
+210 sats, or an inconsistent total. The confirm action is single-use, and an
+empty wallet can create a fresh tracked Signet deposit address before payment.
+Recovery words are hidden by default and are never transmitted.
+
+## Consensus Commons demo inventory
+
+The seeded property includes the idempotent `CONSENSUS10` code (10% off the
+Node Room, once per normalized guest email), three clearly labeled fictional
+property images, and four useful stay links. The shared lounge opens in an
+accessible keyboard-operable lightbox; Fast Wi-Fi, the third-party Signet
+faucet, and nearby late-night coffee open their respective external resources.
+The news-and-offers checkbox records consent with the reservation, but this
+demo does not run a marketing campaign.
 
 ## OpenTimestamps receipt bridge
 
