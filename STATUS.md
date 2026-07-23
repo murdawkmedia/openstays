@@ -43,6 +43,15 @@
   inventory, date picker, guest booking form, authenticated guest chat,
   consensus timeline, receipt/reward card, and desktop/mobile layouts. The
   390px checks had no horizontal overflow or browser warnings.
+- A fresh 2026-07-23 Murphy-proxy rehearsal on commit `6d6ac0a` created a
+  fictional discounted hold through the public flow, reached both payment
+  choices, requested a real 1,000-sat merchant invoice, unlocked the protected
+  browser wallet, and observed its 2,500 sats as pending inbound. The new
+  12-second refresh ran automatically and displayed its last-check time.
+  Staff owner sign-in and Operations also passed; both prior accepted bookings
+  still show verified Bitcoin anchors and exactly one paid 1,000-sat reward.
+  The wallet polling state had no console warnings or horizontal overflow at
+  the tested mobile width.
 - Three editable 1600×900 judge-opening infographics and matching jot-note
   scripts are under `docs/demo/judge-opening/`. Variation A, Consensus
   Convergence, is the recommended 30–40 second opener.
