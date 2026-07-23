@@ -6,6 +6,7 @@ import wavelengthWorkerUrl from '@lightninglabs/wavelength-web/wavewalletdk-work
 import { WavelengthProvider, useWallet, useWalletBalance, useWalletCreate, useWalletReceive, useWalletUnlock } from '@lightninglabs/wavelength-react';
 import { api } from '../../convex/_generated/api';
 import { wavelengthRuntimeOptions } from '../lib/wavelengthRuntime';
+import { CONSENSUS_REWARD_LABEL, CONSENSUS_REWARD_SATS } from '../lib/consensusReward';
 
 const wavelengthEngine = createWebWalletEngine({
   ...wavelengthRuntimeOptions(window.location.href, wavelengthWorkerUrl),
@@ -40,14 +41,15 @@ function RewardWallet() {
   async function claim() {
     setError('');
     try {
-      const result = await receive.receive({ amountSat: 210, memo: `OpenStays consensus reward ${receipt.publicId}` });
-      await submitInvoice({ confirmationCode: code, email, bolt11: result.invoice, expiresAt: Date.now() + 10 * 60_000 });
+      const result = await receive.receive({ amountSat: CONSENSUS_REWARD_SATS, memo: `OpenStays consensus reward ${receipt.publicId}` });
+      await submitInvoice({ confirmationCode: code, email, satsAmount: CONSENSUS_REWARD_SATS,
+        bolt11: result.invoice, expiresAt: Date.now() + 10 * 60_000 });
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
   return <div className="mx-auto max-w-2xl px-4 py-10">
     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Consensus Commons · Signet</p>
-    <h1 className="mt-2 text-3xl font-semibold text-stone-950">Receive your 210-sat consensus reward</h1>
+    <h1 className="mt-2 text-3xl font-semibold text-stone-950">Receive your 1,000-sat consensus reward</h1>
     <p className="mt-3 text-sm text-stone-600">Your wallet is self-custodial and runs only in this browser. OpenStays never receives its password, seed, or keys.</p>
     {!email.includes('@') ? <section className="card mt-6 p-5"><label className="field-label" htmlFor="reward-email">Booking email</label>
       <input id="reward-email" className="field-input" type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></section> : null}
@@ -58,7 +60,7 @@ function RewardWallet() {
       {(phase === 'needsWallet' || phase === 'locked') ? <div className="mt-4"><label className="field-label" htmlFor="reward-password">Local wallet password</label><input id="reward-password" className="field-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
         <button type="button" className="btn-primary mt-3" disabled={!password || create.createPending || unlock.unlockPending} onClick={() => void openWallet()}>{phase === 'needsWallet' ? 'Create wallet' : 'Unlock wallet'}</button></div> : null}
       {phase === 'ready' ? <div className="mt-4"><p className="text-sm text-stone-500">Balance</p><p className="text-2xl font-semibold">{(balance?.confirmedSat ?? 0).toLocaleString()} sats</p>
-        {reward?.status === 'paid' ? <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 font-medium text-emerald-800">Reward paid: consensus reached in both directions.</p> : <button type="button" className="btn-primary mt-4" disabled={!reward || receive.receivePending || reward.status === 'paying' || reward.status === 'invoice_ready'} onClick={() => void claim()}>{receive.receivePending ? 'Creating invoice…' : reward?.status === 'paying' || reward?.status === 'invoice_ready' ? 'Merchant payment in progress…' : 'Claim 210 signet sats'}</button>}</div> : null}
+        {reward?.status === 'paid' ? <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 font-medium text-emerald-800">Reward paid: consensus reached in both directions.</p> : <button type="button" className="btn-primary mt-4" disabled={!reward || receive.receivePending || reward.status === 'paying' || reward.status === 'invoice_ready'} onClick={() => void claim()}>{receive.receivePending ? 'Creating invoice…' : reward?.status === 'paying' || reward?.status === 'invoice_ready' ? 'Merchant payment in progress…' : `Claim ${CONSENSUS_REWARD_LABEL}`}</button>}</div> : null}
       {(error || walletError || create.createError || unlock.unlockError || receive.receiveError) ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error || walletError?.message || create.createError?.message || unlock.unlockError?.message || receive.receiveError?.message}</p> : null}
       {create.createData?.mnemonic?.length ? <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4"><p className="font-semibold">Save these recovery words offline</p><p className="mt-2 break-words font-mono text-sm">{create.createData.mnemonic.join(' ')}</p></div> : null}
     </section> : null}

@@ -12,7 +12,7 @@ describe('consensus timeline', () => {
     expect(timeline.map((step) => step.state)).toEqual(['reached', 'reached', 'reached', 'reached', 'reached', 'reached', 'reached', 'ready']);
     expect(timeline[4].detail).toContain('2 messages');
     expect(timeline[5].detail).toContain('OpenTimestamps');
-    expect(timeline[6].detail).toContain('210 signet sats');
+    expect(timeline[6].detail).toContain('1,000 signet sats');
     expect(timeline[7].detail).toContain('not connected');
   });
   it('surfaces unresolved refund disagreement', () => {
