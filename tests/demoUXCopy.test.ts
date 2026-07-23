@@ -3,6 +3,22 @@ import { describe, expect, it } from 'vitest';
 import { extractErrorMessage } from '../src/components/ErrorMessage';
 
 describe('judge-facing checkout copy', () => {
+  it('adopts the shared Signet BOLT11 QR on every current invoice surface', () => {
+    const walletSource = readFileSync(new URL('../src/pages/WavelengthWalletPage.tsx', import.meta.url), 'utf8');
+    const rewardSource = readFileSync(new URL('../src/pages/ConsensusRewardPage.tsx', import.meta.url), 'utf8');
+    const invoiceSource = readFileSync(new URL('../src/components/Bolt11Invoice.tsx', import.meta.url), 'utf8');
+
+    expect(walletSource).toContain("import { Bolt11Invoice } from '../components/Bolt11Invoice';");
+    expect(walletSource).toContain("request?.bolt11 && request.status === 'invoice_ready'");
+    expect(walletSource).toContain('<Bolt11Invoice invoice={request.bolt11} amountSats={request.satsAmount} expiresAt={request.expiresAt} label="Booking invoice" />');
+    expect(walletSource).toContain('<Bolt11Invoice invoice={demoFundingInvoice} amountSats={DEMO_WALLET_TARGET_SATS} label="Demo wallet funding invoice" />');
+
+    expect(rewardSource).toContain("import { Bolt11Invoice } from '../components/Bolt11Invoice';");
+    expect(rewardSource).toContain("reward?.bolt11 && (reward.status === 'invoice_ready' || reward.status === 'paying')");
+    expect(rewardSource).toContain('<Bolt11Invoice invoice={reward.bolt11} amountSats={CONSENSUS_REWARD_SATS} expiresAt={reward.invoiceExpiresAt} label="Consensus reward invoice" />');
+    expect(invoiceSource).toContain('const qrTitle = `${label} QR for ${amount} Signet test sats`;');
+  });
+
   it('states that marketing consent is recorded but no campaign is sent', () => {
     const source = readFileSync(new URL('../src/components/GuestForm.tsx', import.meta.url), 'utf8');
     expect(source).toContain('Consent is recorded with your reservation; this demo does not send marketing campaigns.');
