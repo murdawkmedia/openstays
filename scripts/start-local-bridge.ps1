@@ -26,6 +26,11 @@ $env:WAVELENGTH_DAEMON_URL = 'http://127.0.0.1:10031'
 $env:WAVELENGTH_BRIDGE_POLL_MS = '2000'
 
 $runtimeDir = Join-Path $env:LOCALAPPDATA 'OpenStays\wavelength-signet'
+$daemonMacaroon = Join-Path $runtimeDir 'data\signet\admin.macaroon'
+if (-not (Test-Path -LiteralPath $daemonMacaroon)) {
+  throw 'Missing Wavelength admin macaroon. Start the local signet daemon first.'
+}
+$env:WAVELENGTH_DAEMON_MACAROON_PATH = $daemonMacaroon
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 $stdout = Join-Path $runtimeDir 'openstays-bridge.stdout.log'
 $stderr = Join-Path $runtimeDir 'openstays-bridge.stderr.log'

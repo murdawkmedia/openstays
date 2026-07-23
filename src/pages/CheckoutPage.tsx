@@ -5,6 +5,7 @@ import { Clock, CreditCard } from 'lucide-react';
 
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
+import { readGuestConfirmation, walletPath } from '../../shared/bookingLinks';
 import { Spinner } from '../components/Spinner';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
 import { PriceBreakdownView } from '../components/PriceBreakdownView';
@@ -23,14 +24,14 @@ const PROVIDER_LABELS: Record<string, string> = {
  * truth for booking state (CLAUDE.md convention #9).
  *
  * The guest can land here two ways: fresh navigation from the unit page
- * (which sets ?code=...), or a bounce back from a provider's hosted
+ * (which sets ?confirmation=...), or a bounce back from a provider's hosted
  * checkout "cancel" link. Either way this page must rehydrate purely from
  * the URL + the reactive query — no reliance on router/navigation state.
  */
 export function CheckoutPage() {
   const { bookingId } = useParams<{ bookingId: string }>();
   const [searchParams] = useSearchParams();
-  const code = searchParams.get('code');
+  const [code] = useState(() => readGuestConfirmation(searchParams));
   const navigate = useNavigate();
 
   const booking = useQuery(api.bookings.byConfirmationCode, code ? { code } : 'skip');
@@ -239,7 +240,7 @@ export function CheckoutPage() {
 
         {wavelengthInfo?.available && (
           <Link
-            to={`/wallet/${bookingId}?code=${encodeURIComponent(code)}`}
+            to={walletPath(bookingId, code)}
             className={`btn-secondary mt-3 flex w-full items-center justify-center gap-2 ${expired ? 'pointer-events-none opacity-40' : ''}`}
           >
             <span aria-hidden="true">⚡</span>

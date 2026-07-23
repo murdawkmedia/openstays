@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e:smoke": "playwright test --config playwright.config.ts",
     "convex:dev": "convex dev",
     "convex:codegen": "convex codegen",
     "seed": "convex run seed:run",
@@ -37,6 +38,7 @@
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

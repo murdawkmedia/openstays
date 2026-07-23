@@ -198,14 +198,51 @@ notice; guests get completion email only after resolution.
 
 ## Three-minute judge demo
 
-1. Explain how availability, payment, and notifications converge on one booking.
-2. Complete a Wavelength signet booking payment and show “Consensus reached.”
-3. Show the privacy-safe receipt hash, download JSON and `.ots`, and distinguish
-   submitted from Bitcoin-anchored.
-4. Claim exactly 210 signet sats into the embedded self-custodial guest wallet.
-5. Show guest/staff chat, the optional Zaprite reconciliation/refund operations,
-   and “Channex — adapter ready, not connected.”
-6. Show `git diff btcpp-toronto-2026-pre-kickoff..HEAD` as the honest build window.
+Do not spend the judging window waiting on a test network. Pre-stage one fully
+settled fictional reservation and keep a fresh payable hold in a second tab.
+
+1. **0:00–0:25 — problem.** “A guest, property, payment rail, email worker,
+   and channel manager can disagree. OpenStays makes one booking ledger the
+   authority.” Show the Consensus Commons landing page.
+2. **0:25–0:55 — payment consensus.** Show the fresh 0.21 CAD hold, its exact
+   210-sat Wavelength signet invoice, and the self-custodial browser wallet.
+   If signet is healthy, pay it; otherwise move immediately to the pre-settled
+   reservation and state that the pending network action is never treated as
+   payment.
+3. **0:55–1:35 — receipt.** Show “Consensus reached,” the canonical receipt
+   hash, and the JSON/`.ots` downloads. Say explicitly: calendar submission is
+   real, Bitcoin anchoring is eventual, and a pending proof is not called
+   anchored.
+4. **1:35–2:10 — reward.** Tap **Claim 210 signet sats**, show the amount-
+   bearing guest invoice and the paid/reconciled state. The wallet seed and
+   password never leave the browser.
+5. **2:10–2:35 — operations.** Show one chat message, the refund intervention
+   queue, and “Channex — adapter ready, not connected.” Mention that Zaprite
+   webhook bodies are untrusted and the fetched order is authoritative.
+6. **2:35–3:00 — proof of work.** Show
+   `git diff --stat btcpp-toronto-2026-pre-kickoff..HEAD`. The booking engine,
+   payments, chat, and adapters are disclosed pre-kickoff; the privacy-safe
+   OpenTimestamps receipt and one-time reward are the hackathon addition.
+
+### Before each judge group
+
+- Run a production build and serve it with `npm run preview -- --host 127.0.0.1`.
+- Confirm merchant bridge, OTS bridge, and both signet wallets report healthy.
+- Create the live hold less than ten minutes before the pitch; Wavelength demo
+  invoices are intentionally short-lived.
+- Unlock the browser wallet, then close any duplicate wallet tabs. Never leave
+  recovery words on screen.
+- Open the landing page, fresh checkout, pre-settled manage page, staff
+  operations, and baseline diff in presentation order.
+- Run the repeatable desktop/mobile smoke check. Add the three temporary
+  `OPENSTAYS_E2E_*` values to include the live wallet route:
+
+```powershell
+$env:OPENSTAYS_E2E_BOOKING_ID='<fictional-booking-id>'
+$env:OPENSTAYS_E2E_CONFIRMATION='<fictional-confirmation-code>'
+$env:OPENSTAYS_E2E_EMAIL='<fictional-booking-email>'
+npm run test:e2e:smoke
+```
 
 ## Verification gates
 
