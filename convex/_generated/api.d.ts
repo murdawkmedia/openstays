@@ -40,6 +40,7 @@ import type * as payments_zaprite from "../payments/zaprite.js";
 import type * as promoCodes from "../promoCodes.js";
 import type * as properties from "../properties.js";
 import type * as refunds from "../refunds.js";
+import type * as rewardPolicy from "../rewardPolicy.js";
 import type * as seed from "../seed.js";
 import type * as staff from "../staff.js";
 import type * as wavelength from "../wavelength.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   promoCodes: typeof promoCodes;
   properties: typeof properties;
   refunds: typeof refunds;
+  rewardPolicy: typeof rewardPolicy;
   seed: typeof seed;
   staff: typeof staff;
   wavelength: typeof wavelength;

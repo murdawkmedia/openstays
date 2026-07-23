@@ -67,11 +67,11 @@ describe('Wavelength consensus rewards', () => {
     await t.run(async (ctx) => {
       const legacy = await ctx.db.query('wavelengthRewards')
         .withIndex('by_booking', (q) => q.eq('bookingId', bookingId)).unique();
-      expect(legacy?.satsAmount).toBe(LEGACY_CONSENSUS_REWARD_SATS);
-      const { _id: _legacyId, _creationTime: _legacyCreationTime, ...row } = legacy!;
+      expect(legacy?.satsAmount).toBe(CONSENSUS_REWARD_SATS);
+      const { _id: _activeId, _creationTime: _activeCreationTime, ...row } = legacy!;
       await ctx.db.insert('wavelengthRewards', {
         ...row,
-        satsAmount: CONSENSUS_REWARD_SATS,
+        satsAmount: LEGACY_CONSENSUS_REWARD_SATS,
       } as any);
     });
   });
@@ -96,27 +96,34 @@ describe('Wavelength consensus rewards', () => {
     });
     expect(bookingId).toBeTruthy();
     await expect(t.mutation((api as any).wavelengthRewards.submitInvoice, { confirmationCode: 'OS-NO-PROOF',
-      email: 'guest@example.test', bolt11: 'lntbs2100n1guest', expiresAt: Date.now() + 600_000 }))
+      email: 'guest@example.test', satsAmount: 1_000, bolt11: 'lntbs10u1guest', expiresAt: Date.now() + 600_000 }))
       .rejects.toThrow('CONSENSUS_RECEIPT_NOT_SUBMITTED');
   });
 
   it('accepts one exact guest signet invoice only after receipt submission', async () => {
     const { t } = await eligibleReward();
     await expect(t.mutation((api as any).wavelengthRewards.submitInvoice, { confirmationCode: 'OS-REWARD',
-      email: 'forged@example.test', bolt11: 'lntbs2100n1guest', expiresAt: Date.now() + 600_000 }))
+      email: 'forged@example.test', satsAmount: 1_000, bolt11: 'lntbs10u1guest', expiresAt: Date.now() + 600_000 }))
       .rejects.toThrow('BOOKING_NOT_FOUND');
     const reward = await t.mutation((api as any).wavelengthRewards.submitInvoice, { confirmationCode: 'os-reward',
-      email: 'GUEST@example.test', bolt11: 'lntbs2100n1guest', expiresAt: Date.now() + 600_000 });
-    expect(reward).toMatchObject({ network: 'signet', satsAmount: 210, status: 'invoice_ready', attemptCount: 1 });
+      email: 'GUEST@example.test', satsAmount: 1_000, bolt11: 'lntbs10u1guest', expiresAt: Date.now() + 600_000 });
+    expect(reward).toMatchObject({ network: 'signet', satsAmount: 1_000, status: 'invoice_ready', attemptCount: 1 });
+  });
+
+  it.each([999, 1_001])('rejects a guest-declared reward amount of %i sats', async (satsAmount) => {
+    const { t } = await eligibleReward();
+    await expect(t.mutation((api as any).wavelengthRewards.submitInvoice, { confirmationCode: 'OS-REWARD',
+      email: 'guest@example.test', satsAmount, bolt11: 'lntbs10u1guest', expiresAt: Date.now() + 600_000 }))
+      .rejects.toThrow('INVALID_SIGNET_REWARD_INVOICE');
   });
 
   it('leases a payout and records an exact settlement once', async () => {
     const { t } = await eligibleReward();
     await t.mutation((api as any).wavelengthRewards.submitInvoice, { confirmationCode: 'OS-REWARD',
-      email: 'guest@example.test', bolt11: 'lntbs2100n1guest', expiresAt: Date.now() + 600_000 });
+      email: 'guest@example.test', satsAmount: 1_000, bolt11: 'lntbs10u1guest', expiresAt: Date.now() + 600_000 });
     const [claimed] = await t.mutation((internal as any).wavelengthRewards.claimPending, { limit: 10 });
-    expect(claimed).toMatchObject({ status: 'paying', satsAmount: 210 });
-    const args = { rewardId: claimed._id, leaseToken: claimed.leaseToken, network: 'signet', satsAmount: 210,
+    expect(claimed).toMatchObject({ status: 'paying', satsAmount: 1_000 });
+    const args = { rewardId: claimed._id, leaseToken: claimed.leaseToken, network: 'signet', satsAmount: 1_000,
       bolt11: claimed.bolt11, merchantActivityId: 'send-activity', paymentHash: 'reward-payment-hash' };
     expect(await t.mutation((internal as any).wavelengthRewards.markPaid, args)).toEqual({ paid: true });
     expect(await t.mutation((internal as any).wavelengthRewards.markPaid, args)).toEqual({ paid: false });
@@ -128,25 +135,67 @@ describe('Wavelength consensus rewards', () => {
   it('rejects a mismatched settlement and permits replacement after a definitive failure', async () => {
     const { t } = await eligibleReward();
     await t.mutation((api as any).wavelengthRewards.submitInvoice, { confirmationCode: 'OS-REWARD',
-      email: 'guest@example.test', bolt11: 'lntbs2100n1first', expiresAt: Date.now() + 600_000 });
+      email: 'guest@example.test', satsAmount: 1_000, bolt11: 'lntbs10u1first', expiresAt: Date.now() + 600_000 });
     const [claimed] = await t.mutation((internal as any).wavelengthRewards.claimPending, { limit: 1 });
-    await expect(t.mutation((internal as any).wavelengthRewards.markPaid, { rewardId: claimed._id,
-      leaseToken: claimed.leaseToken, network: 'signet', satsAmount: 211, bolt11: claimed.bolt11,
-      merchantActivityId: 'send', paymentHash: 'hash' })).rejects.toThrow('WAVELENGTH_REWARD_MISMATCH');
+    for (const satsAmount of [999, 1_001]) {
+      await expect(t.mutation((internal as any).wavelengthRewards.markPaid, { rewardId: claimed._id,
+        leaseToken: claimed.leaseToken, network: 'signet', satsAmount, bolt11: claimed.bolt11,
+        merchantActivityId: 'send', paymentHash: 'hash' })).rejects.toThrow('WAVELENGTH_REWARD_MISMATCH');
+    }
     await t.mutation((internal as any).wavelengthRewards.markFailed, { rewardId: claimed._id,
       leaseToken: claimed.leaseToken, reason: 'invoice expired', retryable: false });
     const replacement = await t.mutation((api as any).wavelengthRewards.submitInvoice, { confirmationCode: 'OS-REWARD',
-      email: 'guest@example.test', bolt11: 'lntbs2100n1second', expiresAt: Date.now() + 600_000 });
-    expect(replacement).toMatchObject({ status: 'invoice_ready', attemptCount: 2, bolt11: 'lntbs2100n1second' });
+      email: 'guest@example.test', satsAmount: 1_000, bolt11: 'lntbs10u1second', expiresAt: Date.now() + 600_000 });
+    expect(replacement).toMatchObject({ status: 'invoice_ready', attemptCount: 2, bolt11: 'lntbs10u1second' });
   });
 
   it('rejects expired and non-signet invoices at the guest boundary', async () => {
     const { t } = await eligibleReward();
     await expect(t.mutation((api as any).wavelengthRewards.submitInvoice, { confirmationCode: 'OS-REWARD',
-      email: 'guest@example.test', bolt11: 'lnbc2100n1mainnet', expiresAt: Date.now() + 600_000 }))
+      email: 'guest@example.test', satsAmount: 1_000, bolt11: 'lnbc10u1mainnet', expiresAt: Date.now() + 600_000 }))
       .rejects.toThrow('INVALID_SIGNET_REWARD_INVOICE');
     await expect(t.mutation((api as any).wavelengthRewards.submitInvoice, { confirmationCode: 'OS-REWARD',
-      email: 'guest@example.test', bolt11: 'lntbs2100n1expired', expiresAt: Date.now() + 1_000 }))
+      email: 'guest@example.test', satsAmount: 1_000, bolt11: 'lntbs10u1expired', expiresAt: Date.now() + 1_000 }))
       .rejects.toThrow('INVALID_SIGNET_REWARD_INVOICE');
+  });
+
+  it('upgrades only inactive unpaid legacy rewards and is idempotent', async () => {
+    const { t, bookingId } = await eligibleReward();
+    const ids = await t.run(async (ctx) => {
+      const active = await ctx.db.query('wavelengthRewards')
+        .withIndex('by_booking', (q) => q.eq('bookingId', bookingId)).unique();
+      const { _id: activeId, _creationTime, ...base } = active!;
+      await ctx.db.patch(activeId, { satsAmount: 210, bolt11: 'lntbs2100n1stale', invoiceExpiresAt: 1,
+        leaseToken: 'stale-lease', leaseExpiresAt: 1, failureReason: 'stale', attemptCount: 4 } as any);
+      const make = async (status: 'expired' | 'failed' | 'invoice_ready' | 'paying' | 'paid') => ctx.db.insert('wavelengthRewards', {
+        ...base, satsAmount: 210, status, attemptCount: 3, bolt11: `lntbs2100n1${status}`,
+        invoiceExpiresAt: Date.now() + 600_000, leaseToken: status === 'paying' ? 'active-lease' : undefined,
+        leaseExpiresAt: status === 'paying' ? Date.now() + 60_000 : undefined,
+        merchantActivityId: status === 'paid' ? 'paid-activity' : undefined,
+        paymentHash: status === 'paid' ? 'paid-hash' : undefined,
+        paidAt: status === 'paid' ? Date.now() : undefined,
+        failureReason: status === 'failed' ? 'definitive failure' : undefined,
+      } as any);
+      return { eligible: activeId, expired: await make('expired'), failed: await make('failed'),
+        invoiceReady: await make('invoice_ready'), paying: await make('paying'), paid: await make('paid') };
+    });
+
+    expect(await t.mutation((internal as any).wavelengthRewards.upgradeLegacyRewards, { limit: 25 }))
+      .toEqual({ scanned: 6, upgraded: 3 });
+    const rows = await t.run(async (ctx) => Object.fromEntries(await Promise.all(Object.entries(ids)
+      .map(async ([key, id]) => [key, await ctx.db.get(id)]))));
+    for (const key of ['eligible', 'expired', 'failed'] as const) {
+      expect(rows[key]).toMatchObject({ satsAmount: 1_000, status: 'eligible', attemptCount: 0 });
+      expect(rows[key]).not.toHaveProperty('bolt11');
+      expect(rows[key]).not.toHaveProperty('invoiceExpiresAt');
+      expect(rows[key]).not.toHaveProperty('leaseToken');
+      expect(rows[key]).not.toHaveProperty('leaseExpiresAt');
+      expect(rows[key]).not.toHaveProperty('failureReason');
+    }
+    expect(rows.invoiceReady).toMatchObject({ satsAmount: 210, status: 'invoice_ready' });
+    expect(rows.paying).toMatchObject({ satsAmount: 210, status: 'paying' });
+    expect(rows.paid).toMatchObject({ satsAmount: 210, status: 'paid', paymentHash: 'paid-hash' });
+    expect(await t.mutation((internal as any).wavelengthRewards.upgradeLegacyRewards, { limit: 25 }))
+      .toEqual({ scanned: 6, upgraded: 0 });
   });
 });
