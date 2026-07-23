@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import { action, query } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { configuredProviders, getProvider } from './index';
+import { checkoutPath } from '../../shared/bookingLinks';
 
 /**
  * What can this deployment charge with? The checkout UI renders one button
@@ -104,7 +105,7 @@ export const createCheckoutSession = action({
     //    guest who backs out of the provider page. (Checkout-UI stream addendum.)
     const siteUrl = (process.env.SITE_URL ?? '').replace(/\/$/, '');
     const successUrl = `${siteUrl}/confirmation/${booking.confirmationCode}`;
-    const cancelUrl = `${siteUrl}/checkout/${booking._id}?code=${booking.confirmationCode}`;
+    const cancelUrl = `${siteUrl}${checkoutPath(booking._id, booking.confirmationCode)}`;
 
     // Best-effort: expire other live Stripe pending sessions for this booking
     // before creating a new one, so a guest who opens two tabs / backs out and

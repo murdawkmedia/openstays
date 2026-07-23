@@ -14,9 +14,10 @@
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Final automated gates: 344 root tests and 64 CLI tests passed; root and CLI
-  typechecks/builds plus the documentation build passed. The existing Node
-  `TimeoutNegativeWarning` remains non-fatal in the test runner.
+- Current full gates: 350 root tests and 64 CLI tests passed; root and CLI
+  typechecks/builds plus the documentation build passed. The four-case
+  desktop/mobile browser smoke also passed against the live fictional booking.
+  The existing Node `TimeoutNegativeWarning` remains non-fatal in the runner.
 - Added: manual provider refund cases, authoritative Zaprite reconciliation,
   Wavelength signet bridge/wallet, booking chat and alerts, staff operations,
   fictional Consensus Commons seed/branding, and a consensus timeline.
@@ -40,9 +41,17 @@
 - Two independent Wavelength signet wallets are running on loopback. The
   merchant received two confirmed 10,000-sat faucet deposits and completed its
   boarding round with 19,490 spendable sats after the operator's 510-sat fee.
-  The guest demo wallet remains intentionally unfunded. A live 210-sat invoice
-  could not yet be created because the public signet operator's `CreateCredit`
-  RPC timed out for both wallets; retry when the service recovers.
+  A real merchant-to-guest 210-sat signet payment completed, leaving the guest
+  with 210 sats of reusable operator credit. A later guest-to-merchant booking
+  payment passed `prepare-send` with an exact 210-sat principal and zero fee,
+  but remained in `settling` through invoice expiry while the merchant receive
+  remained pending. It was not retried or reported paid; the alpha service must
+  reconcile/refund it before that payment hash is reused.
+- The production browser build now starts exactly one embedded Wavelength
+  engine, serves all required runtime assets with cross-origin isolation, and
+  has no horizontal overflow at the tested mobile viewport. Confirmation query
+  parameters use `confirmation` because Convex Auth consumes the reserved
+  OAuth `code` parameter.
 - The pinned official OpenTimestamps client is installed in WSL because its
   `python-bitcoinlib` dependency could not discover the native Windows Python
   OpenSSL 3 DLL. The CLI now has a tested WSL invocation/path adapter while
@@ -61,6 +70,10 @@
   audit now has zero high/critical findings and two moderate findings in the
   MCP SDK's unused Hono static-file adapter; an upstream-compatible MCP update
   is the remaining dependency follow-up.
+- Root `npm audit` reports one high and two moderate development-only findings
+  in VitePress 1.6.4's nested Vite/esbuild toolchain, with no compatible fix
+  currently offered. The booking application uses the separately resolved
+  Vite 7.3.6 build; do not expose the documentation development server.
 
 ## Decisions in force
 
@@ -89,11 +102,14 @@
   local `openstays ots-bridge` worker.
 - Stamp the fictional sample receipt early; show it honestly as submitted while
   pending, and upgrade it before the expo if public calendars have anchored it.
-- Retry invoice creation after the Wavelength signet operator's `CreateCredit`
-  RPC recovers, then execute the prepared, fee-capped 210-sat merchant-to-guest
-  reward acceptance. The merchant is funded; no mainnet wallet, invoice, or
-  payment is in scope.
-- Execute the complete browser/demo flow against the running local stack.
+- Wait for the pending Wavelength payment hash to reach an authoritative
+  terminal state, then use a fresh hold/invoice for the next acceptance. Do not
+  replay the expired invoice. The merchant is funded; no mainnet wallet,
+  invoice, or payment is in scope.
+- Deploying the current Convex functions to the isolated dev deployment is
+  still an explicit user gate. Until then, that stale backend has no receipt or
+  reward routes, so the post-kickoff manage-booking flow cannot be accepted
+  end-to-end against it.
 - Confirm the dedicated Zaprite checkout has its Test Payment connection, then
   run the first sandbox order/payment/reconciliation acceptance.
 - Create/select the dedicated Murdawk Media Convex project later. Do not inspect

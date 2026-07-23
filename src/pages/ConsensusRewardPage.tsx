@@ -2,8 +2,16 @@ import { useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { createWebWalletEngine, defaultConfig } from '@lightninglabs/wavelength-web';
+import wavelengthWorkerUrl from '@lightninglabs/wavelength-web/wavewalletdk-worker.js?url';
 import { WavelengthProvider, useWallet, useWalletBalance, useWalletCreate, useWalletReceive, useWalletUnlock } from '@lightninglabs/wavelength-react';
 import { api } from '../../convex/_generated/api';
+import { wavelengthRuntimeOptions } from '../lib/wavelengthRuntime';
+
+const wavelengthEngine = createWebWalletEngine({
+  ...wavelengthRuntimeOptions(window.location.href, wavelengthWorkerUrl),
+  config: defaultConfig('signet'),
+  autoStart: true,
+});
 
 function RewardWallet() {
   const { code = '' } = useParams();
@@ -37,7 +45,7 @@ function RewardWallet() {
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
-  return <main className="mx-auto max-w-2xl px-4 py-10">
+  return <div className="mx-auto max-w-2xl px-4 py-10">
     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Consensus Commons · Signet</p>
     <h1 className="mt-2 text-3xl font-semibold text-stone-950">Receive your 210-sat consensus reward</h1>
     <p className="mt-3 text-sm text-stone-600">Your wallet is self-custodial and runs only in this browser. OpenStays never receives its password, seed, or keys.</p>
@@ -54,10 +62,9 @@ function RewardWallet() {
       {(error || walletError || create.createError || unlock.unlockError || receive.receiveError) ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error || walletError?.message || create.createError?.message || unlock.unlockError?.message || receive.receiveError?.message}</p> : null}
       {create.createData?.mnemonic?.length ? <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4"><p className="font-semibold">Save these recovery words offline</p><p className="mt-2 break-words font-mono text-sm">{create.createData.mnemonic.join(' ')}</p></div> : null}
     </section> : null}
-  </main>;
+  </div>;
 }
 
 export default function ConsensusRewardPage() {
-  const [engine] = useState(() => createWebWalletEngine({ runtimeBaseUrl: new URL('wavewalletdk/', document.baseURI).toString(), config: defaultConfig('signet'), autoStart: true }));
-  return <WavelengthProvider engine={engine}><RewardWallet /></WavelengthProvider>;
+  return <WavelengthProvider engine={wavelengthEngine}><RewardWallet /></WavelengthProvider>;
 }

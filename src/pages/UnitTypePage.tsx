@@ -6,6 +6,7 @@ import { Users } from 'lucide-react';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { computePrice, enumerateNights, type RatePlanLike } from '../../shared/pricing';
+import { checkoutPath } from '../../shared/bookingLinks';
 import { Spinner } from '../components/Spinner';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
 import { StayDateRangePicker } from '../components/StayDateRangePicker';
@@ -185,7 +186,7 @@ export function UnitTypePage() {
           .map(([addOnId, quantity]) => ({ addOnId: addOnId as Id<'addOns'>, quantity })),
         promoCode: promoActive && appliedPromo ? appliedPromo : undefined,
       });
-      navigate(`/checkout/${result.bookingId}?code=${result.confirmationCode}`);
+      navigate(checkoutPath(result.bookingId, result.confirmationCode));
     } catch (error) {
       setSubmitError(extractErrorMessage(error));
     } finally {
