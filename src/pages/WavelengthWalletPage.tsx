@@ -11,6 +11,7 @@ import {
   useWalletCreate,
   useWalletDeposit,
   useWalletPrepareSend,
+  useWalletReceive,
   useWalletRefresh,
   useWalletSend,
   useWalletUnlock,
@@ -27,6 +28,12 @@ import {
   WAVELENGTH_BOOKING_MAX_FEE_SATS,
   validateBookingQuote,
 } from '../lib/wavelengthPayment';
+import {
+  DEMO_WALLET_TARGET_ATTEMPTS,
+  DEMO_WALLET_TARGET_SATS,
+  demoWalletAttemptsFunded,
+  isLocalDemoWalletSetup,
+} from '../lib/wavelengthDemoWallet';
 
 const wavelengthApi = (api as any).wavelength;
 const wavelengthEngine = createWebWalletEngine({
@@ -38,6 +45,7 @@ const wavelengthEngine = createWebWalletEngine({
 function WalletPayment() {
   const { bookingId = '' } = useParams();
   const [searchParams] = useSearchParams();
+  const demoSetup = isLocalDemoWalletSetup(window.location.hostname, searchParams.get('demoSetup'));
   const [confirmationCode] = useState(() => readGuestConfirmation(searchParams));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -48,6 +56,7 @@ function WalletPayment() {
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState === 'visible');
   const [lastBalanceCheckAt, setLastBalanceCheckAt] = useState<number>();
   const [autoRefreshStopped, setAutoRefreshStopped] = useState(false);
+  const [demoFundingInvoice, setDemoFundingInvoice] = useState('');
   const refreshInFlight = useRef(false);
   const createRequest = useMutation(wavelengthApi.createRequest);
   const request = useQuery(
@@ -60,16 +69,25 @@ function WalletPayment() {
   const unlock = useWalletUnlock();
   const deposit = useWalletDeposit();
   const prepare = useWalletPrepareSend();
+  const receive = useWalletReceive();
   const refresh = useWalletRefresh();
   const send = useWalletSend();
   const spendableSats = balance?.confirmedSat ?? 0;
   const pendingInSat = balance?.pendingInSat ?? 0;
-  const autoRefreshActive = shouldAutoRefreshWavelengthBalance({
+  const inboundAutoRefreshActive = shouldAutoRefreshWavelengthBalance({
     walletPhase: phase,
     pendingInSat,
     pageVisible,
     refreshPending: refresh.refreshPending || autoRefreshStopped,
   });
+  const demoAutoRefreshActive = demoSetup && Boolean(demoFundingInvoice) &&
+    phase === 'ready' && spendableSats < DEMO_WALLET_TARGET_SATS &&
+    pageVisible && !refresh.refreshPending && !autoRefreshStopped;
+  const autoRefreshActive = inboundAutoRefreshActive || demoAutoRefreshActive;
+  const fundedDemoAttempts = Math.min(
+    DEMO_WALLET_TARGET_ATTEMPTS,
+    demoWalletAttemptsFunded(spendableSats),
+  );
 
   useEffect(() => {
     prepare.resetPrepare();
@@ -166,6 +184,19 @@ function WalletPayment() {
     }
   }
 
+  async function createDemoFundingInvoice() {
+    setError('');
+    try {
+      const result = await receive.receive({
+        amountSat: DEMO_WALLET_TARGET_SATS,
+        memo: 'OpenStays judge demo wallet preflight',
+      });
+      setDemoFundingInvoice(result.invoice);
+    } catch (err) {
+      setError(explainWavelengthError(err));
+    }
+  }
+
   async function refreshBalance(source: 'automatic' | 'manual' = 'manual') {
     if (refreshInFlight.current) return;
     refreshInFlight.current = true;
@@ -186,10 +217,12 @@ function WalletPayment() {
   }
 
   const displayError = error || (walletError || create.createError || unlock.unlockError ||
-    deposit.depositError || prepare.prepareError || refresh.refreshError || send.sendError
+    deposit.depositError || prepare.prepareError || receive.receiveError ||
+    refresh.refreshError || send.sendError
     ? explainWavelengthError(
       walletError ?? create.createError ?? unlock.unlockError ??
-      deposit.depositError ?? prepare.prepareError ?? refresh.refreshError ?? send.sendError,
+      deposit.depositError ?? prepare.prepareError ?? receive.receiveError ??
+      refresh.refreshError ?? send.sendError,
     )
     : '');
 
@@ -198,12 +231,14 @@ function WalletPayment() {
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700">Consensus Commons · Signet</p>
-          <h1 className="mt-2 text-3xl font-semibold">Pay with Wavelength</h1>
+          <h1 className="mt-2 text-3xl font-semibold">
+            {demoSetup ? 'Prepare demo wallet' : 'Pay with Wavelength'}
+          </h1>
         </div>
         <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-900">test sats only</span>
       </div>
 
-      {!started ? (
+      {!demoSetup && !started ? (
         <section className="card p-6">
           <label className="field-label" htmlFor="wallet-email">Booking email</label>
           <input id="wallet-email" type="email" className="field-input" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
@@ -212,7 +247,7 @@ function WalletPayment() {
         </section>
       ) : (
         <div className="space-y-5">
-          <section className="card p-6">
+          {!demoSetup ? <section className="card p-6">
             <div className="flex justify-between gap-3"><h2 className="font-semibold">Merchant invoice</h2><span className="text-sm">{request?.status ?? 'requesting'}</span></div>
             {request ? <p className="mt-3 text-sm text-stone-600">Fixed demo quote: {request.satsAmount.toLocaleString()} signet sats for {(request.quotedAmountCents / 100).toFixed(2)} {request.currency}.</p> : null}
             {!request?.bolt11 ? <p role="status" className="mt-3 text-sm">Waiting for the local merchant bridge…</p> : null}
@@ -223,7 +258,26 @@ function WalletPayment() {
               </div>
             ) : null}
             {request?.status === 'settled' ? <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 font-medium text-emerald-800">Consensus reached: the authenticated bridge verified the completed receive.</p> : null}
-          </section>
+          </section> : (
+            <section className="card p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="font-semibold">Local judge-demo preflight</h2>
+                <span className="rounded-full bg-stone-100 px-3 py-1 text-sm text-stone-700">
+                  {fundedDemoAttempts} / {DEMO_WALLET_TARGET_ATTEMPTS} attempts funded
+                </span>
+              </div>
+              {spendableSats >= DEMO_WALLET_TARGET_SATS ? (
+                <div role="status" className="mt-4 rounded-xl bg-emerald-50 p-4 text-emerald-900">
+                  <p className="font-semibold">Demo wallet ready</p>
+                  <p className="mt-1 text-sm">12 judge attempts are backed by spendable Signet sats.</p>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-stone-600">
+                  Prepare one real 12,000-sat Signet balance before judging. This control only works on localhost.
+                </p>
+              )}
+            </section>
+          )}
 
           <section className="card p-6">
             <div className="flex justify-between gap-3"><h2 className="font-semibold">Your self-custodial wallet</h2><span className="text-sm">{phase}</span></div>
@@ -255,7 +309,33 @@ function WalletPayment() {
                 <button type="button" className="btn-secondary mt-3" disabled={refresh.refreshPending} onClick={() => void refreshBalance('manual')}>
                   {refresh.refreshPending ? 'Refreshing…' : 'Refresh wallet balance'}
                 </button>
-                {spendableSats < (request?.satsAmount ?? 1) ? (
+                {demoSetup && spendableSats < DEMO_WALLET_TARGET_SATS ? (
+                  <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <p className="font-medium text-amber-950">One-time Lightning funding</p>
+                    <p className="mt-1 text-sm text-amber-900">
+                      Create one amount-bearing invoice. The local operator validates and pays it once; this page never auto-pays.
+                    </p>
+                    {!demoFundingInvoice ? (
+                      <button
+                        type="button"
+                        className="btn-primary mt-3"
+                        disabled={receive.receivePending}
+                        onClick={() => void createDemoFundingInvoice()}
+                      >
+                        {receive.receivePending ? 'Creating invoice…' : 'Create 12,000-sat funding invoice'}
+                      </button>
+                    ) : (
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Merchant funding invoice</p>
+                        <p className="mt-2 break-all rounded-lg bg-white p-3 font-mono text-xs">{demoFundingInvoice}</p>
+                        <p role="status" className="mt-2 text-sm text-amber-900">
+                          Waiting for the verified merchant send and spendable wallet balance.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+                {!demoSetup && spendableSats < (request?.satsAmount ?? 1) ? (
                   <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4">
                     <p className="font-medium text-sky-950">Fund this wallet before paying</p>
                     <p className="mt-1 text-sm text-sky-900">Create a tracked signet deposit address, then use test funds only. Boarding funds may need confirmations before they become spendable.</p>
@@ -270,16 +350,16 @@ function WalletPayment() {
                   </div>
                 ) : null}
 
-                {prepare.prepareData && request?.status === 'invoice_ready' && !send.sendData ? (
+                {!demoSetup && prepare.prepareData && request?.status === 'invoice_ready' && !send.sendData ? (
                   <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                     <p className="font-medium text-emerald-950">Payment prepared</p>
                     <p className="mt-1 text-sm text-emerald-900">{prepare.prepareData.amountSat.toLocaleString()} sats + {prepare.prepareData.expectedFeeSat.toLocaleString()} sat estimated fee via {prepare.prepareData.rail.replaceAll('_', ' ')}.</p>
                     <button type="button" className="btn-primary mt-3" disabled={!canConfirmPreparedPayment(request?.status, true, Boolean(send.sendData), send.sendPending)} onClick={() => void pay()}>{send.sendPending ? 'Paying…' : `Confirm ${request?.satsAmount.toLocaleString()} sat payment`}</button>
                   </div>
-                ) : !send.sendData && request?.status === 'invoice_ready' ? (
+                ) : !demoSetup && !send.sendData && request?.status === 'invoice_ready' ? (
                   <button type="button" className="btn-primary mt-4" disabled={!request?.bolt11 || request.status !== 'invoice_ready' || prepare.preparePending || spendableSats < (request?.satsAmount ?? 1)} onClick={() => void preparePayment()}>{prepare.preparePending ? 'Preparing…' : `Review ${request?.satsAmount ?? ''} sat payment`}</button>
                 ) : null}
-                {send.sendData && request?.status !== 'settled' ? <p role="status" className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-900">Payment dispatched. The authenticated merchant bridge is verifying settlement…</p> : null}
+                {!demoSetup && send.sendData && request?.status !== 'settled' ? <p role="status" className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-900">Payment dispatched. The authenticated merchant bridge is verifying settlement…</p> : null}
               </div>
             ) : null}
 
