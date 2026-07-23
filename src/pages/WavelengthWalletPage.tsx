@@ -102,6 +102,10 @@ function WalletPayment() {
   }, [request?._id, request?.status]);
 
   useEffect(() => {
+    if (!bookingInvoiceActive) prepare.resetPrepare();
+  }, [bookingInvoiceActive]);
+
+  useEffect(() => {
     const updateVisibility = () => setPageVisible(document.visibilityState === 'visible');
     document.addEventListener('visibilitychange', updateVisibility);
     return () => document.removeEventListener('visibilitychange', updateVisibility);
@@ -142,7 +146,7 @@ function WalletPayment() {
   }
 
   async function preparePayment() {
-    if (!request?.bolt11) return;
+    if (!bookingInvoiceActive || !request?.bolt11) return;
     setError('');
     prepare.resetPrepare();
     send.resetSend();
@@ -368,13 +372,13 @@ function WalletPayment() {
                   </div>
                 ) : null}
 
-                {!demoSetup && prepare.prepareData && request?.status === 'invoice_ready' && !send.sendData ? (
+                {!demoSetup && bookingInvoiceActive && prepare.prepareData && !send.sendData ? (
                   <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                     <p className="font-medium text-emerald-950">Payment prepared</p>
                     <p className="mt-1 text-sm text-emerald-900">{prepare.prepareData.amountSat.toLocaleString()} sats + {prepare.prepareData.expectedFeeSat.toLocaleString()} sat estimated fee via {prepare.prepareData.rail.replaceAll('_', ' ')}.</p>
                     <button type="button" className="btn-primary mt-3" disabled={!canConfirmPreparedPayment(request?.status, true, Boolean(send.sendData), send.sendPending)} onClick={() => void pay()}>{send.sendPending ? 'Paying…' : `Confirm ${request?.satsAmount.toLocaleString()} sat payment`}</button>
                   </div>
-                ) : !demoSetup && !send.sendData && request?.status === 'invoice_ready' ? (
+                ) : !demoSetup && bookingInvoiceActive && !send.sendData ? (
                   <button type="button" className="btn-primary mt-4" disabled={!request?.bolt11 || request.status !== 'invoice_ready' || prepare.preparePending || spendableSats < (request?.satsAmount ?? 1)} onClick={() => void preparePayment()}>{prepare.preparePending ? 'Preparing…' : `Review ${request?.satsAmount ?? ''} sat payment`}</button>
                 ) : null}
                 {!demoSetup && send.sendData && request?.status !== 'settled' ? <p role="status" className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-900">Payment dispatched. The authenticated merchant bridge is verifying settlement…</p> : null}
