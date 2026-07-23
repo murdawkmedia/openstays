@@ -1,12 +1,15 @@
 # OpenStays status
 
-**Updated: 2026-07-22 — Consensus Commons hackathon MVP, local branch.**
+**Updated: 2026-07-23 — judge-facing hackathon provenance disclosure.**
 
 ## Current state
 
 - Worktree: `openstays-btcpp-consensus-mvp`
 - Branch: `codex/btcpp-consensus-mvp`
-- `main` remains untouched; no push or merge has been performed.
+- `main` remains at `3f45b70`. The public
+  `codex/btcpp-consensus-mvp` branch includes six documentation-only commits
+  adding the approved pre-existing-versus-Bitcoin++ README disclosure,
+  supporting design/plan, corrected reward wording, and this handoff.
 - With Murphy's explicit approval, commit `0b45c3f` was uploaded only to the
   isolated `affable-wildcat-206` development deployment. The receipt, reward,
   and bridge routes are live there; no production deployment was touched.
