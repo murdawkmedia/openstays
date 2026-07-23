@@ -27,8 +27,9 @@ The section will contain:
     proof submission and downloads, authoritative Wavelength reward settlement,
     the permanent 1,000-sat signet reward, and the judge-facing proof-and-reward
     experience;
-- links to `HACKATHON_BASELINE.md`, baseline commit `5c3038e`, and the
-  `btcpp-toronto-2026-pre-kickoff` tag;
+- links to `HACKATHON_BASELINE.md` and baseline commit `5c3038e`, while naming
+  the local-only `btcpp-toronto-2026-pre-kickoff` tag without presenting it as
+  a remote GitHub link;
 - copyable `git diff` and `git log` commands for transparent verification;
 - an explicit note that the hackathon rails are experimental and local-first.
 
