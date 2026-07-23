@@ -227,7 +227,9 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   or a Bitcoin block attestation. A submitted proof is not described as
   Bitcoin-anchored.
 - 2026-07-22 (Consensus Reward): proof submission creates exactly one eligible
-  210-sat signet reward. The merchant bridge prepares and validates the
+  1,000-sat signet reward. The amount matches Wavelength's current public
+  signet minimum and uses its standard receive path. The merchant bridge
+  prepares and validates the
   amount-bearing invoice, fee cap, signet daemon, send activity, and payment
   hash before authoritative settlement. Reward invoices may be replaced only
   after expiry or definitive failure; paid rewards are immutable.

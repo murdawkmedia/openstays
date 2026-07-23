@@ -156,14 +156,19 @@ submitted to four default public calendars. Its canonical SHA-256 is
 Keep it labeled pending unless `ots upgrade` and `ots info` report a real
 Bitcoin block attestation.
 
-## 210-sat signet reward
+## 1,000-sat signet reward
 
 After proof submission, the authenticated guest opens the receipt card and
-taps **Claim 210 signet sats**. The browser's self-custodial Wavelength wallet
+taps **Claim 1,000 signet sats**. The browser's self-custodial Wavelength wallet
 creates an amount-bearing invoice; its seed and password stay in the browser.
 The existing merchant bridge prepares the outgoing payment, verifies signet,
-the exact 210-sat principal, expiry, off-chain rail, and fee cap, then sends and
+the exact 1,000-sat principal, expiry, off-chain rail, and fee cap, then sends and
 reconciles the completed activity before marking the reward paid.
+
+The 1,000-sat principal matches the public signet operator's current
+`min_vtxo_amount_sat` and uses Wavelength's standard receive path. Smaller
+amounts currently route through the separate alpha `CreateCredit` service,
+which is not required by this demo.
 
 The default fee ceiling is 210 sats. Override it only for signet testing:
 
@@ -221,7 +226,7 @@ settled fictional reservation and keep a fresh payable hold in a second tab.
    hash, and the JSON/`.ots` downloads. Say explicitly: calendar submission is
    real, Bitcoin anchoring is eventual, and a pending proof is not called
    anchored.
-4. **1:35–2:10 — reward.** Tap **Claim 210 signet sats**, show the amount-
+4. **1:35–2:10 — reward.** Tap **Claim 1,000 signet sats**, show the amount-
    bearing guest invoice and the paid/reconciled state. The wallet seed and
    password never leave the browser.
 5. **2:10–2:35 — operations.** Show one chat message, the refund intervention

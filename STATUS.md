@@ -22,7 +22,7 @@
   fictional Consensus Commons seed/branding, and a consensus timeline.
 - Post-kickoff addition: immutable privacy-safe OpenTimestamps consensus
   receipts, authenticated local OTS worker endpoints/CLI, guest proof downloads,
-  and a one-time exact-210-sat Wavelength signet reward with prepared-send and
+  and a one-time exact-1,000-sat Wavelength signet reward with prepared-send and
   completed-activity reconciliation.
 - OpenStays Mail now renders into a durable provider-neutral Convex queue and
   delivers through an authenticated generic SMTP worker. Resend and log-only
@@ -56,10 +56,11 @@
 - A persistent browser guest wallet was created under
   `%LOCALAPPDATA%\OpenStays\wavelength-browser-guest-demo`; its password,
   24-word recovery material, and Chrome profile are protected by a user-only
-  ACL and were never printed. It creates/unlocks correctly. Reward invoice
-  creation is currently blocked before submission by intermittent failures at
-  Wavelength's public signet `CreateCredit` endpoint, so the reward remains
-  honestly `eligible` and no merchant payout was dispatched.
+  ACL and were never printed. It creates/unlocks correctly. Diagnostic reward
+  invoice attempts isolated Wavelength's public signet `CreateCredit` failure
+  to amounts below the operator's 1,000-sat minimum: two native wallets and the
+  browser timed out at 210 sats, while a 1,000-sat control invoice returned
+  immediately. No merchant reward payout was dispatched.
 - The pinned official OpenTimestamps client is installed in WSL because its
   `python-bitcoinlib` dependency could not discover the native Windows Python
   OpenSSL 3 DLL. The CLI now has a tested WSL invocation/path adapter while
@@ -101,7 +102,8 @@
 - Receipt canonical JSON/hash never mutate. A valid submitted proof unlocks
   the reward; `bitcoin_anchored` requires a later verified Bitcoin block
   attestation and is never inferred from calendar submission.
-- Each submitted receipt permits one exact 210 signet-sat reward. The bridge
+- Each submitted receipt permits one exact 1,000 signet-sat reward. This matches
+  Wavelength's public signet minimum and uses its standard receive path. The bridge
   checks the prepared payment, fee cap, invoice, payment hash, and completed
   merchant activity before recording payment.
 - Channex is adapter-ready but not connected/certified.
@@ -119,9 +121,9 @@
   terminal state, then use a fresh hold/invoice for the next acceptance. Do not
   replay the expired invoice. The merchant is funded; no mainnet wallet,
   invoice, or payment is in scope.
-- Retry browser reward invoice creation only after Wavelength's public signet
-  `CreateCredit` endpoint recovers, then keep the guest wallet open through
-  merchant payout reconciliation. Do not bypass or manually mark the reward.
+- Upgrade the existing unpaid eligible demo reward from legacy 210 sats to
+  1,000 sats, then keep the guest wallet open through merchant payout
+  reconciliation. Do not bypass or manually mark the reward.
 - Do not inspect or use CBAP credentials/deployments.
 - Murphy accepts the demo; only then consider a separately approved local merge.
 

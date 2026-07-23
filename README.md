@@ -2,7 +2,7 @@
 
 > **Bitcoin++ Toronto 2026 hackathon branch:** “Consensus Commons” adds
 > authoritative Zaprite sandbox reconciliation, Wavelength signet payments,
-> privacy-safe OpenTimestamps receipts, one-time 210 signet-sat rewards,
+> privacy-safe OpenTimestamps receipts, one-time 1,000 signet-sat rewards,
 > provider-neutral OpenStays Mail,
 > a bridge and browser wallet, booking-scoped chat, manual refund operations,
 > and a consensus timeline. These rails are experimental and local-first; no
