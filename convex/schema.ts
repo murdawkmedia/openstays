@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from 'convex/server';
 import { authTables } from '@convex-dev/auth/server';
 import { v } from 'convex/values';
+import { consensusRewardSats } from './rewardPolicy';
 
 // ---------------------------------------------------------------------------
 // OpenStays schema v1.
@@ -390,7 +391,7 @@ export default defineSchema({
     bookingId: v.id('bookings'),
     receiptId: v.id('consensusReceipts'),
     network: v.literal('signet'),
-    satsAmount: v.literal(210),
+    satsAmount: consensusRewardSats,
     status: v.union(
       v.literal('eligible'), v.literal('invoice_ready'), v.literal('paying'),
       v.literal('paid'), v.literal('expired'), v.literal('failed'),

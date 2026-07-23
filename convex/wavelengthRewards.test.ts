@@ -2,6 +2,7 @@
 import { convexTest } from 'convex-test';
 import { afterEach, describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
+import { CONSENSUS_REWARD_SATS, LEGACY_CONSENSUS_REWARD_SATS } from './rewardPolicy';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/!(*.*.*)*.*s');
@@ -58,6 +59,23 @@ async function eligibleReward() {
 }
 
 describe('Wavelength consensus rewards', () => {
+  it('keeps legacy rows readable while making 1000 sats the active policy', async () => {
+    expect(CONSENSUS_REWARD_SATS).toBe(1_000);
+    expect(LEGACY_CONSENSUS_REWARD_SATS).toBe(210);
+
+    const { t, bookingId } = await eligibleReward();
+    await t.run(async (ctx) => {
+      const legacy = await ctx.db.query('wavelengthRewards')
+        .withIndex('by_booking', (q) => q.eq('bookingId', bookingId)).unique();
+      expect(legacy?.satsAmount).toBe(LEGACY_CONSENSUS_REWARD_SATS);
+      const { _id: _legacyId, _creationTime: _legacyCreationTime, ...row } = legacy!;
+      await ctx.db.insert('wavelengthRewards', {
+        ...row,
+        satsAmount: CONSENSUS_REWARD_SATS,
+      } as any);
+    });
+  });
+
   it('rejects claims before a timestamp proof unlocks the reward', async () => {
     const t = convexTest(schema, modules);
     created.push(t);
