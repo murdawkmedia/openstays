@@ -17,6 +17,7 @@ import {
   useWalletUnlock,
 } from '@lightninglabs/wavelength-react';
 import { readGuestConfirmation } from '../../shared/bookingLinks';
+import { Bolt11Invoice } from '../components/Bolt11Invoice';
 import { wavelengthRuntimeOptions } from '../lib/wavelengthRuntime';
 import {
   shouldAutoRefreshWavelengthBalance,
@@ -251,6 +252,7 @@ function WalletPayment() {
             <div className="flex justify-between gap-3"><h2 className="font-semibold">Merchant invoice</h2><span className="text-sm">{request?.status ?? 'requesting'}</span></div>
             {request ? <p className="mt-3 text-sm text-stone-600">Fixed demo quote: {request.satsAmount.toLocaleString()} signet sats for {(request.quotedAmountCents / 100).toFixed(2)} {request.currency}.</p> : null}
             {!request?.bolt11 ? <p role="status" className="mt-3 text-sm">Waiting for the local merchant bridge…</p> : null}
+            {request?.bolt11 && request.status === 'invoice_ready' ? <div className="mt-4"><Bolt11Invoice invoice={request.bolt11} amountSats={request.satsAmount} expiresAt={request.expiresAt} label="Booking invoice" /></div> : null}
             {request?.status === 'failed' || request?.status === 'expired' ? (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm text-amber-950">The merchant retired that invoice after authoritative reconciliation. It is safe to request a fresh one.</p>
@@ -327,7 +329,7 @@ function WalletPayment() {
                     ) : (
                       <div className="mt-3">
                         <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Merchant funding invoice</p>
-                        <p className="mt-2 break-all rounded-lg bg-white p-3 font-mono text-xs">{demoFundingInvoice}</p>
+                        <div className="mt-2"><Bolt11Invoice invoice={demoFundingInvoice} amountSats={DEMO_WALLET_TARGET_SATS} label="Demo wallet funding invoice" /></div>
                         <p role="status" className="mt-2 text-sm text-amber-900">
                           Waiting for the verified merchant send and spendable wallet balance.
                         </p>
