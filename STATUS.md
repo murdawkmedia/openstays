@@ -64,9 +64,11 @@
   parameters use `confirmation` because Convex Auth consumes the reserved
   OAuth `code` parameter.
 - A persistent browser guest wallet was created under
-  `%LOCALAPPDATA%\OpenStays\wavelength-browser-guest-demo`; its password,
-  24-word recovery material, and Chrome profile are protected by a user-only
-  ACL and were never printed. It creates/unlocks correctly. Diagnostic reward
+  `%LOCALAPPDATA%\OpenStays\wavelength-browser-guest-demo`; its 24-word
+  recovery material and Chrome profile are protected by a user-only ACL. Its
+  funded recovery material was never printed, but the reused local demo
+  password appeared in the automation trace and must be rotated before public
+  use. It creates/unlocks correctly. Diagnostic reward
   invoice attempts isolated Wavelength's public signet `CreateCredit` failure
   to amounts below the operator's 1,000-sat minimum: two native wallets and the
   browser timed out at 210 sats, while a 1,000-sat control invoice returned
