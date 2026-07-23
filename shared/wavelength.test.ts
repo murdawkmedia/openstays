@@ -6,9 +6,11 @@ import {
 } from './wavelength';
 
 describe('quoteSignetSats', () => {
-  it('uses the fixed demo rate and rounds fractional sats upward', () => {
+  it('uses the fixed demo rate, rounds upward, and respects the public signet minimum', () => {
     expect(quoteSignetSats(10_000, 1_000)).toBe(100_000);
-    expect(quoteSignetSats(1, 1_001)).toBe(11);
+    expect(quoteSignetSats(100, 1_000)).toBe(1_000);
+    expect(quoteSignetSats(21, 1_000)).toBe(1_000);
+    expect(quoteSignetSats(1, 1_001)).toBe(1_000);
   });
 
   it('rejects invalid money and rates', () => {

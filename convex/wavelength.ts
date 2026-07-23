@@ -148,19 +148,26 @@ export const claimPending = internalMutation({
         ),
       )
     ).flat();
-    const claimed = [];
-    for (const request of requested) {
+    const payable = [];
+    for (const request of [...requested, ...alreadyActive].sort((a, b) => a.createdAt - b.createdAt)) {
       if (request.network !== 'signet') continue;
       if (request.expiresAt <= now) {
         await ctx.db.patch(request._id, { status: 'expired', updatedAt: now });
         continue;
       }
-      await ctx.db.patch(request._id, { status: 'claimed', claimedAt: now, updatedAt: now });
-      claimed.push({ ...request, status: 'claimed' as const, claimedAt: now, updatedAt: now });
+      const booking = await ctx.db.get(request.bookingId);
+      if (!booking || booking.status !== 'hold' || !booking.holdExpiresAt || booking.holdExpiresAt <= now) {
+        await ctx.db.patch(request._id, { status: 'failed', failureReason: 'BOOKING_NOT_PAYABLE', updatedAt: now });
+        continue;
+      }
+      if (request.status === 'requested') {
+        await ctx.db.patch(request._id, { status: 'claimed', claimedAt: now, updatedAt: now });
+        payable.push({ ...request, status: 'claimed' as const, claimedAt: now, updatedAt: now });
+      } else {
+        payable.push(request);
+      }
     }
-    return [...claimed, ...alreadyActive]
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .slice(0, limit);
+    return payable.slice(0, limit);
   },
 });
 

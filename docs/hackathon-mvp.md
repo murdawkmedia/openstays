@@ -92,7 +92,9 @@ The bridge polls pending requests, calls `POST /v1/wallet/recv`, publishes the
 invoice, inspects `POST /v1/wallet/inspect/activity`, and reports only a
 completed receive whose request, invoice, activity, and snapshotted sats amount
 match. Replays are no-ops. The clearly synthetic quote is
-`ceil(amountCents × rate / 100)` at 1,000 signet sats per currency unit.
+`max(1,000, ceil(amountCents × rate / 100))` at 1,000 signet sats per currency
+unit. The 1,000-sat floor matches Wavelength's public signet operator minimum;
+the fiat amount remains the authoritative booking amount.
 
 Wavelength is signet-only. Any legacy mainnet rows remain readable for schema
 compatibility, but active configuration, UI, request claiming, and bridge
@@ -218,7 +220,7 @@ settled fictional reservation and keep a fresh payable hold in a second tab.
    and channel manager can disagree. OpenStays makes one booking ledger the
    authority.” Show the Consensus Commons landing page.
 2. **0:25–0:55 — payment consensus.** Show the fresh 0.21 CAD hold, its exact
-   210-sat Wavelength signet invoice, and the self-custodial browser wallet.
+   1,000-sat Wavelength signet demo invoice, and the self-custodial browser wallet.
    If signet is healthy, pay it; otherwise move immediately to the pre-settled
    reservation and state that the pending network action is never treated as
    payment.
