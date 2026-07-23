@@ -12,6 +12,22 @@ describe('judge-facing checkout copy', () => {
     const source = readFileSync(new URL('../src/pages/UnitTypePage.tsx', import.meta.url), 'utf8');
     expect(source).toContain("detail.property.slug === 'consensus-commons' ? 'CONSENSUS10' : 'WELCOME10'");
   });
+
+  it('does not show background wallet errors before guest authentication begins', () => {
+    const source = readFileSync(new URL('../src/pages/WavelengthWalletPage.tsx', import.meta.url), 'utf8');
+    const unauthenticatedSection = source.slice(source.indexOf('{!started ? ('), source.indexOf(') : (', source.indexOf('{!started ? (')));
+    expect(unauthenticatedSection).toContain('{error ? <p role="alert"');
+    expect(unauthenticatedSection).not.toContain('{displayError ?');
+  });
+
+  it('lets a funded guest explicitly refresh the browser wallet balance', () => {
+    const source = readFileSync(new URL('../src/pages/WavelengthWalletPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('useWalletRefresh');
+    expect(source).toContain('await refresh.refresh()');
+    expect(source).toContain("refresh.refreshPending ? 'Refreshing…' : 'Refresh wallet balance'");
+    expect(source).toContain('Pending inbound');
+    expect(source).toContain('balance?.pendingInSat');
+  });
 });
 
 describe('staff auth errors', () => {
