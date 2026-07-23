@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
@@ -17,6 +17,10 @@ import {
 } from '@lightninglabs/wavelength-react';
 import { readGuestConfirmation } from '../../shared/bookingLinks';
 import { wavelengthRuntimeOptions } from '../lib/wavelengthRuntime';
+import {
+  shouldAutoRefreshWavelengthBalance,
+  WAVELENGTH_BALANCE_REFRESH_INTERVAL_MS,
+} from '../lib/wavelengthBalanceRefresh';
 import {
   canConfirmPreparedPayment,
   explainWavelengthError,
@@ -41,6 +45,10 @@ function WalletPayment() {
   const [error, setError] = useState('');
   const [recoveryRevealed, setRecoveryRevealed] = useState(false);
   const [recoverySaved, setRecoverySaved] = useState(false);
+  const [pageVisible, setPageVisible] = useState(() => document.visibilityState === 'visible');
+  const [lastBalanceCheckAt, setLastBalanceCheckAt] = useState<number>();
+  const [autoRefreshStopped, setAutoRefreshStopped] = useState(false);
+  const refreshInFlight = useRef(false);
   const createRequest = useMutation(wavelengthApi.createRequest);
   const request = useQuery(
     wavelengthApi.forGuest,
@@ -55,11 +63,32 @@ function WalletPayment() {
   const refresh = useWalletRefresh();
   const send = useWalletSend();
   const spendableSats = balance?.confirmedSat ?? 0;
+  const pendingInSat = balance?.pendingInSat ?? 0;
+  const autoRefreshActive = shouldAutoRefreshWavelengthBalance({
+    walletPhase: phase,
+    pendingInSat,
+    pageVisible,
+    refreshPending: refresh.refreshPending || autoRefreshStopped,
+  });
 
   useEffect(() => {
     prepare.resetPrepare();
     send.resetSend();
   }, [request?._id, request?.status]);
+
+  useEffect(() => {
+    const updateVisibility = () => setPageVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (!autoRefreshActive) return;
+    const interval = window.setInterval(() => {
+      void refreshBalance('automatic');
+    }, WAVELENGTH_BALANCE_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [autoRefreshActive]);
 
   async function begin() {
     setError('');
@@ -137,12 +166,22 @@ function WalletPayment() {
     }
   }
 
-  async function refreshBalance() {
-    setError('');
+  async function refreshBalance(source: 'automatic' | 'manual' = 'manual') {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    if (source === 'manual') {
+      setError('');
+      setAutoRefreshStopped(false);
+    }
     try {
       await refresh.refresh();
+      setLastBalanceCheckAt(Date.now());
+      setAutoRefreshStopped(false);
     } catch (err) {
+      if (source === 'automatic') setAutoRefreshStopped(true);
       setError(explainWavelengthError(err));
+    } finally {
+      refreshInFlight.current = false;
     }
   }
 
@@ -200,12 +239,20 @@ function WalletPayment() {
               <div className="mt-4">
                 <p className="text-sm text-stone-500">Spendable balance</p>
                 <p className="text-2xl font-semibold">{spendableSats.toLocaleString()} sats</p>
-                {(balance?.pendingInSat ?? 0) > 0 ? (
-                  <p role="status" className="mt-2 text-sm font-medium text-sky-900">
-                    Pending inbound: {balance?.pendingInSat.toLocaleString()} sats. Waiting for boarding to complete.
-                  </p>
+                {pendingInSat > 0 ? (
+                  <div role="status" aria-live="polite" className="mt-2 text-sm font-medium text-sky-900">
+                    <p>Pending inbound: {pendingInSat.toLocaleString()} sats. Waiting for boarding to complete.</p>
+                    <p className="mt-1 font-normal">
+                      {autoRefreshStopped
+                        ? 'Automatic checks paused after an error; use the refresh button to retry.'
+                        : pageVisible
+                          ? 'Checking automatically every 12 seconds.'
+                          : 'Automatic checks pause while this tab is hidden.'}
+                      {lastBalanceCheckAt ? ` Last checked ${new Date(lastBalanceCheckAt).toLocaleTimeString()}.` : ''}
+                    </p>
+                  </div>
                 ) : null}
-                <button type="button" className="btn-secondary mt-3" disabled={refresh.refreshPending} onClick={() => void refreshBalance()}>
+                <button type="button" className="btn-secondary mt-3" disabled={refresh.refreshPending} onClick={() => void refreshBalance('manual')}>
                   {refresh.refreshPending ? 'Refreshing…' : 'Refresh wallet balance'}
                 </button>
                 {spendableSats < (request?.satsAmount ?? 1) ? (
