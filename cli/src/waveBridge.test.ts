@@ -113,7 +113,7 @@ describe('runWaveBridgeOnce', () => {
       if (url.endsWith('/v1/wallet/send')) return new Response(JSON.stringify({ entry: { id: 'send_1' }, actual_amount_sat: '1000' }), { status: 200 });
       if (url.endsWith('/wavelength-bridge/rewards/dispatched')) return new Response(JSON.stringify({ dispatched: true }), { status: 200 });
       if (url.endsWith('/v1/wallet/inspect/activity')) return new Response(JSON.stringify({ entry: {
-        id: 'send_1', kind: 'ENTRY_KIND_SEND', status: 'ENTRY_STATUS_COMPLETE', amount_sat: '1000',
+        id: 'send_1', kind: 'ENTRY_KIND_SEND', status: 'ENTRY_STATUS_COMPLETE', amount_sat: '-1000',
         request: { lightning_invoice: { invoice: 'lntbs10u1guest', payment_hash: 'reward_hash' } },
         progress: { payment_hash: 'reward_hash' },
       } }), { status: 200 });
@@ -127,6 +127,28 @@ describe('runWaveBridgeOnce', () => {
     await expect(runWaveBridgeOnce({ openStaysUrl: 'https://openstays.example', bridgeToken: 'bridge-token',
       daemonUrl: 'http://127.0.0.1:10031', expectedNetwork: 'signet', maxRewardFeeSats: 210 }, fetchFn as typeof fetch))
       .resolves.toEqual({ claimed: 0, invoices: 0, settlements: 0, rewardsPaid: 1, rewardsFailed: 0 });
+  });
+
+  it('does not reconcile a reward unless the completed activity is an exact outgoing 1000 sats', async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/daemon/get-info')) return new Response(JSON.stringify({ network: 'signet' }), { status: 200 });
+      if (url.endsWith('/wavelength-bridge/pending')) return new Response(JSON.stringify({ requests: [] }), { status: 200 });
+      if (url.endsWith('/wavelength-bridge/rewards/pending')) return new Response(JSON.stringify({ rewards: [{
+        _id: 'reward_wrong_direction', status: 'paying', network: 'signet', satsAmount: 1_000, bolt11: 'lntbs10u1guest',
+        invoiceExpiresAt: Date.now() + 600_000, leaseToken: 'lease_1', merchantActivityId: 'send_1', paymentHash: 'reward_hash',
+      }] }), { status: 200 });
+      if (url.endsWith('/v1/wallet/inspect/activity')) return new Response(JSON.stringify({ entry: {
+        id: 'send_1', kind: 'ENTRY_KIND_SEND', status: 'ENTRY_STATUS_COMPLETE', amount_sat: '1000',
+        request: { lightning_invoice: { invoice: 'lntbs10u1guest', payment_hash: 'reward_hash' } },
+        progress: { payment_hash: 'reward_hash' },
+      } }), { status: 200 });
+      throw new Error(`unexpected ${url}`);
+    });
+
+    await expect(runWaveBridgeOnce({ openStaysUrl: 'https://openstays.example', bridgeToken: 'bridge-token',
+      daemonUrl: 'http://127.0.0.1:10031', expectedNetwork: 'signet' }, fetchFn as typeof fetch))
+      .resolves.toEqual({ claimed: 0, invoices: 0, settlements: 0, rewardsPaid: 0, rewardsFailed: 0 });
+    expect(fetchFn.mock.calls.some(([url]) => String(url).endsWith('/wavelength-bridge/rewards/paid'))).toBe(false);
   });
 
   it.each([999, 1_001])('rejects a %i-sat reward before preparing a payment', async (satsAmount) => {

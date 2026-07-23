@@ -200,7 +200,7 @@ export async function runWaveBridgeOnce(
       const entry = inspection.entry;
       const observedHash = entry?.progress?.payment_hash ?? entry?.request?.lightning_invoice?.payment_hash;
       if (entry?.id !== activityId || entry.kind !== 'ENTRY_KIND_SEND' || entry.status !== 'ENTRY_STATUS_COMPLETE' ||
-        Number(entry.amount_sat) !== CONSENSUS_REWARD_SATS || entry.request?.lightning_invoice?.invoice !== reward.bolt11 || observedHash !== paymentHash) continue;
+        Number(entry.amount_sat) !== -CONSENSUS_REWARD_SATS || entry.request?.lightning_invoice?.invoice !== reward.bolt11 || observedHash !== paymentHash) continue;
       await jsonRequest(fetchFn, `${openStaysUrl}/wavelength-bridge/rewards/paid`, { method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ rewardId: reward._id,
           leaseToken: reward.leaseToken, network: 'signet', satsAmount: CONSENSUS_REWARD_SATS, bolt11: reward.bolt11,
