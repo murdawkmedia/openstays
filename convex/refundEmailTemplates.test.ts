@@ -24,10 +24,10 @@ describe('manual refund notices', () => {
 });
 
 describe('consensus receipt notice', () => {
-  it('links the receipt and 210-sat signet reward without claiming a Bitcoin anchor', () => {
+  it('links the receipt and 1000-sat signet reward without claiming a Bitcoin anchor', () => {
     const email = renderConsensusReceiptReady({ ...data, receiptId: 'cr_demo', receiptSha256: 'a'.repeat(64) });
     expect(email.subject).toContain('Consensus receipt ready');
-    expect(email.text).toContain('210 signet sats');
+    expect(email.text).toContain('1,000 signet sats');
     expect(email.text).toContain(data.manageUrl);
     expect(email.text).toContain('anchoring is pending');
     expect(email.text).not.toContain('anchored to Bitcoin');

@@ -107,6 +107,15 @@ describe('consensus receipts', () => {
     expect(await t.query((api as any).consensusReceipts.forGuest, {
       confirmationCode: 'OS-SECRET', email: 'other@example.test',
     })).toBeNull();
+    const previousDemoMode = process.env.DEMO_MODE;
+    process.env.DEMO_MODE = 'true';
+    try {
+      const [staffReceipt] = await t.query((api as any).consensusReceipts.staffOverview, {});
+      expect(staffReceipt).toMatchObject({ rewardStatus: 'eligible', rewardSatsAmount: 1_000 });
+    } finally {
+      if (previousDemoMode === undefined) delete process.env.DEMO_MODE;
+      else process.env.DEMO_MODE = previousDemoMode;
+    }
   });
 
   it('advances only proof attestation fields and never rewrites canonical bytes', async () => {

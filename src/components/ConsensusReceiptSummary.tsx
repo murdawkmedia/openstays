@@ -6,6 +6,7 @@ export function ConsensusReceiptSummary({ receipt, reward, rewardUrl, onDownload
 }) {
   const submitted = receipt.status === 'submitted' || receipt.status === 'bitcoin_anchored';
   const anchored = receipt.status === 'bitcoin_anchored';
+  const rewardLabel = `${(reward?.satsAmount ?? 1_000).toLocaleString('en-CA')} signet sats`;
   return <section className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5" aria-labelledby="receipt-heading">
     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Open proof</p>
     <h2 id="receipt-heading" className="mt-1 text-lg font-semibold text-stone-900">Consensus Receipt</h2>
@@ -24,8 +25,8 @@ export function ConsensusReceiptSummary({ receipt, reward, rewardUrl, onDownload
     </div>
     <div className="mt-5 rounded-xl bg-white p-4">
       <p className="font-semibold text-stone-900">Consensus reward</p>
-      {reward?.status === 'paid' ? <p className="mt-1 text-sm text-emerald-700">210 signet sats received.</p> : submitted ?
-        <a href={rewardUrl} className="btn-primary mt-3 inline-flex">Claim 210 signet sats</a> :
+      {reward?.status === 'paid' ? <p className="mt-1 text-sm text-emerald-700">{rewardLabel} received.</p> : submitted ?
+        <a href={rewardUrl} className="btn-primary mt-3 inline-flex">Claim {rewardLabel}</a> :
         <p className="mt-1 text-sm text-stone-500">Unlocks after timestamp submission.</p>}
       <p className="mt-3 text-xs text-stone-500">OpenTimestamps anchors to Bitcoin mainnet. The Wavelength reward uses signet test sats; these are separate rails.</p>
     </div>

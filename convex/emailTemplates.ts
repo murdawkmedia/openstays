@@ -241,14 +241,14 @@ export function renderConsensusReceiptReady(
     `<p style="margin:0 0 12px;">Hi ${escapeHtml(data.guestName)},</p>`,
     `<p style="margin:0 0 12px;">OpenStays reached one authoritative state for your booking and submitted its privacy-safe receipt to OpenTimestamps.</p>`,
     `<p style="margin:12px 0;font-family:monospace;word-break:break-all;">${escapeHtml(data.receiptId)}<br>${escapeHtml(data.receiptSha256)}</p>`,
-    `<p style="margin:0 0 12px;">Bitcoin anchoring is pending. You can already download the proof and claim the one-time 210 signet sats demo reward.</p>`,
+    `<p style="margin:0 0 12px;">Bitcoin anchoring is pending. You can already download the proof and claim the one-time 1,000 signet sats demo reward.</p>`,
     manageLinkHtml(data),
   ].join(''));
   const text = [
     `Hi ${data.guestName},`, '',
     'OpenStays reached one authoritative state for your booking and submitted its privacy-safe receipt to OpenTimestamps.',
     `Receipt: ${data.receiptId}`, `SHA-256: ${data.receiptSha256}`, '',
-    'Bitcoin anchoring is pending. You can already download the proof and claim the one-time 210 signet sats demo reward.', '',
+    'Bitcoin anchoring is pending. You can already download the proof and claim the one-time 1,000 signet sats demo reward.', '',
     `Manage your booking: ${data.manageUrl}`,
   ].join('\n');
   return { subject, html, text };

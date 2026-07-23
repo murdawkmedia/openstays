@@ -74,10 +74,11 @@ export function AdminOperationsPage() {
       </section>
       <section className="card p-5">
         <h2 className="text-lg font-semibold text-stone-900">Consensus receipts & rewards</h2>
-        <p className="mt-1 text-sm text-stone-500">OpenTimestamps anchors to Bitcoin mainnet; the 210-sat guest reward remains signet-only.</p>
+        <p className="mt-1 text-sm text-stone-500">OpenTimestamps anchors to Bitcoin mainnet; the 1,000-sat principal remains signet-only. The merchant fee ceiling is configured separately.</p>
         {receipts === undefined ? <Spinner label="Loading consensus receipts…" /> : receipts.length === 0 ? <p className="mt-4 text-sm text-stone-500">No confirmed receipt work yet.</p> : <div className="mt-4 space-y-3">{receipts.map((receipt) => <article key={receipt._id} className="rounded-xl border border-stone-200 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2"><strong>{receipt.confirmationCode}</strong><div className="flex gap-2"><span className="rounded-full bg-stone-100 px-2 py-1 text-xs">OTS: {receipt.status}</span><span className="rounded-full bg-amber-100 px-2 py-1 text-xs">Reward: {receipt.rewardStatus ?? 'locked'}</span></div></div>
           <p className="mt-2 break-all font-mono text-xs text-stone-500">{receipt.sha256}</p>
+          {receipt.rewardSatsAmount ? <p className="mt-2 text-sm text-stone-600">Reward principal: {receipt.rewardSatsAmount.toLocaleString()} signet sats</p> : null}
           {receipt.failureReason || receipt.rewardFailureReason ? <p role="alert" className="mt-2 text-sm text-red-700">{receipt.failureReason ?? receipt.rewardFailureReason}</p> : null}
           {receipt.status === 'failed' ? <button type="button" className="btn-secondary mt-3" onClick={() => void retryReceipt({ receiptId: receipt._id })}>Retry timestamp</button> : null}
         </article>)}</div>}

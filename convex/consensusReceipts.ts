@@ -163,7 +163,7 @@ export const staffOverview = query({
       ]);
       return { ...receipt, canonicalJson: undefined, proofBase64: undefined,
         confirmationCode: booking?.confirmationCode ?? 'unknown', rewardStatus: reward?.status,
-        rewardFailureReason: reward?.failureReason };
+        rewardSatsAmount: reward?.satsAmount, rewardFailureReason: reward?.failureReason };
     }));
   },
 });
