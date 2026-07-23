@@ -24,6 +24,12 @@ const canonical = JSON.stringify({
   schema: 'openstays.consensus-receipt.v1',
 });
 
+function invalidReceipt(mutate: (receipt: Record<string, any>) => void): string {
+  const receipt = JSON.parse(canonical) as Record<string, any>;
+  mutate(receipt);
+  return JSON.stringify(receipt);
+}
+
 describe('consensus receipt view', () => {
   it('returns only the v1 privacy-safe display fields', () => {
     expect(parseConsensusReceiptView(canonical)).toEqual({
@@ -45,7 +51,32 @@ describe('consensus receipt view', () => {
     });
   });
 
-  it.each(['', '{', '[]', '{"schema":"other"}'])('fails closed for %s', (input) => {
+  it.each([
+    ['empty input', ''],
+    ['malformed JSON', '{'],
+    ['array root', '[]'],
+    ['wrong schema', '{"schema":"other"}'],
+    ['unexpected root guest email', invalidReceipt((receipt) => { receipt.guestEmail = 'guest@example.test'; })],
+    ['unexpected property guest email', invalidReceipt((receipt) => { receipt.property.guestEmail = 'guest@example.test'; })],
+    ['unexpected economic payment hash', invalidReceipt((receipt) => { receipt.economic.paymentHash = 'payment-hash'; })],
+    ['unexpected consensus wallet', invalidReceipt((receipt) => { receipt.consensus.wallet = 'wallet'; })],
+    ['missing root booking commitment', invalidReceipt((receipt) => { delete receipt.bookingCommitment; })],
+    ['missing property name', invalidReceipt((receipt) => { delete receipt.property.name; })],
+    ['missing economic amount', invalidReceipt((receipt) => { delete receipt.economic.amountCents; })],
+    ['missing consensus status digest', invalidReceipt((receipt) => { delete receipt.consensus.statusHistoryDigest; })],
+    ['null property', invalidReceipt((receipt) => { receipt.property = null; })],
+    ['array economic', invalidReceipt((receipt) => { receipt.economic = []; })],
+    ['string consensus', invalidReceipt((receipt) => { receipt.consensus = 'confirmed'; })],
+    ['non-string booking commitment', invalidReceipt((receipt) => { receipt.bookingCommitment = true; })],
+    ['non-string property name', invalidReceipt((receipt) => { receipt.property.name = 42; })],
+    ['non-string currency', invalidReceipt((receipt) => { receipt.economic.currency = null; })],
+    ['non-string booking status', invalidReceipt((receipt) => { receipt.consensus.bookingStatus = 1; })],
+    ['negative amount', invalidReceipt((receipt) => { receipt.economic.amountCents = -1; })],
+    ['fractional amount', invalidReceipt((receipt) => { receipt.economic.amountCents = 19.5; })],
+    ['unsafe amount', invalidReceipt((receipt) => { receipt.economic.amountCents = Number.MAX_SAFE_INTEGER + 1; })],
+    ['non-numeric created at', invalidReceipt((receipt) => { receipt.createdAt = 'now'; })],
+    ['non-finite created at', canonical.replace('1753286400000', '1e400')],
+  ])('fails closed for %s', (_label, input) => {
     expect(parseConsensusReceiptView(input)).toBeNull();
   });
 
@@ -53,5 +84,8 @@ describe('consensus receipt view', () => {
     expect(bitcoinBlockUrl(959_201)).toBe('https://mempool.space/block-height/959201');
     expect(bitcoinBlockUrl(undefined)).toBeNull();
     expect(bitcoinBlockUrl(-1)).toBeNull();
+    expect(bitcoinBlockUrl(0)).toBeNull();
+    expect(bitcoinBlockUrl(1.5)).toBeNull();
+    expect(bitcoinBlockUrl(Number.MAX_SAFE_INTEGER + 1)).toBeNull();
   });
 });

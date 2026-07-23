@@ -1,4 +1,14 @@
 const RECEIPT_SCHEMA = 'openstays.consensus-receipt.v1';
+const ROOT_KEYS = ['bookingCommitment', 'consensus', 'createdAt', 'economic', 'property', 'schema'];
+const PROPERTY_KEYS = ['name', 'slug'];
+const ECONOMIC_KEYS = ['amountCents', 'currency', 'paymentProvider', 'paymentStatus'];
+const CONSENSUS_KEYS = [
+  'bookingStatus',
+  'channelEventsDigest',
+  'notificationEventsDigest',
+  'paymentEventsDigest',
+  'statusHistoryDigest',
+];
 
 export type ConsensusReceiptView = {
   schema: typeof RECEIPT_SCHEMA;
@@ -30,6 +40,11 @@ function stringField(object: Record<string, unknown>, field: string): string | n
   return typeof value === 'string' ? value : null;
 }
 
+function hasExactKeys(object: Record<string, unknown>, expectedKeys: string[]): boolean {
+  const keys = Object.keys(object);
+  return keys.length === expectedKeys.length && expectedKeys.every((key) => Object.hasOwn(object, key));
+}
+
 export function parseConsensusReceiptView(canonicalJson: string): ConsensusReceiptView | null {
   let parsed: unknown;
 
@@ -39,12 +54,19 @@ export function parseConsensusReceiptView(canonicalJson: string): ConsensusRecei
     return null;
   }
 
-  if (!isPlainObject(parsed) || parsed.schema !== RECEIPT_SCHEMA) return null;
+  if (!isPlainObject(parsed) || !hasExactKeys(parsed, ROOT_KEYS) || parsed.schema !== RECEIPT_SCHEMA) return null;
 
   const property = parsed.property;
   const economic = parsed.economic;
   const consensus = parsed.consensus;
-  if (!isPlainObject(property) || !isPlainObject(economic) || !isPlainObject(consensus)) return null;
+  if (
+    !isPlainObject(property)
+    || !hasExactKeys(property, PROPERTY_KEYS)
+    || !isPlainObject(economic)
+    || !hasExactKeys(economic, ECONOMIC_KEYS)
+    || !isPlainObject(consensus)
+    || !hasExactKeys(consensus, CONSENSUS_KEYS)
+  ) return null;
 
   const bookingCommitment = stringField(parsed, 'bookingCommitment');
   const propertyName = stringField(property, 'name');
