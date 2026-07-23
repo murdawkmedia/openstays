@@ -1,8 +1,8 @@
 import { ConvexError, v } from 'convex/values';
 import { internalMutation, mutation, query } from './_generated/server';
 import { sha256HexOf } from './apiKeys';
+import { CONSENSUS_REWARD_SATS, LEGACY_CONSENSUS_REWARD_SATS } from './rewardPolicy';
 
-const REWARD_SATS = 210 as const;
 const LEASE_MS = 60_000;
 
 async function authenticatedBooking(ctx: any, confirmationCode: string, email: string) {
@@ -15,7 +15,7 @@ async function authenticatedBooking(ctx: any, confirmationCode: string, email: s
 }
 
 export const submitInvoice = mutation({
-  args: { confirmationCode: v.string(), email: v.string(), bolt11: v.string(), expiresAt: v.number() },
+  args: { confirmationCode: v.string(), email: v.string(), satsAmount: v.number(), bolt11: v.string(), expiresAt: v.number() },
   handler: async (ctx, args) => {
     const booking = await authenticatedBooking(ctx, args.confirmationCode, args.email);
     const reward = await ctx.db.query('wavelengthRewards')
@@ -24,7 +24,9 @@ export const submitInvoice = mutation({
     if (reward.status === 'paid') return reward;
     const bolt11 = args.bolt11.trim();
     const now = Date.now();
-    if (!bolt11.toLowerCase().startsWith('lntbs') || bolt11.length > 10_000 || args.expiresAt <= now + 30_000 || args.expiresAt > now + 3_600_000) {
+    if (args.satsAmount !== CONSENSUS_REWARD_SATS || reward.satsAmount !== CONSENSUS_REWARD_SATS ||
+      !bolt11.toLowerCase().startsWith('lntbs') || bolt11.length > 10_000 ||
+      args.expiresAt <= now + 30_000 || args.expiresAt > now + 3_600_000) {
       throw new ConvexError('INVALID_SIGNET_REWARD_INVOICE');
     }
     if (reward.status === 'invoice_ready' || reward.status === 'paying') {
@@ -51,7 +53,7 @@ export const claimPending = internalMutation({
       .filter((reward) => (reward.leaseExpiresAt ?? 0) <= now);
     const claimed = [];
     for (const reward of [...ready, ...stale].slice(0, limit)) {
-      if (!reward.bolt11 || (reward.invoiceExpiresAt ?? 0) <= now + 30_000 || reward.network !== 'signet' || reward.satsAmount !== REWARD_SATS) {
+      if (!reward.bolt11 || (reward.invoiceExpiresAt ?? 0) <= now + 30_000 || reward.network !== 'signet' || reward.satsAmount !== CONSENSUS_REWARD_SATS) {
         await ctx.db.patch(reward._id, { status: 'expired', failureReason: 'invoice expired', updatedAt: now,
           leaseToken: undefined, leaseExpiresAt: undefined });
         continue;
@@ -72,7 +74,7 @@ export const markPaid = internalMutation({
     if (!reward) throw new ConvexError('WAVELENGTH_REWARD_NOT_FOUND');
     if (reward.status === 'paid') return { paid: false };
     if (reward.status !== 'paying' || reward.leaseToken !== args.leaseToken || (reward.leaseExpiresAt ?? 0) <= Date.now() ||
-      reward.network !== args.network || reward.satsAmount !== REWARD_SATS || args.satsAmount !== REWARD_SATS ||
+      reward.network !== args.network || reward.satsAmount !== CONSENSUS_REWARD_SATS || args.satsAmount !== CONSENSUS_REWARD_SATS ||
       reward.bolt11 !== args.bolt11 || !args.merchantActivityId.trim() || !args.paymentHash.trim() ||
       (reward.merchantActivityId !== undefined && reward.merchantActivityId !== args.merchantActivityId.trim()) ||
       (reward.paymentHash !== undefined && reward.paymentHash !== args.paymentHash.trim())) {
@@ -120,5 +122,36 @@ export const forGuest = query({
     } catch {
       return null;
     }
+  },
+});
+
+export const upgradeLegacyRewards = internalMutation({
+  args: { limit: v.number() },
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(Math.floor(args.limit), 1), 100);
+    const rewards = await ctx.db.query('wavelengthRewards').take(limit);
+    const now = Date.now();
+    let upgraded = 0;
+    for (const reward of rewards) {
+      const inactive = reward.status === 'eligible' || reward.status === 'expired' || reward.status === 'failed';
+      if (reward.satsAmount !== LEGACY_CONSENSUS_REWARD_SATS || !inactive ||
+        reward.merchantActivityId !== undefined || reward.paymentHash !== undefined || reward.paidAt !== undefined) continue;
+      await ctx.db.patch(reward._id, {
+        satsAmount: CONSENSUS_REWARD_SATS,
+        status: 'eligible',
+        attemptCount: 0,
+        bolt11: undefined,
+        invoiceExpiresAt: undefined,
+        merchantActivityId: undefined,
+        paymentHash: undefined,
+        leaseToken: undefined,
+        leaseExpiresAt: undefined,
+        failureReason: undefined,
+        paidAt: undefined,
+        updatedAt: now,
+      });
+      upgraded += 1;
+    }
+    return { scanned: rewards.length, upgraded };
   },
 });

@@ -4,6 +4,7 @@ import { internal } from './_generated/api';
 import { sha256HexOf } from './apiKeys';
 import { buildCanonicalConsensusReceipt, stableStringify } from '../shared/consensusReceipt';
 import { requireStaff } from './staff';
+import { CONSENSUS_REWARD_SATS } from './rewardPolicy';
 
 const RECEIPT_SCHEMA = 'openstays.consensus-receipt.v1' as const;
 const LEASE_MS = 60_000;
@@ -101,7 +102,7 @@ export const publishProof = internalMutation({
       .withIndex('by_receipt', (q) => q.eq('receiptId', receipt._id)).unique();
     if (!existingReward) await ctx.db.insert('wavelengthRewards', {
       propertyId: receipt.propertyId, bookingId: receipt.bookingId, receiptId: receipt._id,
-      network: 'signet', satsAmount: 210, status: 'eligible', attemptCount: 0, createdAt: now, updatedAt: now,
+      network: 'signet', satsAmount: CONSENSUS_REWARD_SATS, status: 'eligible', attemptCount: 0, createdAt: now, updatedAt: now,
     });
     await ctx.scheduler.runAfter(0, (internal as any).email.sendBookingEmail, {
       bookingId: receipt.bookingId, kind: 'consensus_receipt', receiptId: receipt.publicId, receiptSha256: receipt.sha256,
