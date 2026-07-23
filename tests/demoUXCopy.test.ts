@@ -9,13 +9,25 @@ describe('judge-facing checkout copy', () => {
     const invoiceSource = readFileSync(new URL('../src/components/Bolt11Invoice.tsx', import.meta.url), 'utf8');
 
     expect(walletSource).toContain("import { Bolt11Invoice } from '../components/Bolt11Invoice';");
-    expect(walletSource).toContain("request?.bolt11 && request.status === 'invoice_ready'");
+    expect(walletSource).toContain("const bookingInvoiceActive = Boolean(request?.bolt11 && request.status === 'invoice_ready' && request.expiresAt > now);");
+    expect(walletSource).toContain('{bookingInvoiceActive ? <div className="mt-4"><Bolt11Invoice');
     expect(walletSource).toContain('<Bolt11Invoice invoice={request.bolt11} amountSats={request.satsAmount} expiresAt={request.expiresAt} label="Booking invoice" />');
+    expect(walletSource).toContain('Invoice expired; waiting for authoritative reconciliation');
+    expect(walletSource).toContain('const DEMO_FUNDING_DISPLAY_WINDOW_MS = 10 * 60_000;');
+    expect(walletSource).toContain('setDemoFundingDisplayDeadline(Date.now() + DEMO_FUNDING_DISPLAY_WINDOW_MS);');
+    expect(walletSource).toContain('const demoFundingInvoiceActive = Boolean(demoFundingInvoice && demoFundingDisplayDeadline && demoFundingDisplayDeadline > now);');
+    expect(walletSource).toContain(') : demoFundingInvoiceActive ? (');
     expect(walletSource).toContain('<Bolt11Invoice invoice={demoFundingInvoice} amountSats={DEMO_WALLET_TARGET_SATS} label="Demo wallet funding invoice" />');
+    expect(walletSource).toContain('Setup window ended. Confirm no merchant send or inbound activity before reloading to create a replacement.');
+    expect(walletSource).toContain('window.setInterval(() => setNow(Date.now()), 1_000)');
 
     expect(rewardSource).toContain("import { Bolt11Invoice } from '../components/Bolt11Invoice';");
-    expect(rewardSource).toContain("reward?.bolt11 && (reward.status === 'invoice_ready' || reward.status === 'paying')");
-    expect(rewardSource).toContain('<Bolt11Invoice invoice={reward.bolt11} amountSats={CONSENSUS_REWARD_SATS} expiresAt={reward.invoiceExpiresAt} label="Consensus reward invoice" />');
+    expect(rewardSource).toContain("const rewardInvoiceActive = Boolean(reward?.bolt11 && (reward.status === 'invoice_ready' || reward.status === 'paying') && reward.satsAmount === CONSENSUS_REWARD_SATS && !rewardInvoiceExpired);");
+    expect(rewardSource).toContain('{rewardInvoiceActive ? <div className="mt-4"><Bolt11Invoice');
+    expect(rewardSource).toContain('<Bolt11Invoice invoice={reward.bolt11} amountSats={reward.satsAmount} expiresAt={reward.invoiceExpiresAt} label="Consensus reward invoice" />');
+    expect(rewardSource).toContain('Invoice expired; waiting for authoritative reconciliation');
+    expect(rewardSource).toContain('This reward invoice uses a legacy amount and cannot be shown. Wait for authoritative reconciliation.');
+    expect(rewardSource).toContain('window.setInterval(() => setNow(Date.now()), 1_000)');
     expect(invoiceSource).toContain('const qrTitle = `${label} QR for ${amount} Signet test sats`;');
   });
 
