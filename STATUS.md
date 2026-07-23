@@ -110,8 +110,10 @@
   `cr_jd7e1w0s3wb1t719gvnsctpsed8b27wp`: its 724-byte canonical JSON hashes to
   `55172b52543346ce34558f7ac7558fa7e40c5036e17d735d4e96dc6afeacc0bb`.
   The OTS worker validated and uploaded a 700-byte proof accepted by four
-  calendars. Its state is `submitted`, not Bitcoin-anchored, and both browser
-  downloads round-tripped successfully.
+  calendars. The normal background upgrade later verified a Bitcoin attestation
+  at block 959197 and advanced it to `bitcoin_anchored`; both browser downloads
+  round-tripped successfully. The newer `OS-X2A4RP` receipt remains honestly
+  `submitted` while its calendar attestations mature.
 - Mailpit is running on loopback SMTP `127.0.0.1:1025` and inbox
   `127.0.0.1:8025`; the local mail bridge targets only the isolated dev
   deployment. Current live acceptance delivered the fictional confirmation,
@@ -154,12 +156,14 @@
 
 ## Remaining acceptance
 
-- Stamp the fictional sample receipt early; show it honestly as submitted while
-  pending, and upgrade it before the expo if public calendars have anchored it.
+- Keep the fictional sample receipt labeled pending. Use the genuinely anchored
+  `OS-A52VVM` live receipt to demonstrate final Bitcoin verification and the
+  newer `OS-X2A4RP` receipt to explain normal pending maturation.
 - Rehearse the three-minute judge path once with Murphy operating the UI; the
   automated production-like desktop/mobile flow and live signet reward payout
   are complete.
 - Do not inspect or use CBAP credentials/deployments.
-- Murphy accepts the demo; only then consider a separately approved local merge.
+- `codex/btcpp-consensus-mvp` has been fast-forwarded into and pushed on `main`;
+  production deployment remains separately controlled.
 
 See [docs/hackathon-mvp.md](./docs/hackathon-mvp.md).

@@ -225,8 +225,9 @@ settled fictional reservation and keep a fresh payable hold in a second tab.
    reservation and state that the pending network action is never treated as
    payment.
 3. **0:55–1:35 — receipt.** Show “Consensus reached,” the canonical receipt
-   hash, and the JSON/`.ots` downloads. Say explicitly: calendar submission is
-   real, Bitcoin anchoring is eventual, and a pending proof is not called
+   hash, and the JSON/`.ots` downloads. Use `OS-A52VVM` to show the genuine
+   Bitcoin attestation at block 959197, then contrast it with the newer pending
+   receipt: calendar submission is real, and a pending proof is never called
    anchored.
 4. **1:35–2:10 — reward.** Tap **Claim 1,000 signet sats**, show the amount-
    bearing guest invoice and the paid/reconciled state. The wallet seed and
