@@ -131,6 +131,14 @@ $env:OTS_BRIDGE_TOKEN='<same-token>'
 npm --prefix cli run start -- ots-bridge
 ```
 
+On this Windows demo machine, after `.env.local` selects the approved isolated
+development deployment and its `OTS_BRIDGE_TOKEN` is configured, start the same
+worker without exposing the token in the terminal:
+
+```powershell
+.\scripts\start-local-ots-bridge.ps1
+```
+
 Do not reuse the Wavelength token. The worker reconstructs the stored canonical
 UTF-8 JSON, checks its SHA-256, stamps it with the official `ots` client's
 default public calendars, validates the proof commitment, and uploads the
