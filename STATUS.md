@@ -1,6 +1,6 @@
 # OpenStays status
 
-**Updated: 2026-07-23 — final judge-flow hardening in progress.**
+**Updated: 2026-07-23 — final judge-flow hardening and live acceptance.**
 
 ## Current state
 
@@ -8,19 +8,31 @@
 - The Consensus Commons MVP is merged and pushed on `main` at `3f45b70`.
   Final judge-flow hardening is on `codex/judge-opening-infographics`; the
   branch will remain unmerged and is pushed only after the fresh gates pass.
-- With Murphy's explicit approval, commit `0b45c3f` was uploaded only to the
+- With Murphy's explicit approval, commit `3815f7d` was uploaded only to the
   isolated `affable-wildcat-206` development deployment. The receipt, reward,
   and bridge routes are live there; no production deployment was touched.
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Fresh 2026-07-23 gates: 374 root tests and 69 CLI tests passed; root and CLI
+- Fresh 2026-07-23 final gates passed 379 root tests, 69 CLI tests, and four
+  desktop/mobile production-like browser checks. Root and CLI
   typechecks/builds plus the documentation build passed. The existing Node
   `TimeoutNegativeWarning` remains non-fatal in the runner.
-- Current unpushed hardening adds exact Wavelength terminal-failure
-  reconciliation, paid-state crash recovery, single-use prepared payments, a
-  tracked Signet deposit address for empty wallets, and bounded/consistent fee
-  validation. Failed or pending money cannot be rewritten as settled.
+- The pushed hardening adds exact Wavelength terminal-failure reconciliation,
+  paid-state crash recovery, single-use prepared payments, a tracked Signet
+  deposit address for empty wallets, and bounded/consistent fee validation.
+  Failed or pending money cannot be rewritten as settled.
+- The isolated deployment now has fresh demo-only Convex Auth signing
+  configuration and localhost site URL. `Consensus Commons Judge` was created
+  and bootstrapped as an owner; live staff sign-in, Booking tape, Settings, and
+  Operations were verified. `CONSENSUS10` was also applied successfully in a
+  fresh public booking.
+- A fresh browser failure was traced to ignored Wavelength runtime binaries
+  being absent from the active worktree. The pinned checksum-verified installer
+  restored all eight assets; desktop/mobile live-wallet acceptance passed.
+  Preview and live browser tests now have an actionable runtime preflight, and
+  the wallet exposes explicit balance refresh plus pending-inbound boarding
+  progress.
 - Consensus Commons now has three generated fictional property images, an
   accessible gallery/lightbox, clickable stay amenities, an idempotent
   `CONSENSUS10` demo promotion, and honest marketing-consent copy. A fresh
@@ -52,7 +64,8 @@
   delivers through an authenticated generic SMTP worker. Resend and log-only
   remain supported; the pinned Mailpit profile is loopback capture only.
 - Live local runtime: isolated Murdawk Convex dev deployment
-  `affable-wildcat-206`, seeded demo inventory, Vite on `127.0.0.1:5173`,
+  `affable-wildcat-206`, seeded demo inventory, production preview on
+  `127.0.0.1:4173`,
   loopback-only Wavelength v0.1.0 wallets/merchant bridge, the WSL-backed OTS
   worker, and Mailpit plus its SMTP bridge.
 - The dedicated Consensus Commons Zaprite API key/custom checkout are configured
@@ -171,21 +184,18 @@
 
 ## Remaining acceptance
 
-- Upload the current branch functions and seed only to the isolated
-  `affable-wildcat-206` deployment after the explicit configuration gate is
-  approved. Its current server state does not yet include the new failure route
-  or `CONSENSUS10`.
-- Configure isolated-demo Convex Auth (`JWT_PRIVATE_KEY`, `JWKS`, `SITE_URL`)
-  and bootstrap a demo owner; staff account creation currently fails closed
-  because those keys are intentionally absent.
+- Keep all external writes limited to the isolated `affable-wildcat-206`
+  development deployment. Its functions, seed refresh, failure route,
+  `CONSENSUS10`, localhost auth configuration, and demo owner are now live.
 - Keep the fictional sample receipt labeled pending. Use either genuinely
   anchored live receipt (`OS-A52VVM` at block 959197 or `OS-X2A4RP` at block
   959201) to demonstrate final Bitcoin verification.
 - Use `docs/demo/judge-opening/variation-a-consensus-convergence.png` as the
   recommended opening visual; B and C remain ready alternatives.
-- Rehearse the three-minute judge path once with Murphy operating the UI; the
-  automated production-like desktop/mobile flow and live signet reward payout
-  are complete.
+- Rehearse the three-minute judge path once with Murphy operating the UI. The
+  automated production-like desktop/mobile flow and prior live signet booking
+  plus reward payouts are complete; a fresh disposable browser wallet also
+  reached the honest 2,500-sat pending-boarding state during the final pass.
 - Do not inspect or use CBAP credentials/deployments.
 - `codex/btcpp-consensus-mvp` has been fast-forwarded into and pushed on `main`;
   production deployment remains separately controlled.

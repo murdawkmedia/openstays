@@ -11,6 +11,7 @@ import {
   useWalletCreate,
   useWalletDeposit,
   useWalletPrepareSend,
+  useWalletRefresh,
   useWalletSend,
   useWalletUnlock,
 } from '@lightninglabs/wavelength-react';
@@ -51,6 +52,7 @@ function WalletPayment() {
   const unlock = useWalletUnlock();
   const deposit = useWalletDeposit();
   const prepare = useWalletPrepareSend();
+  const refresh = useWalletRefresh();
   const send = useWalletSend();
   const spendableSats = balance?.confirmedSat ?? 0;
 
@@ -135,11 +137,20 @@ function WalletPayment() {
     }
   }
 
+  async function refreshBalance() {
+    setError('');
+    try {
+      await refresh.refresh();
+    } catch (err) {
+      setError(explainWavelengthError(err));
+    }
+  }
+
   const displayError = error || (walletError || create.createError || unlock.unlockError ||
-    deposit.depositError || prepare.prepareError || send.sendError
+    deposit.depositError || prepare.prepareError || refresh.refreshError || send.sendError
     ? explainWavelengthError(
       walletError ?? create.createError ?? unlock.unlockError ??
-      deposit.depositError ?? prepare.prepareError ?? send.sendError,
+      deposit.depositError ?? prepare.prepareError ?? refresh.refreshError ?? send.sendError,
     )
     : '');
 
@@ -158,7 +169,7 @@ function WalletPayment() {
           <label className="field-label" htmlFor="wallet-email">Booking email</label>
           <input id="wallet-email" type="email" className="field-input" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
           <button type="button" className="btn-primary mt-4" disabled={!email || !bookingId || !confirmationCode} onClick={() => void begin()}>Request signet invoice</button>
-          {displayError ? <p role="alert" className="mt-3 text-sm text-red-700">{displayError}</p> : null}
+          {error ? <p role="alert" className="mt-3 text-sm text-red-700">{error}</p> : null}
         </section>
       ) : (
         <div className="space-y-5">
@@ -189,6 +200,14 @@ function WalletPayment() {
               <div className="mt-4">
                 <p className="text-sm text-stone-500">Spendable balance</p>
                 <p className="text-2xl font-semibold">{spendableSats.toLocaleString()} sats</p>
+                {(balance?.pendingInSat ?? 0) > 0 ? (
+                  <p role="status" className="mt-2 text-sm font-medium text-sky-900">
+                    Pending inbound: {balance?.pendingInSat.toLocaleString()} sats. Waiting for boarding to complete.
+                  </p>
+                ) : null}
+                <button type="button" className="btn-secondary mt-3" disabled={refresh.refreshPending} onClick={() => void refreshBalance()}>
+                  {refresh.refreshPending ? 'Refreshing…' : 'Refresh wallet balance'}
+                </button>
                 {spendableSats < (request?.satsAmount ?? 1) ? (
                   <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4">
                     <p className="font-medium text-sky-950">Fund this wallet before paying</p>

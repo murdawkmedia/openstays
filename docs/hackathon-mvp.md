@@ -16,6 +16,7 @@ npm install
 npx convex dev
 npm run seed
 npm run wavelength:runtime
+npm run wavelength:runtime:check
 npm run dev
 ```
 
@@ -24,6 +25,9 @@ verifies its SHA-256 digest before placing it under `public/wavewalletdk/`.
 Those generated assets are ignored. Vite and `public/_headers` set COOP/COEP.
 The wallet SDK is lazy-loaded only on `/wallet/*`, uses
 `defaultConfig("signet")`, and never sends a seed or password to OpenStays.
+`npm run preview` and `npm run test:e2e:smoke` run the runtime preflight first,
+so a fresh worktree fails with an actionable install command instead of a
+generic wallet startup error.
 
 ## Customer and staff surfaces
 
@@ -81,10 +85,12 @@ npm --prefix cli run start -- wave-bridge
 ```
 
 On Windows, after `.env.local` points to the intended Convex deployment, the
-helper script retrieves the bridge token without echoing it and starts the
-same bridge hidden:
+first helper starts the existing loopback-only merchant wallet daemon without
+printing its password or macaroon. The second retrieves the bridge token
+without echoing it and starts the bridge hidden:
 
 ```powershell
+.\scripts\start-local-wavelength-daemon.ps1
 .\scripts\start-local-bridge.ps1
 ```
 
@@ -109,7 +115,10 @@ The browser wallet shows a prepared-payment review and verifies that principal
 plus fee exactly matches the total outflow. It refuses unknown fees, a fee over
 210 sats, or an inconsistent total. The confirm action is single-use, and an
 empty wallet can create a fresh tracked Signet deposit address before payment.
-Recovery words are hidden by default and are never transmitted.
+Recovery words are hidden by default and are never transmitted. Confirmed
+on-chain funds are shown as pending inbound while they board into Ark, and the
+guest can explicitly refresh the browser wallet balance without reloading or
+reusing a payment intent.
 
 ## Consensus Commons demo inventory
 
