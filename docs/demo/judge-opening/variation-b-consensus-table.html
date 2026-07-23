@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenStays — Consensus Table</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+    body {
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background: #f7f2e8;
+      color: #17231f;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .canvas {
+      position: relative;
+      width: 1600px;
+      height: 900px;
+      padding: 48px 68px 40px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(247, 147, 26, .08), transparent 31%),
+        #f7f2e8;
+    }
+    header { display: flex; justify-content: space-between; align-items: flex-end; }
+    .eyebrow {
+      margin: 0 0 9px;
+      color: #cb6e00;
+      font-size: 19px;
+      font-weight: 900;
+      letter-spacing: .2em;
+    }
+    h1 {
+      margin: 0;
+      font-size: 61px;
+      line-height: 1;
+      letter-spacing: -.045em;
+    }
+    .question {
+      max-width: 430px;
+      margin: 0 0 4px;
+      color: #40534b;
+      font-size: 24px;
+      line-height: 1.25;
+      text-align: right;
+    }
+    .table {
+      position: relative;
+      height: 585px;
+      margin-top: 22px;
+    }
+    .table::before, .table::after {
+      content: "";
+      position: absolute;
+      z-index: 0;
+      background: rgba(247, 147, 26, .72);
+    }
+    .table::before {
+      top: 278px;
+      left: 185px;
+      width: 1090px;
+      height: 4px;
+    }
+    .table::after {
+      top: 58px;
+      left: 730px;
+      width: 4px;
+      height: 434px;
+    }
+    .actor {
+      position: absolute;
+      z-index: 2;
+      display: grid;
+      align-content: center;
+      width: 325px;
+      height: 126px;
+      padding: 20px 24px;
+      border: 2px solid #d7ccba;
+      border-radius: 16px;
+      background: #fffdf8;
+      box-shadow: 0 11px 30px rgba(25, 39, 33, .08);
+    }
+    .actor strong {
+      color: #cb6e00;
+      font-size: 19px;
+      letter-spacing: .14em;
+    }
+    .actor span {
+      margin-top: 8px;
+      font-size: 28px;
+      font-weight: 750;
+      letter-spacing: -.025em;
+    }
+    .guest { top: 18px; left: 210px; }
+    .property { top: 18px; right: 210px; }
+    .payment { top: 224px; left: 4px; }
+    .notification { top: 224px; right: 4px; }
+    .channels { left: 567px; bottom: 4px; }
+    .ledger {
+      position: absolute;
+      top: 157px;
+      left: 537px;
+      z-index: 3;
+      display: grid;
+      place-items: center;
+      width: 390px;
+      height: 246px;
+      border: 8px solid #f7f2e8;
+      border-radius: 50%;
+      background: #153b32;
+      box-shadow: 0 0 0 4px #39c6b4, 0 22px 45px rgba(21, 59, 50, .22);
+      color: #f7f2e8;
+      text-align: center;
+    }
+    .ledger small {
+      margin-bottom: -37px;
+      color: #77e3d4;
+      font-size: 21px;
+      font-weight: 850;
+      letter-spacing: .18em;
+    }
+    .ledger strong {
+      font-size: 47px;
+      line-height: .96;
+      letter-spacing: -.04em;
+    }
+    .proof-strip {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr .55fr;
+      align-items: stretch;
+      min-height: 104px;
+      margin-top: 6px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #183f5c;
+      color: #f7f2e8;
+    }
+    .proof-strip span {
+      display: flex;
+      align-items: center;
+      padding: 20px 27px;
+      border-right: 1px solid rgba(247, 242, 232, .22);
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+    .proof-strip span:last-child {
+      justify-content: center;
+      border-right: 0;
+      background: #f7931a;
+      color: #17231f;
+      font-size: 24px;
+      font-weight: 950;
+      letter-spacing: .08em;
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas" aria-label="OpenStays consensus table infographic">
+    <header>
+      <div>
+        <p class="eyebrow">FIVE ACTORS · ONE AUTHORITATIVE STATE</p>
+        <h1>WHO DECIDES<br>THE BOOKING IS REAL?</h1>
+      </div>
+      <p class="question">Each participant sees one part of the truth. OpenStays makes their agreement visible.</p>
+    </header>
+    <section class="table" aria-label="Five booking actors reach consensus">
+      <div class="actor guest"><strong>GUEST</strong><span>Did I book?</span></div>
+      <div class="actor property"><strong>PROPERTY</strong><span>Is it available?</span></div>
+      <div class="actor payment"><strong>PAYMENT</strong><span>Did it settle?</span></div>
+      <div class="actor notification"><strong>NOTIFICATIONS</strong><span>Was it delivered?</span></div>
+      <div class="actor channels"><strong>CHANNELS</strong><span>Is inventory ready?</span></div>
+      <div class="ledger"><small>OPENSTAYS</small><strong>CONSENSUS<br>REACHED</strong></div>
+    </section>
+    <section class="proof-strip" aria-label="Proof, reward, and open-source outcomes">
+      <span>OpenTimestamps → privacy-safe Bitcoin proof</span>
+      <span>Wavelength → 1,000 signet sats</span>
+      <span>OPEN SOURCE</span>
+    </section>
+  </main>
+</body>
+</html>
