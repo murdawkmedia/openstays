@@ -4,6 +4,12 @@
 
 ## Current state
 
+- Latest scoped implementation verification: 428 root tests passed; root
+  typecheck and production build passed. The receipt inspector fails closed,
+  QR generation has a capacity fallback, and expiry/amount gates remain enforced.
+  Scoped checks exposed no invoice strings, hashes, secrets, tokens, or payment
+  hashes in committed judge-facing documentation.
+
 - Working branch: `codex/judge-opening-infographics`.
 - The Consensus Commons MVP is merged and pushed on `main` at `3f45b70`.
   Final judge-flow hardening is on `codex/judge-opening-infographics`; the
