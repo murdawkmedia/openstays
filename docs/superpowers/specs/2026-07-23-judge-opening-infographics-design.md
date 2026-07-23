@@ -145,4 +145,3 @@ Emergency 15-second version:
 - Variation A is visually strongest unless inspection shows another treatment
   communicates the concept faster.
 - Source brief, HTML files, and PNGs live under `docs/demo/judge-opening/`.
-
