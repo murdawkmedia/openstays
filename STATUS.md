@@ -13,7 +13,7 @@
 - Competition baseline: annotated local tag
   `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
   `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Current full gates: 356 root tests and 67 CLI tests passed; root and CLI
+- Current full gates: 356 root tests and 68 CLI tests passed; root and CLI
   typechecks/builds plus the documentation build passed. Desktop/mobile public
   browser smoke passed; the two live-wallet cases skipped without their explicit
   live inputs. The existing Node `TimeoutNegativeWarning` remains non-fatal in
@@ -28,8 +28,8 @@
 - The permanent reward principal is now implemented locally as exactly 1,000
   signet sats. Convex keeps legacy 210-sat rows readable, creates only 1,000-sat
   rows, and includes an idempotent migration limited to inactive unpaid rewards.
-  The isolated demo migration has not been invoked; its existing eligible row
-  remains legacy until the separately approved live-acceptance step.
+  The isolated demo migration upgraded its one eligible unpaid legacy row; an
+  immediate replay upgraded zero rows.
 - During required TypeScript binding generation, `npx convex codegen` reported
   uploading function bundles to the configured isolated development deployment.
   No `convex dev`, production deploy, or migration command was run. Treat the
@@ -70,7 +70,19 @@
   invoice attempts isolated Wavelength's public signet `CreateCredit` failure
   to amounts below the operator's 1,000-sat minimum: two native wallets and the
   browser timed out at 210 sats, while a 1,000-sat control invoice returned
-  immediately. No merchant reward payout was dispatched.
+  immediately.
+- Live reward acceptance completed on the isolated development deployment. The
+  protected browser guest wallet created a fresh amount-bearing invoice, the
+  merchant prepared and sent exactly 1,000 signet sats, and Wavelength reported
+  one completed outgoing activity. The bridge now requires Wavelength's signed
+  outgoing amount (`-1000`) before reporting settlement. OpenStays recorded one
+  paid reward with one attempt, and repeated bridge polls produced no second
+  payment. The guest wallet and reloaded reward UI both showed 1,000 sats and
+  the authoritative paid announcement.
+- A separate, unfunded disposable in-app-browser wallet was abandoned after its
+  recovery words appeared in the local automation trace. It never received an
+  invoice payment and must not be used. The protected persistent demo wallet's
+  recovery material was not exposed.
 - The pinned official OpenTimestamps client is installed in WSL because its
   `python-bitcoinlib` dependency could not discover the native Windows Python
   OpenSSL 3 DLL. The CLI now has a tested WSL invocation/path adapter while
@@ -127,13 +139,9 @@
 
 - Stamp the fictional sample receipt early; show it honestly as submitted while
   pending, and upgrade it before the expo if public calendars have anchored it.
-- Wait for the pending Wavelength payment hash to reach an authoritative
-  terminal state, then use a fresh hold/invoice for the next acceptance. Do not
-  replay the expired invoice. The merchant is funded; no mainnet wallet,
-  invoice, or payment is in scope.
-- Upgrade the existing unpaid eligible demo reward from legacy 210 sats to
-  1,000 sats, then keep the guest wallet open through merchant payout
-  reconciliation. Do not bypass or manually mark the reward.
+- Rehearse the three-minute judge path once with Murphy operating the UI; the
+  automated production-like desktop/mobile flow and live signet reward payout
+  are complete.
 - Do not inspect or use CBAP credentials/deployments.
 - Murphy accepts the demo; only then consider a separately approved local merge.
 
