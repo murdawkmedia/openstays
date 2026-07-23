@@ -45,9 +45,7 @@ describe('ConsensusReceiptSummary', () => {
     expect(html).toContain('View canonical receipt');
     expect(html).toContain('Verify at OpenTimestamps.org');
     expect(html).toContain('Upload the receipt JSON and matching .ots proof.');
-    expect(html).toContain('href="https://opentimestamps.org/"');
-    expect(html).toContain('target="_blank"');
-    expect(html).toContain('rel="noreferrer"');
+    expect(html).toMatch(/<a href="https:\/\/opentimestamps\.org\/" target="_blank" rel="noreferrer"[^>]*>Verify at OpenTimestamps\.org<\/a>/);
     expect(html).not.toContain('mempool.space');
   });
 
@@ -61,7 +59,7 @@ describe('ConsensusReceiptSummary', () => {
       onDownloadJson: () => undefined, onDownloadProof: () => undefined,
     }));
 
-    expect(html).toContain('href="https://mempool.space/block-height/959201"');
+    expect(html).toMatch(/<a href="https:\/\/mempool\.space\/block-height\/959201" target="_blank" rel="noreferrer"[^>]*>View Bitcoin block 959201<\/a>/);
   });
 
   it('keeps receipt downloads available when canonical JSON cannot be previewed', () => {
@@ -74,6 +72,24 @@ describe('ConsensusReceiptSummary', () => {
       onDownloadJson: () => undefined, onDownloadProof: () => undefined,
     }));
 
+    expect(html).toContain('Receipt preview unavailable');
+    expect(html).toContain('Download receipt JSON');
+    expect(html).toContain('Download .ots proof');
+  });
+
+  it('does not throw for an out-of-range receipt creation time', () => {
+    const outOfRangeJson = JSON.stringify({ ...JSON.parse(canonicalJson), createdAt: 8_640_000_000_000_001 });
+    const render = () => renderToStaticMarkup(createElement(ConsensusReceiptSummary, {
+      receipt: {
+        publicId: 'cr_demo', status: 'submitted', sha256: 'a'.repeat(64), canonicalJson: outOfRangeJson,
+        schemaVersion: 'openstays.consensus-receipt.v1', proofBase64: 'proof',
+      },
+      reward: null, rewardUrl: '/wallet/reward/OS-DEMO',
+      onDownloadJson: () => undefined, onDownloadProof: () => undefined,
+    }));
+
+    expect(render).not.toThrow();
+    const html = render();
     expect(html).toContain('Receipt preview unavailable');
     expect(html).toContain('Download receipt JSON');
     expect(html).toContain('Download .ots proof');
