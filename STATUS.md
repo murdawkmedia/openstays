@@ -1,9 +1,19 @@
 # OpenStays status
 
-**Updated: 2026-07-26 — public live-payment design approved.**
+**Updated: 2026-07-26 — public live-payment implementation plan ready.**
 
 ## Current state
 
+- The approved design now has a task-by-task implementation plan at
+  `docs/superpowers/plans/2026-07-26-public-live-payment-rails.md`. It covers
+  the runtime dependency gate, exact live-rail enforcement, disclosure and
+  Turnstile eligibility, 14-day retention, bounded rewards, public wallet
+  routes, the Cloudflare Worker/Container/Durable Object/R2 layer, encrypted
+  wallet recovery, bridge supervision, refund UX, operations documentation,
+  forced-restart rehearsal, and final live acceptance.
+- The plan remains documentation-only. No credential file was opened, no
+  provider or Cloudflare resource was created, no deployment was changed, and
+  every external action is held behind a fresh execution-time approval.
 - Approved public live-payment design is recorded on
   `codex/public-live-payment-rails` in
   `docs/superpowers/specs/2026-07-26-public-live-payment-rails-design.md`.
