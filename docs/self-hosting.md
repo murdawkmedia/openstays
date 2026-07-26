@@ -275,6 +275,49 @@ Until `RESEND_API_KEY` is set (or whenever `DEMO_MODE=true`), sends degrade
 to an `emailLog` row with `status: 'logged'` instead of a real delivery —
 nothing in the booking flow blocks or errors because email isn't configured.
 
+## Public Cloudflare Pages showcase
+
+The gallery deployment is a deliberately constrained product tour, not a
+publicly funded wallet service. Build it with `VITE_PUBLIC_SHOWCASE=true` to
+replace staff and wallet routes with explanatory boundary pages, hide live
+Wavelength checkout actions, and keep fictional Consensus Commons content
+available for browsing.
+
+Use a dedicated Convex deployment. Set only the demo-safe server environment:
+
+```powershell
+npx convex env set DEMO_MODE true
+npx convex env set EMAIL_PROVIDER log_only
+npx convex run seed:run
+```
+
+Do not configure Zaprite, Wavelength, OpenTimestamps bridge, Channex, SMTP,
+OAuth, Stripe, or Square credentials on this deployment. In particular, never
+select or inspect the unrelated CBAP Convex project.
+
+Build and upload the static site:
+
+```powershell
+npm run wavelength:runtime
+$env:VITE_PUBLIC_SHOWCASE='true'
+$env:VITE_BASE='/'
+$env:VITE_CONVEX_URL=$publicConvexUrl
+npm run build
+npx wrangler pages deploy dist --project-name openstays-consensus --branch main
+```
+
+The repository's `public/_redirects` preserves client-side deep links and
+`public/_headers` preserves the COOP/COEP isolation required by the bundled
+wallet runtime. The runtime remains packaged so the product architecture can
+be explained, even though public wallet actions are disabled.
+
+After deploying, verify the root tour, a property page, a unit page, and a deep
+link. Confirm the public-showcase banner is visible, staff and wallet routes
+fail closed, no horizontal overflow appears at 390 px, and no real payment or
+email provider is contacted. The demo reset must remove prior fictional
+bookings, messages, refunds, receipts, rewards, bridge requests, and audit
+events before restoring both fictional seed properties.
+
 ## iCal import (M1 — in progress)
 
 Two-way iCal keeps an externally-listed calendar (a direct Airbnb listing, a
