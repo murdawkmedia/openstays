@@ -7,18 +7,29 @@
 - Public showcase work is isolated on `codex/cloudflare-pages-showcase`. It
   adds a sanitized Consensus Commons product tour, fail-closed staff/wallet
   route boundaries, Cloudflare Pages SPA/header contracts, and a complete
-  nightly demo reset. The target is `openstays-consensus.pages.dev`.
+  nightly demo reset. The direct-upload production site is live at
+  `https://openstays-consensus.pages.dev/`; no custom domain, DNS record,
+  Git integration, Worker, source push, or branch merge was performed.
 - The public deployment uses a new dedicated Murdawk Media Convex project with
   fictional inventory, simulated payments, and log-only email. It must not
   contain provider, bridge, SMTP, OAuth, or wallet credentials, and the
   unrelated CBAP project remains explicitly out of scope.
+- The dedicated backend is `murdawkmedia/openstays-consensus` on the isolated
+  `usable-rooster-938` deployment. Its complete environment-name inventory is
+  `DEMO_MODE` and `EMAIL_PROVIDER`; the reset was invoked successfully and
+  restored Consensus Commons.
 - The public build preserves the real booking-system context while explaining
   the hackathon's Wavelength signet and OpenTimestamps work. It does not operate
   an always-on wallet, faucet, reward payer, or staff console.
-- Local feature tests cover the public policy, sanitized tour, route
-  boundaries, checkout suppression, complete reset, Cloudflare deep-link
-  routing, and cross-origin headers. Full gates and external smoke-test evidence
-  are recorded after provisioning.
+- The public bundle removes live staff/wallet modules and the 123 MiB Wavelength
+  WASM directory. Cloudflare Pages accepted the resulting eight-file build.
+- Live smoke checks passed for the tour, property, unit, `/admin`, and
+  `/wallet/demo` deep links. Every route returned HTTP 200 with COOP/COEP
+  headers; staff and wallet paths rendered the public boundary. Desktop and
+  390 px browser checks reported no warning/error logs or horizontal overflow.
+- Local verification passed 440 root tests, root typecheck/build, docs build,
+  69 CLI tests, and CLI typecheck/build before publication. A final full gate
+  is rerun after recording this deployment evidence.
 
 - Latest scoped implementation verification: 428 root tests passed; root
   typecheck and production build passed. The receipt inspector fails closed,
