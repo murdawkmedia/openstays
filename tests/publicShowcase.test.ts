@@ -8,14 +8,18 @@ describe('publicShowcasePolicy', () => {
     expect(publicShowcasePolicy(undefined)).toEqual({
       enabled: false,
       allowLiveWavelength: true,
+      allowLiveZaprite: true,
+      allowSimulated: true,
       allowStaffRoutes: true,
     });
   });
 
-  it('blocks live wallet and staff routes in the public build', () => {
-    expect(publicShowcasePolicy('true')).toEqual({
+  it('keeps staff closed while independently enabling public rails', () => {
+    expect(publicShowcasePolicy('true', 'true', 'false', 'true')).toEqual({
       enabled: true,
-      allowLiveWavelength: false,
+      allowLiveWavelength: true,
+      allowLiveZaprite: false,
+      allowSimulated: true,
       allowStaffRoutes: false,
     });
   });
