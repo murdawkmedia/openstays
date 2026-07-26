@@ -20,4 +20,12 @@ describe("Cloudflare Pages public showcase contract", () => {
       "VITE_PUBLIC_SHOWCASE=false",
     );
   });
+
+  it("omits the oversized wallet runtime from public-only builds", () => {
+    const viteConfig = readFileSync("vite.config.ts", "utf8");
+
+    expect(viteConfig).toContain("public-showcase-omit-wallet-runtime");
+    expect(viteConfig).toContain("process.env.VITE_PUBLIC_SHOWCASE === 'true'");
+    expect(viteConfig).toContain("resolve('dist', 'wavewalletdk')");
+  });
 });
