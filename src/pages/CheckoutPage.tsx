@@ -10,6 +10,7 @@ import { Spinner } from '../components/Spinner';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
 import { PriceBreakdownView } from '../components/PriceBreakdownView';
 import { formatCountdown, formatDisplayDate } from '../lib/dates';
+import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 import { NotFoundPage } from './NotFoundPage';
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -238,7 +239,14 @@ export function CheckoutPage() {
           </div>
         )}
 
-        {wavelengthInfo?.available && (
+        {PUBLIC_SHOWCASE.enabled ? (
+          <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Live signet settlement is shown in the public tour but is not operated as a
+            public wallet faucet. Complete the simulated demo payment to explore the
+            authoritative booking state.
+          </p>
+        ) : null}
+        {wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength && (
           <Link
             to={walletPath(bookingId, code)}
             className={`btn-secondary mt-3 flex w-full items-center justify-center gap-2 ${expired ? 'pointer-events-none opacity-40' : ''}`}
@@ -247,7 +255,7 @@ export function CheckoutPage() {
             Pay with a signet Wavelength wallet
           </Link>
         )}
-        {wavelengthInfo?.available && (
+        {wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength && (
           <p className="mt-2 text-center text-xs text-stone-500">
             Signet test sats · fixed hackathon quote · self-custodial
           </p>

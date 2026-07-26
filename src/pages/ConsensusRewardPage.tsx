@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { createWebWalletEngine, defaultConfig } from '@lightninglabs/wavelength-web';
 import wavelengthWorkerUrl from '@lightninglabs/wavelength-web/wavewalletdk-worker.js?url';
 import { WavelengthProvider, useWallet, useWalletBalance, useWalletCreate, useWalletReceive, useWalletUnlock } from '@lightninglabs/wavelength-react';
 import { api } from '../../convex/_generated/api';
+import { Bolt11Invoice } from '../components/Bolt11Invoice';
 import { wavelengthRuntimeOptions } from '../lib/wavelengthRuntime';
 import { CONSENSUS_REWARD_LABEL, CONSENSUS_REWARD_SATS } from '../lib/consensusReward';
 
@@ -20,15 +21,27 @@ function RewardWallet() {
   const [email, setEmail] = useState(params.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [now, setNow] = useState(() => Date.now());
   const auth = code && email.includes('@') ? { confirmationCode: code, email } : 'skip';
   const receipt = useQuery((api as any).consensusReceipts.forGuest, auth) as any;
   const reward = useQuery((api as any).wavelengthRewards.forGuest, auth) as any;
+  const rewardInvoiceHasValidExpiry = typeof reward?.invoiceExpiresAt === 'number' && Number.isFinite(reward.invoiceExpiresAt);
+  const rewardInvoiceExpired = Boolean(reward?.bolt11 && (reward.status === 'invoice_ready' || reward.status === 'paying') && rewardInvoiceHasValidExpiry && reward.invoiceExpiresAt <= now);
+  const rewardInvoiceActive = Boolean(reward?.bolt11 && (reward.status === 'invoice_ready' || reward.status === 'paying') && reward.satsAmount === CONSENSUS_REWARD_SATS && rewardInvoiceHasValidExpiry && reward.invoiceExpiresAt > now);
+  const rewardInvoiceHasLegacyAmount = Boolean(reward?.bolt11 && (reward.status === 'invoice_ready' || reward.status === 'paying') && reward.satsAmount !== CONSENSUS_REWARD_SATS);
+  const rewardInvoiceExpiryUnavailable = Boolean(reward?.bolt11 && (reward.status === 'invoice_ready' || reward.status === 'paying') && !rewardInvoiceHasValidExpiry);
   const submitInvoice = useMutation((api as any).wavelengthRewards.submitInvoice);
   const { phase, error: walletError } = useWallet();
   const balance = useWalletBalance();
   const create = useWalletCreate();
   const unlock = useWalletUnlock();
   const receive = useWalletReceive();
+
+  useEffect(() => {
+    if (!rewardInvoiceActive) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [rewardInvoiceActive]);
 
   async function openWallet() {
     setError('');
@@ -61,6 +74,7 @@ function RewardWallet() {
         <button type="button" className="btn-primary mt-3" disabled={!password || create.createPending || unlock.unlockPending} onClick={() => void openWallet()}>{phase === 'needsWallet' ? 'Create wallet' : 'Unlock wallet'}</button></div> : null}
       {phase === 'ready' ? <div className="mt-4"><p className="text-sm text-stone-500">Balance</p><p className="text-2xl font-semibold">{(balance?.confirmedSat ?? 0).toLocaleString()} sats</p>
         {reward?.status === 'paid' ? <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 font-medium text-emerald-800">Reward paid: consensus reached in both directions.</p> : <button type="button" className="btn-primary mt-4" disabled={!reward || receive.receivePending || reward.status === 'paying' || reward.status === 'invoice_ready'} onClick={() => void claim()}>{receive.receivePending ? 'Creating invoice…' : reward?.status === 'paying' || reward?.status === 'invoice_ready' ? 'Merchant payment in progress…' : `Claim ${CONSENSUS_REWARD_LABEL}`}</button>}</div> : null}
+      {rewardInvoiceActive ? <div className="mt-4"><Bolt11Invoice invoice={reward.bolt11} amountSats={reward.satsAmount} expiresAt={reward.invoiceExpiresAt} label="Consensus reward invoice" /></div> : rewardInvoiceExpiryUnavailable ? <p role="status" className="mt-4 text-sm text-stone-600">Invoice expiry is unavailable; QR cannot be shown while awaiting authoritative reconciliation.</p> : rewardInvoiceHasLegacyAmount ? <p role="status" className="mt-4 text-sm text-stone-600">This reward invoice uses a legacy amount and cannot be shown. Wait for authoritative reconciliation.</p> : rewardInvoiceExpired ? <p role="status" className="mt-4 text-sm text-stone-600">Invoice expired; waiting for authoritative reconciliation</p> : null}
       {(error || walletError || create.createError || unlock.unlockError || receive.receiveError) ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error || walletError?.message || create.createError?.message || unlock.unlockError?.message || receive.receiveError?.message}</p> : null}
       {create.createData?.mnemonic?.length ? <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4"><p className="font-semibold">Save these recovery words offline</p><p className="mt-2 break-words font-mono text-sm">{create.createData.mnemonic.join(' ')}</p></div> : null}
     </section> : null}

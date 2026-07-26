@@ -76,6 +76,40 @@ describe('runWaveBridgeOnce', () => {
     }, fetchFn as typeof fetch)).resolves.toEqual({ claimed: 1, invoices: 0, settlements: 1, rewardsPaid: 0, rewardsFailed: 0 });
   });
 
+  it('reports an exact terminal failed receive so OpenStays can issue a fresh invoice', async () => {
+    const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/v1/daemon/get-info')) return new Response(JSON.stringify({ network: 'signet' }), { status: 200 });
+      if (url.endsWith('/wavelength-bridge/pending')) return new Response(JSON.stringify({ requests: [{
+        _id: 'request_failed', status: 'invoice_ready', network: 'signet', satsAmount: 1_000,
+        bolt11: 'lntbs10u1failed', bridgeActivityId: 'receive_failed', expiresAt: Date.now() + 600_000,
+      }] }), { status: 200 });
+      if (url.endsWith('/v1/wallet/inspect/activity')) return new Response(JSON.stringify({ entry: {
+        id: 'receive_failed', kind: 'ENTRY_KIND_RECV', status: 'ENTRY_STATUS_FAILED', amount_sat: '1000',
+        failure_reason: 'receive intent already used',
+        request: { lightning_invoice: { invoice: 'lntbs10u1failed' } },
+      } }), { status: 200 });
+      if (url.endsWith('/wavelength-bridge/failed')) {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          requestId: 'request_failed', network: 'signet', bolt11: 'lntbs10u1failed',
+          bridgeActivityId: 'receive_failed', satsAmount: 1_000, terminalStatus: 'failed',
+          reason: 'receive intent already used',
+        });
+        return new Response(JSON.stringify({ failed: true }), { status: 200 });
+      }
+      if (url.endsWith('/wavelength-bridge/rewards/pending')) return new Response(JSON.stringify({ rewards: [] }), { status: 200 });
+      throw new Error(`unexpected ${url}`);
+    });
+
+    await expect(runWaveBridgeOnce({
+      openStaysUrl: 'https://openstays.example', bridgeToken: 'bridge-token',
+      daemonUrl: 'http://127.0.0.1:10031', expectedNetwork: 'signet',
+    }, fetchFn as typeof fetch)).resolves.toEqual({
+      claimed: 1, invoices: 0, settlements: 0, rewardsPaid: 0, rewardsFailed: 0,
+    });
+    expect(fetchFn.mock.calls.some(([url]) => String(url).endsWith('/wavelength-bridge/failed'))).toBe(true);
+    expect(fetchFn.mock.calls.some(([url]) => String(url).endsWith('/wavelength-bridge/settled'))).toBe(false);
+  });
+
   it('rejects a daemon/request network mismatch before creating an invoice', async () => {
     const fetchFn = vi.fn(async (url: string) => {
       if (url.endsWith('/v1/daemon/get-info')) {

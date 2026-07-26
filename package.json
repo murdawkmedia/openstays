@@ -8,10 +8,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "prepreview": "npm run wavelength:runtime:check -- dist/wavewalletdk",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "pretest:e2e:smoke": "npm run wavelength:runtime:check",
     "test:e2e:smoke": "playwright test --config playwright.config.ts",
     "convex:dev": "convex dev",
     "convex:codegen": "convex codegen",
@@ -19,6 +21,7 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "wavelength:runtime": "powershell -ExecutionPolicy Bypass -File scripts/install-wavelength-runtime.ps1",
+    "wavelength:runtime:check": "node scripts/check-wavelength-runtime.mjs",
     "mailpit:install": "powershell -ExecutionPolicy Bypass -File scripts/install-mailpit.ps1",
     "mailpit:start": "powershell -ExecutionPolicy Bypass -File scripts/start-mailpit.ps1",
     "mail:bridge": "powershell -ExecutionPolicy Bypass -File scripts/start-mail-bridge.ps1"
@@ -31,6 +34,7 @@
     "convex": "^1.31.0",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.544.0",
+    "qrcode.react": "4.2.0",
     "react": "^19.2.0",
     "react-day-picker": "^9.13.0",
     "react-dom": "^19.2.0",

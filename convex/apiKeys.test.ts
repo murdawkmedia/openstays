@@ -178,6 +178,152 @@ describe('demo.reset clears apiKeys', () => {
     expect(syncRows).toHaveLength(0);
     expect(logRows).toHaveLength(0);
   });
+
+  it('clears hackathon state and restores Consensus Commons', async () => {
+    vi.stubEnv('DEMO_MODE', 'true');
+    const t = convexTest(schema, modules);
+    await t.mutation(internal.seed.run, {});
+
+    await t.run(async (ctx) => {
+      const property = await ctx.db
+        .query('properties')
+        .withIndex('by_slug', (q) => q.eq('slug', 'consensus-commons'))
+        .unique();
+      const unitType = await ctx.db
+        .query('unitTypes')
+        .withIndex('by_property_slug', (q) => q.eq('propertyId', property!._id).eq('slug', 'node-room'))
+        .unique();
+      const unit = await ctx.db
+        .query('units')
+        .withIndex('by_type', (q) => q.eq('unitTypeId', unitType!._id))
+        .first();
+      const now = Date.now();
+      const guestId = await ctx.db.insert('guests', {
+        propertyId: property!._id,
+        name: 'Demo Guest',
+        email: 'demo@example.test',
+        phone: '',
+        normalizedEmail: 'demo@example.test',
+        normalizedPhone: '',
+        marketingOptIn: false,
+        notes: [],
+      });
+      const bookingId = await ctx.db.insert('bookings', {
+        propertyId: property!._id,
+        unitTypeId: unitType!._id,
+        unitId: unit!._id,
+        guestId,
+        checkIn: '2026-08-01',
+        checkOut: '2026-08-02',
+        nights: 1,
+        adults: 1,
+        children: 0,
+        status: 'confirmed',
+        source: 'demo',
+        confirmationCode: 'OS-RESET',
+        statusHistory: [{ status: 'confirmed', ts: now }],
+        notes: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      const paymentId = await ctx.db.insert('payments', {
+        propertyId: property!._id,
+        bookingId,
+        provider: 'wavelength',
+        amountCents: 21,
+        gstCents: 2,
+        currency: 'CAD',
+        status: 'paid',
+        refunds: [],
+        createdAt: now,
+        paidAt: now,
+      });
+      await ctx.db.insert('refundCases', {
+        propertyId: property!._id,
+        paymentId,
+        bookingId,
+        amountCents: 21,
+        currency: 'CAD',
+        reason: 'demo',
+        status: 'open',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('bookingMessages', {
+        propertyId: property!._id,
+        bookingId,
+        authorRole: 'guest',
+        authorName: 'Demo Guest',
+        text: 'Fictional message',
+        createdAt: now,
+      });
+      await ctx.db.insert('wavelengthRequests', {
+        propertyId: property!._id,
+        bookingId,
+        paymentId,
+        quotedAmountCents: 21,
+        currency: 'CAD',
+        network: 'signet',
+        satsAmount: 1_000,
+        expiresAt: now + 60_000,
+        status: 'requested',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const receiptId = await ctx.db.insert('consensusReceipts', {
+        propertyId: property!._id,
+        bookingId,
+        publicId: 'public-reset-receipt',
+        schemaVersion: 'openstays.consensus-receipt.v1',
+        canonicalJson: '{"demo":true}',
+        sha256: '0'.repeat(64),
+        status: 'submitted',
+        calendarCount: 1,
+        createdAt: now,
+        updatedAt: now,
+        submittedAt: now,
+      });
+      await ctx.db.insert('wavelengthRewards', {
+        propertyId: property!._id,
+        bookingId,
+        receiptId,
+        network: 'signet',
+        satsAmount: 1_000,
+        status: 'eligible',
+        attemptCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('auditLog', {
+        actorName: 'demo',
+        action: 'demo.reset.test',
+        detail: 'fictional',
+        ts: now,
+      });
+    });
+
+    await t.mutation(internal.demo.reset, {});
+
+    const state = await t.run(async (ctx) => ({
+      refunds: await ctx.db.query('refundCases').collect(),
+      messages: await ctx.db.query('bookingMessages').collect(),
+      requests: await ctx.db.query('wavelengthRequests').collect(),
+      receipts: await ctx.db.query('consensusReceipts').collect(),
+      rewards: await ctx.db.query('wavelengthRewards').collect(),
+      audit: await ctx.db.query('auditLog').collect(),
+      commons: await ctx.db
+        .query('properties')
+        .withIndex('by_slug', (q) => q.eq('slug', 'consensus-commons'))
+        .first(),
+    }));
+    expect(state.refunds).toEqual([]);
+    expect(state.messages).toEqual([]);
+    expect(state.requests).toEqual([]);
+    expect(state.receipts).toEqual([]);
+    expect(state.rewards).toEqual([]);
+    expect(state.audit).toEqual([]);
+    expect(state.commons?.name).toBe('Consensus Commons');
+  });
 });
 
 describe('listApiKeys', () => {

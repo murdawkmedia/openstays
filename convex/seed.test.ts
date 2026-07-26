@@ -30,9 +30,30 @@ describe('Consensus Commons seed migration', () => {
 
     await t.mutation((internal as any).seed.run, {});
     const state = await t.run(async (ctx) => ({
-      property: await ctx.db.get(propertyId), ratePlan: await ctx.db.get(ratePlanId),
+      property: await ctx.db.get(propertyId),
+      ratePlan: await ctx.db.get(ratePlanId),
+      unitType: await ctx.db.query('unitTypes')
+        .withIndex('by_property_slug', (q) => q.eq('propertyId', propertyId).eq('slug', 'node-room'))
+        .first(),
+      promos: await ctx.db.query('promoCodes')
+        .withIndex('by_code', (q) => q.eq('propertyId', propertyId).eq('normalizedCode', 'CONSENSUS10'))
+        .collect(),
     }));
     expect(state.property).toMatchObject({ taxRateBps: 1300, taxLabel: 'HST' });
     expect(state.ratePlan).toMatchObject({ baseNightlyCents: 19, minStayNights: 1, maxStayNights: 1 });
+    expect(state.unitType?.photoUrls).toEqual([
+      '/demo/consensus-commons/exterior.webp',
+      '/demo/consensus-commons/node-room.webp',
+      '/demo/consensus-commons/hack-lounge.webp',
+    ]);
+    expect(state.promos).toHaveLength(1);
+    expect(state.promos[0]).toMatchObject({
+      code: 'CONSENSUS10', kind: 'percent', valueBps: 1_000, oncePerGuest: true, active: true,
+    });
+
+    await t.mutation((internal as any).seed.run, {});
+    expect(await t.run((ctx) => ctx.db.query('promoCodes')
+      .withIndex('by_code', (q) => q.eq('propertyId', propertyId).eq('normalizedCode', 'CONSENSUS10'))
+      .collect())).toHaveLength(1);
   });
 });

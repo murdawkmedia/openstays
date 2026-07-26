@@ -13,6 +13,7 @@ import { StayDateRangePicker } from '../components/StayDateRangePicker';
 import { AddOnPicker } from '../components/AddOnPicker';
 import { GuestForm, type GuestFormValue } from '../components/GuestForm';
 import { PriceBreakdownView } from '../components/PriceBreakdownView';
+import { StayMedia } from '../components/StayMedia';
 import { formatMoney } from '../lib/money';
 import { todayIso } from '../lib/dates';
 import { NotFoundPage } from './NotFoundPage';
@@ -152,6 +153,7 @@ export function UnitTypePage() {
     : null;
 
   const nights = range.checkIn && range.checkOut ? enumerateNights(range.checkIn, range.checkOut).length : 0;
+  const promoPlaceholder = detail.property.slug === 'consensus-commons' ? 'CONSENSUS10' : 'WELCOME10';
 
   const canSubmit =
     !!ratePlan &&
@@ -206,15 +208,12 @@ export function UnitTypePage() {
           <Users className="h-4 w-4" aria-hidden="true" />
           Sleeps up to {unitType.maxOccupancy}
         </p>
-        {unitType.amenities.length > 0 ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {unitType.amenities.map((amenity) => (
-              <span key={amenity} className="badge bg-stone-100 text-stone-700">
-                {amenity}
-              </span>
-            ))}
-          </div>
-        ) : null}
+        <StayMedia
+          propertySlug={detail.property.slug}
+          propertyName={detail.property.name}
+          amenities={unitType.amenities}
+          photoUrls={unitType.photoUrls}
+        />
         {fromPriceCents !== null ? (
           <p className="mt-4 text-lg font-semibold text-emerald-800">From {formatMoney(fromPriceCents, detail.property.currency)}/night</p>
         ) : null}
@@ -256,7 +255,7 @@ export function UnitTypePage() {
                 <input
                   type="text"
                   className="field-input flex-1"
-                  placeholder="e.g. WELCOME10"
+                  placeholder={`e.g. ${promoPlaceholder}`}
                   aria-label="Discount code"
                   value={promoInput}
                   onChange={(event) => setPromoInput(event.target.value)}
