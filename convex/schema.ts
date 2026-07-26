@@ -230,6 +230,11 @@ export default defineSchema({
     promoCodeSnapshot: v.optional(v.string()), // code text frozen at booking time
     statusHistory: statusHistorySchema,
     notes: noteSchema,
+    publicPaymentConsent: v.optional(v.object({
+      version: v.string(),
+      acceptedAt: v.number(),
+      rail: v.union(v.literal('zaprite'), v.literal('wavelength')),
+    })),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -411,6 +416,58 @@ export default defineSchema({
     .index('by_booking', ['bookingId'])
     .index('by_receipt', ['receiptId'])
     .index('by_status_createdAt', ['status', 'createdAt']),
+
+  publicRewardClaims: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.id('bookings'),
+    rewardId: v.id('wavelengthRewards'),
+    receiptId: v.id('consensusReceipts'),
+    tokenId: v.string(),
+    emailDigest: v.string(),
+    deviceDigest: v.string(),
+    networkDigest: v.string(),
+    network: v.literal('signet'),
+    satsAmount: v.literal(1_000),
+    status: v.union(
+      v.literal('accepted'),
+      v.literal('paid'),
+      v.literal('failed'),
+    ),
+    claimedAt: v.number(),
+    paidAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_tokenId', ['tokenId'])
+    .index('by_booking', ['bookingId'])
+    .index('by_email_claimedAt', ['emailDigest', 'claimedAt'])
+    .index('by_device_claimedAt', ['deviceDigest', 'claimedAt'])
+    .index('by_network_claimedAt', ['networkDigest', 'claimedAt'])
+    .index('by_status_claimedAt', ['status', 'claimedAt']),
+
+  bridgeHealth: defineTable({
+    service: v.union(
+      v.literal('wavelength'),
+      v.literal('ots'),
+      v.literal('mail'),
+      v.literal('backup'),
+    ),
+    status: v.union(
+      v.literal('starting'),
+      v.literal('ready'),
+      v.literal('degraded'),
+      v.literal('failed'),
+    ),
+    release: v.string(),
+    lastHeartbeatAt: v.number(),
+    spendableSats: v.optional(v.number()),
+    backupGeneration: v.optional(v.number()),
+    backupDigest: v.optional(v.string()),
+    backupCreatedAt: v.optional(v.number()),
+    failureCategory: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index('by_service', ['service']),
 
   // Webhook idempotency ledger.
   webhookEvents: defineTable({

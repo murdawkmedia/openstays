@@ -140,7 +140,7 @@ git commit -m "chore: clear live payment runtime audit gate"
 - Create: `src/lib/livePayments.ts`
 - Test: `tests/publicShowcase.test.ts`
 
-- [ ] **Step 1: Write failing policy tests**
+- [x] **Step 1: Write failing policy tests**
 
 Cover these exact assertions in `convex/publicPolicy.test.ts`:
 
@@ -162,7 +162,7 @@ expect(() => readPublicPolicy({
 
 Also test that `DEMO_MODE=true` plus any live enable flag throws `LIVE_DEMO_MODE_CONFLICT`.
 
-- [ ] **Step 2: Run the focused test and confirm red**
+- [x] **Step 2: Run the focused test and confirm red**
 
 Run:
 
@@ -172,7 +172,7 @@ npx vitest run convex/publicPolicy.test.ts
 
 Expected: FAIL because `convex/publicPolicy.ts` does not exist.
 
-- [ ] **Step 3: Implement typed policy constants**
+- [x] **Step 3: Implement typed policy constants**
 
 Create `convex/publicPolicy.ts` with these exported contracts:
 
@@ -232,7 +232,7 @@ The implementation must:
   tokens; and
 - derive the normalized-email digest identically to the Cloudflare issuer.
 
-- [ ] **Step 4: Extend persistent types**
+- [x] **Step 4: Extend persistent types**
 
 In `convex/schema.ts`, add optional booking consent:
 
@@ -248,7 +248,7 @@ Add `publicRewardClaims` with booking/reward IDs, HMAC email/device/network dige
 
 Add `bridgeHealth` with a service literal (`wavelength`, `ots`, `mail`, `backup`), status, heartbeat time, wallet spendable sats, backup generation/digest/time, and redacted failure category. Index by service.
 
-- [ ] **Step 5: Make public build capabilities independent**
+- [x] **Step 5: Make public build capabilities independent**
 
 Change `src/lib/publicShowcase.ts` so public showcase no longer implies wallet removal:
 
@@ -264,7 +264,7 @@ export const PUBLIC_SHOWCASE = {
 
 Create `src/lib/livePayments.ts` with the disclosure text, `PUBLIC_CONSENT_VERSION`, exact display amounts, and a persistent random 128-bit device ID stored under `openstays.public.device.v1`.
 
-- [ ] **Step 6: Run focused and regression tests**
+- [x] **Step 6: Run focused and regression tests**
 
 Run:
 
@@ -275,10 +275,10 @@ npm run typecheck
 
 Expected: focused tests pass and TypeScript exits 0.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
-git add convex/publicPolicy.ts convex/publicPolicy.test.ts convex/schema.ts src/lib/publicShowcase.ts src/lib/livePayments.ts tests/publicShowcase.test.ts
+git add convex/publicPolicy.ts convex/publicPolicy.test.ts convex/schema.ts src/lib/publicShowcase.ts src/lib/livePayments.ts src/vite-env.d.ts tests/publicShowcase.test.ts docs/superpowers/plans/2026-07-26-public-live-payment-rails.md
 git commit -m "feat: define public live payment policy"
 ```
 
