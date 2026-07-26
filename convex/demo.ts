@@ -1,5 +1,5 @@
 import { internalMutation } from './_generated/server';
-import { seedPinewoodFlats } from './seed';
+import { seedConsensusCommons, seedPinewoodFlats } from './seed';
 
 /**
  * DEMO_MODE nightly reset: wipe all domain tables and re-seed Pinewood Flats.
@@ -15,6 +15,11 @@ export const reset = internalMutation({
     const tables = [
       'unitNights',
       'bookingAddOns',
+      'refundCases',
+      'bookingMessages',
+      'wavelengthRequests',
+      'wavelengthRewards',
+      'consensusReceipts',
       'payments',
       'webhookEvents',
       'promoRedemptions',
@@ -46,12 +51,14 @@ export const reset = internalMutation({
       // ever set on a demo deployment. (Adversarial review 2026-07-08.)
       'channelSync',
       'channelSyncLog',
+      'auditLog',
     ] as const;
     for (const table of tables) {
       const rows = await ctx.db.query(table).collect();
       for (const row of rows) await ctx.db.delete(row._id);
     }
     await seedPinewoodFlats(ctx);
+    await seedConsensusCommons(ctx);
     return { reset: true };
   },
 });
