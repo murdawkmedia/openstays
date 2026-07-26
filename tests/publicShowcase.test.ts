@@ -42,4 +42,10 @@ describe('public showcase copy and routing', () => {
     expect(main).toContain('PUBLIC_SHOWCASE.allowLiveWavelength');
     expect(main).toContain('PUBLIC_SHOWCASE.allowStaffRoutes');
   });
+
+  it('suppresses Wavelength checkout in showcase builds', () => {
+    const checkout = fs.readFileSync('src/pages/CheckoutPage.tsx', 'utf8');
+    expect(checkout).toContain('PUBLIC_SHOWCASE.allowLiveWavelength');
+    expect(checkout).toContain('Live signet settlement is shown in the public tour');
+  });
 });
