@@ -1,9 +1,23 @@
 # OpenStays status
 
-**Updated: 2026-07-26 — public showcase merged, verified, and deployed.**
+**Updated: 2026-07-26 — public live-payment design approved.**
 
 ## Current state
 
+- Approved public live-payment design is recorded on
+  `codex/public-live-payment-rails` in
+  `docs/superpowers/specs/2026-07-26-public-live-payment-rails-design.md`.
+  It adds a production CA$1 Zaprite project contribution and an exact
+  1,000-sat Wavelength signet booking option, followed by a one-time
+  1,000-sat reward after either authoritative rail. Consensus Commons remains
+  explicitly fictional and supplies no lodging service. No credentials,
+  provider resources, Cloudflare Container resources, or deployments have
+  been changed for this design-only checkpoint.
+- A fresh `npm audit` during design verification reports one critical
+  `@auth/core` advisory group and high findings involving direct `postcss` and
+  `react-router-dom` dependencies plus transitive Vite tooling. The approved
+  design now makes resolution of critical/high runtime findings a binding
+  precondition before live payment credentials or public rails are enabled.
 - The sanitized Consensus Commons public showcase is merged into and pushed on
   `main`. Merge commit `b4f6f0b` adds the product tour, fail-closed
   staff/wallet route boundaries, Cloudflare Pages SPA/header contracts, and a
@@ -38,9 +52,9 @@
   Scoped checks exposed no invoice strings, hashes, secrets, tokens, or payment
   hashes in committed judge-facing documentation.
 
-- Working branch: `main`.
+- Working branch: `codex/public-live-payment-rails`.
 - The complete Consensus Commons MVP, judge-flow hardening, and public showcase
-  are merged and pushed on `main` at `b4f6f0b`.
+  are merged and pushed on `main` at `230b7d6`.
 - With Murphy's explicit approval, commit `3815f7d` was uploaded only to the
   isolated `affable-wildcat-206` development deployment. The receipt, reward,
   and bridge routes are live there; no production deployment was touched.
