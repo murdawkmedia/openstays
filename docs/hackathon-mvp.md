@@ -16,6 +16,7 @@ npm install
 npx convex dev
 npm run seed
 npm run wavelength:runtime
+npm run wavelength:runtime:check
 npm run dev
 ```
 
@@ -24,6 +25,9 @@ verifies its SHA-256 digest before placing it under `public/wavewalletdk/`.
 Those generated assets are ignored. Vite and `public/_headers` set COOP/COEP.
 The wallet SDK is lazy-loaded only on `/wallet/*`, uses
 `defaultConfig("signet")`, and never sends a seed or password to OpenStays.
+`npm run preview` and `npm run test:e2e:smoke` run the runtime preflight first,
+so a fresh worktree fails with an actionable install command instead of a
+generic wallet startup error.
 
 ## Customer and staff surfaces
 
@@ -81,17 +85,24 @@ npm --prefix cli run start -- wave-bridge
 ```
 
 On Windows, after `.env.local` points to the intended Convex deployment, the
-helper script retrieves the bridge token without echoing it and starts the
-same bridge hidden:
+first helper starts the existing loopback-only merchant wallet daemon without
+printing its password or macaroon. The second retrieves the bridge token
+without echoing it and starts the bridge hidden:
 
 ```powershell
+.\scripts\start-local-wavelength-daemon.ps1
 .\scripts\start-local-bridge.ps1
 ```
 
 The bridge polls pending requests, calls `POST /v1/wallet/recv`, publishes the
 invoice, inspects `POST /v1/wallet/inspect/activity`, and reports only a
 completed receive whose request, invoice, activity, and snapshotted sats amount
-match. Replays are no-ops. The clearly synthetic quote is
+match. A terminal receive failure is reported through the authenticated
+`POST /wavelength-bridge/failed` endpoint with those same identifiers; this
+closes the request and linked pending payment so the guest can create a fresh
+invoice. An authoritative paid/refunded payment self-heals an interrupted
+request using its recorded payment hash, while failed or pending money can
+never become settled. Exact replays are no-ops. The clearly synthetic quote is
 `max(1,000, ceil(amountCents × rate / 100))` at 1,000 signet sats per currency
 unit. The 1,000-sat floor matches Wavelength's public signet operator minimum;
 the fiat amount remains the authoritative booking amount.
@@ -99,6 +110,27 @@ the fiat amount remains the authoritative booking amount.
 Wavelength is signet-only. Any legacy mainnet rows remain readable for schema
 compatibility, but active configuration, UI, request claiming, and bridge
 processing reject them. All displayed amounts are signet test sats.
+
+The browser wallet shows a prepared-payment review and verifies that principal
+plus fee exactly matches the total outflow. It refuses unknown fees, a fee over
+210 sats, or an inconsistent total. The confirm action is single-use, and an
+empty wallet can create a fresh tracked Signet deposit address before payment.
+Recovery words are hidden by default and are never transmitted. Confirmed
+on-chain funds are shown as pending inbound while they board into Ark, and the
+wallet checks again every 12 seconds while the tab is visible. Automatic checks
+stop when boarding completes, pause in a hidden tab or after an error, and keep
+an explicit refresh button as a safe fallback without reloading or reusing a
+payment intent.
+
+## Consensus Commons demo inventory
+
+The seeded property includes the idempotent `CONSENSUS10` code (10% off the
+Node Room, once per normalized guest email), three clearly labeled fictional
+property images, and four useful stay links. The shared lounge opens in an
+accessible keyboard-operable lightbox; Fast Wi-Fi, the third-party Signet
+faucet, and nearby late-night coffee open their respective external resources.
+The news-and-offers checkbox records consent with the reservation, but this
+demo does not run a marketing campaign.
 
 ## OpenTimestamps receipt bridge
 
@@ -220,18 +252,22 @@ settled fictional reservation and keep a fresh payable hold in a second tab.
    and channel manager can disagree. OpenStays makes one booking ledger the
    authority.” Show the Consensus Commons landing page.
 2. **0:25–0:55 — payment consensus.** Show the fresh 0.21 CAD hold, its exact
-   1,000-sat Wavelength signet demo invoice, and the self-custodial browser wallet.
+   1,000-sat Wavelength Signet demo invoice, and the self-custodial browser wallet.
+   Every visible BOLT11 is paired with its exact, scannable SVG QR and a copy control;
+   never substitute a screenshot, shortened payload, or a different invoice. Keep every
+   displayed payment rail on Signet.
    If signet is healthy, pay it; otherwise move immediately to the pre-settled
    reservation and state that the pending network action is never treated as
    payment.
-3. **0:55–1:35 — receipt.** Show “Consensus reached,” the canonical receipt
-   hash, and the JSON/`.ots` downloads. Use `OS-A52VVM` to show the genuine
-   Bitcoin attestation at block 959197, then contrast it with the newer pending
-   receipt: calendar submission is real, and a pending proof is never called
-   anchored.
+3. **0:55–1:35 — receipt.** Show “Consensus reached,” the privacy-safe readable
+   preview, expandable canonical JSON, and JSON/`.ots` downloads. Demonstrate the
+   official [OpenTimestamps.org upload workflow](https://opentimestamps.org/) with
+   the downloaded proof. Use `OS-A52VVM` to show its anchored exact mempool block
+   link, then contrast it with the newer pending receipt: calendar submission is
+   real, and a pending proof is never called anchored.
 4. **1:35–2:10 — reward.** Tap **Claim 1,000 signet sats**, show the amount-
-   bearing guest invoice and the paid/reconciled state. The wallet seed and
-   password never leave the browser.
+   bearing guest Signet invoice with its exact scannable/copyable SVG QR, then the
+   paid/reconciled state. The wallet seed and password never leave the browser.
 5. **2:10–2:35 — operations.** Show one chat message, the refund intervention
    queue, and “Channex — adapter ready, not connected.” Mention that Zaprite
    webhook bodies are untrusted and the fetched order is authoritative.
@@ -242,6 +278,16 @@ settled fictional reservation and keep a fresh payable hold in a second tab.
 
 ### Before each judge group
 
+- Open `http://localhost:4173/wallet/demo?demoSetup=1`. The funded browser
+  wallet belongs to the `localhost` origin, so use that hostname consistently
+  for the live booking and reward tabs. The setup controls
+  remain inert away from a loopback hostname. Unlock the existing
+  self-custodial test wallet and require the green **Demo wallet ready** state.
+  That means at least 12,000 sats are spendable, enough for twelve 1,000-sat
+  booking attempts even if reward returns are delayed.
+- Preserve that funded 12,000-sat wallet. Never create a replacement funding
+  invoice unless the existing merchant send/inbound is confirmed absent; use
+  `localhost` consistently for every wallet, booking, and reward tab.
 - Run a production build and serve it with `npm run preview -- --host 127.0.0.1`.
 - Confirm merchant bridge, OTS bridge, and both signet wallets report healthy.
 - Create the live hold less than ten minutes before the pitch; Wavelength demo
@@ -260,16 +306,42 @@ $env:OPENSTAYS_E2E_EMAIL='<fictional-booking-email>'
 npm run test:e2e:smoke
 ```
 
+### One-time demo-wallet funding
+
+This is an operator preflight, never part of the public booking flow:
+
+1. On the loopback setup route, create one 12,000-sat amount-bearing Lightning
+   invoice. Do not create a replacement while it is valid or pending.
+2. Verify the local merchant daemon reports Signet before preparing any send.
+3. Prepare the invoice with a 210-sat maximum fee. Require an exact 12,000-sat
+   principal, known totals, an off-chain rail, an unexpired invoice, consistent
+   principal/fee/total fields, and total outflow no greater than 12,210 sats.
+4. Dispatch the daemon's single-use intent once. After an ambiguous response,
+   inspect its activity; never blindly retry the send.
+5. Require a completed outgoing merchant activity bound to that invoice,
+   payment hash, and 12,000-sat principal.
+6. Refresh the browser wallet until it reports at least 12,000 spendable sats.
+   Pending inbound sats do not count as ready.
+
+The wallet password, recovery words, and keys remain in the browser. The page
+shows the invoice for the approved local operator action but never transmits
+wallet secrets or automatically pays itself.
+
 ## Verification gates
 
 ```powershell
 npm test
 npm run typecheck
 npm run build
+npm run docs:build
 npm --prefix cli test
 npm --prefix cli run typecheck
 npm --prefix cli run build
 ```
+
+Before a judge, also accept the receipt and QR presentation at desktop and 390px:
+each visible BOLT11 QR scans/copies the exact displayed invoice, no content
+overflows horizontally, and the browser console is free of warnings and errors.
 
 Live Zaprite, Wavelength signet, and OpenTimestamps acceptance require
 operator-started services and test funds. Local Mailpit capture is safe to run

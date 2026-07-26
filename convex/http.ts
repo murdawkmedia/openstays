@@ -257,6 +257,19 @@ http.route({
 
 // HTTP API v1 (M1.5) — key-authenticated automation surface. One dispatcher
 // handles all /api/v1/* paths and methods; see convex/apiV1.ts.
+http.route({
+  path: '/wavelength-bridge/failed',
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    if (!wavelengthAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    try {
+      return json(await ctx.runMutation(wavelengthInternal.markFailed, await request.json()));
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  }),
+});
+
 import { handle as apiV1Handle } from './apiV1';
 http.route({ pathPrefix: '/api/v1/', method: 'GET', handler: apiV1Handle });
 http.route({ pathPrefix: '/api/v1/', method: 'POST', handler: apiV1Handle });

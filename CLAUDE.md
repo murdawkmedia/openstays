@@ -233,6 +233,14 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   amount-bearing invoice, fee cap, signet daemon, send activity, and payment
   hash before authoritative settlement. Reward invoices may be replaced only
   after expiry or definitive failure; paid rewards are immutable.
+- 2026-07-23 (Wavelength recovery): a receive invoice is single-use. The
+  authenticated merchant bridge may report only a terminal receive activity as
+  failed/expired, bound to the exact request, invoice, signet amount, and
+  activity. That report also closes the linked pending payment. A failed or
+  pending payment can never become a settled request; an authoritative
+  paid/refunded payment self-heals an interrupted request using its recorded
+  payment hash. Exact retries are no-ops and the guest creates a fresh invoice
+  rather than retrying a consumed one.
 - 2026-07-22 (OpenStays Mail): Convex is authoritative for rendered email,
   idempotency, leases, retries, and audit state. `mail_bridge` exposes only
   bearer-authenticated bounded claims and acknowledgements; the local worker

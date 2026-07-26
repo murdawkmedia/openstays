@@ -98,7 +98,12 @@ export function GuestForm({ value, onChange, maxOccupancy }: GuestFormProps) {
           onChange={(e) => set('marketingOptIn', e.target.checked)}
           className="mt-0.5 h-4 w-4 rounded border-stone-300 text-emerald-700 focus:ring-emerald-600"
         />
-        <span>Send me occasional news and offers.</span>
+        <span>
+          Send me occasional news and offers.
+          <span className="mt-1 block text-xs text-stone-500">
+            Consent is recorded with your reservation; this demo does not send marketing campaigns.
+          </span>
+        </span>
       </label>
     </div>
   );
