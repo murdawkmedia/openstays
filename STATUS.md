@@ -1,8 +1,24 @@
 # OpenStays status
 
-**Updated: 2026-07-23 — final judge-flow hardening and live acceptance.**
+**Updated: 2026-07-26 — public showcase deployment preparation.**
 
 ## Current state
+
+- Public showcase work is isolated on `codex/cloudflare-pages-showcase`. It
+  adds a sanitized Consensus Commons product tour, fail-closed staff/wallet
+  route boundaries, Cloudflare Pages SPA/header contracts, and a complete
+  nightly demo reset. The target is `openstays-consensus.pages.dev`.
+- The public deployment uses a new dedicated Murdawk Media Convex project with
+  fictional inventory, simulated payments, and log-only email. It must not
+  contain provider, bridge, SMTP, OAuth, or wallet credentials, and the
+  unrelated CBAP project remains explicitly out of scope.
+- The public build preserves the real booking-system context while explaining
+  the hackathon's Wavelength signet and OpenTimestamps work. It does not operate
+  an always-on wallet, faucet, reward payer, or staff console.
+- Local feature tests cover the public policy, sanitized tour, route
+  boundaries, checkout suppression, complete reset, Cloudflare deep-link
+  routing, and cross-origin headers. Full gates and external smoke-test evidence
+  are recorded after provisioning.
 
 - Latest scoped implementation verification: 428 root tests passed; root
   typecheck and production build passed. The receipt inspector fails closed,
