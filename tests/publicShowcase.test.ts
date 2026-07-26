@@ -41,6 +41,12 @@ describe('public showcase copy and routing', () => {
     expect(main).toContain('PublicShowcaseBoundaryPage');
     expect(main).toContain('PUBLIC_SHOWCASE.allowLiveWavelength');
     expect(main).toContain('PUBLIC_SHOWCASE.allowStaffRoutes');
+    expect(main).toContain(
+      "const IS_PUBLIC_SHOWCASE_BUILD = import.meta.env.VITE_PUBLIC_SHOWCASE === 'true'",
+    );
+    expect(main).toContain(
+      "IS_PUBLIC_SHOWCASE_BUILD ? null : lazy(() => import('./pages/WavelengthWalletPage'))",
+    );
   });
 
   it('suppresses Wavelength checkout in showcase builds', () => {
