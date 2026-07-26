@@ -308,8 +308,9 @@ npx wrangler pages deploy dist --project-name openstays-consensus --branch main
 
 The repository's `public/_redirects` preserves client-side deep links and
 `public/_headers` preserves the COOP/COEP isolation required by the bundled
-wallet runtime. The runtime remains packaged so the product architecture can
-be explained, even though public wallet actions are disabled.
+wallet runtime in local builds. Public-showcase builds omit the 123 MiB
+Wavelength WASM directory because wallet actions are disabled and Cloudflare
+Pages caps individual assets at 25 MiB.
 
 After deploying, verify the root tour, a property page, a unit page, and a deep
 link. Confirm the public-showcase banner is visible, staff and wallet routes
