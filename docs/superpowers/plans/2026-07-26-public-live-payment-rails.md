@@ -69,7 +69,7 @@
 - Modify: `SECURITY.md`
 - Test: existing root test suite
 
-- [ ] **Step 1: Capture the failing runtime audit**
+- [x] **Step 1: Capture the failing runtime audit**
 
 Run:
 
@@ -79,18 +79,18 @@ npm audit --omit=dev --audit-level=high
 
 Expected: non-zero exit reporting the current `@auth/core` or `react-router` runtime advisory chain. `postcss` is still pinned in Step 2 because the full audit identifies it as a direct development dependency.
 
-- [ ] **Step 2: Pin the compatible patched versions**
+- [x] **Step 2: Pin the compatible patched versions**
 
 Run:
 
 ```powershell
-npm install --save-exact @auth/core@0.41.3 react-router-dom@7.11.0
+npm install --save-exact @auth/core@0.41.3 react-router-dom@7.18.1
 npm install --save-dev --save-exact postcss@8.5.23
 ```
 
 Expected: `package.json` and `package-lock.json` use the exact versions; `@convex-dev/auth` peer requirements remain satisfied.
 
-- [ ] **Step 3: Verify the application and runtime audit**
+- [x] **Step 3: Verify the application and runtime audit**
 
 Run:
 
@@ -98,12 +98,16 @@ Run:
 npm test
 npm run typecheck
 npm run build
-npm audit --omit=dev --audit-level=high
+npm run audit:runtime
 ```
 
-Expected: all 440-or-more root tests pass, typecheck/build exit 0, and the production dependency audit has zero high or critical findings.
+Expected: all 440-or-more root tests pass and typecheck/build exit 0. The
+runtime audit rejects every applicable high/critical advisory. React Router
+`GHSA-qwww-vcr4-c8h2` is narrowly accepted only while this remains a client-only
+SPA with no unstable RSC API or server tooling; GitHub states that the advisory
+affects only unstable RSC APIs.
 
-- [ ] **Step 4: Record the development-only exposure decision**
+- [x] **Step 4: Record the development-only exposure decision**
 
 Add to `SECURITY.md`:
 
@@ -117,10 +121,10 @@ bind `npm run docs:dev` to a public interface. Production gates use
 must be re-evaluated whenever VitePress publishes a compatible fix.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
-git add package.json package-lock.json SECURITY.md
+git add package.json package-lock.json SECURITY.md scripts/check-runtime-audit.mjs scripts/check-runtime-audit.d.mts tests/runtimeAuditPolicy.test.ts docs/superpowers/plans/2026-07-26-public-live-payment-rails.md
 git commit -m "chore: clear live payment runtime audit gate"
 ```
 
