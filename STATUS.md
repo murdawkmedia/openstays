@@ -1,15 +1,15 @@
 # OpenStays status
 
-**Updated: 2026-07-26 — public showcase deployment preparation.**
+**Updated: 2026-07-26 — public showcase merged, verified, and deployed.**
 
 ## Current state
 
-- Public showcase work is isolated on `codex/cloudflare-pages-showcase`. It
-  adds a sanitized Consensus Commons product tour, fail-closed staff/wallet
-  route boundaries, Cloudflare Pages SPA/header contracts, and a complete
-  nightly demo reset. The direct-upload production site is live at
+- The sanitized Consensus Commons public showcase is merged into and pushed on
+  `main`. Merge commit `b4f6f0b` adds the product tour, fail-closed
+  staff/wallet route boundaries, Cloudflare Pages SPA/header contracts, and a
+  complete demo reset. The direct-upload production site is live at
   `https://openstays-consensus.pages.dev/`; no custom domain, DNS record,
-  Git integration, Worker, source push, or branch merge was performed.
+  Git-integrated deployment, or Worker was created.
 - The public deployment uses a new dedicated Murdawk Media Convex project with
   fictional inventory, simulated payments, and log-only email. It must not
   contain provider, bridge, SMTP, OAuth, or wallet credentials, and the
@@ -23,13 +23,14 @@
   an always-on wallet, faucet, reward payer, or staff console.
 - The public bundle removes live staff/wallet modules and the 123 MiB Wavelength
   WASM directory. Cloudflare Pages accepted the resulting eight-file build.
-- Live smoke checks passed for the tour, property, unit, `/admin`, and
-  `/wallet/demo` deep links. Every route returned HTTP 200 with COOP/COEP
-  headers; staff and wallet paths rendered the public boundary. Desktop and
-  390 px browser checks reported no warning/error logs or horizontal overflow.
-- Local verification passed 440 root tests, root typecheck/build, docs build,
-  69 CLI tests, and CLI typecheck/build before publication. A final full gate
-  is rerun after recording this deployment evidence.
+- Live acceptance passed for the tour, property, unit, fictional booking,
+  simulated payment, confirmation, manage-booking authentication, conversation
+  unlock, Consensus timeline, receipt preview, `/admin`, and `/wallet/demo`.
+  Every checked route returned HTTP 200 with COOP/COEP headers; staff and wallet
+  paths rendered the public boundary. Desktop and 390 px browser checks had no
+  horizontal overflow. The acceptance booking was removed with `demo:reset`.
+- Final merged-main verification passed 440 root tests, root typecheck/build,
+  docs build, 69 CLI tests, CLI typecheck/build, and `git diff --check`.
 
 - Latest scoped implementation verification: 428 root tests passed; root
   typecheck and production build passed. The receipt inspector fails closed,
@@ -37,10 +38,9 @@
   Scoped checks exposed no invoice strings, hashes, secrets, tokens, or payment
   hashes in committed judge-facing documentation.
 
-- Working branch: `codex/judge-opening-infographics`.
-- The Consensus Commons MVP is merged and pushed on `main` at `3f45b70`.
-  Final judge-flow hardening is on `codex/judge-opening-infographics`; the
-  branch will remain unmerged and is pushed only after the fresh gates pass.
+- Working branch: `main`.
+- The complete Consensus Commons MVP, judge-flow hardening, and public showcase
+  are merged and pushed on `main` at `b4f6f0b`.
 - With Murphy's explicit approval, commit `3815f7d` was uploaded only to the
   isolated `affable-wildcat-206` development deployment. The receipt, reward,
   and bridge routes are live there; no production deployment was touched.
@@ -237,22 +237,15 @@
 - No customer data, credentials, production rail, push, deploy, or merge is in
   scope without explicit approval.
 
-## Remaining acceptance
+## Remaining follow-up
 
-- Keep all external writes limited to the isolated `affable-wildcat-206`
-  development deployment. Its functions, seed refresh, failure route,
-  `CONSENSUS10`, localhost auth configuration, and demo owner are now live.
-- Keep the fictional sample receipt labeled pending. Use either genuinely
-  anchored live receipt (`OS-A52VVM` at block 959197 or `OS-X2A4RP` at block
-  959201) to demonstrate final Bitcoin verification.
+- Keep the fictional sample receipt labeled pending. The historical anchored
+  demo receipts remain evidence of final Bitcoin verification.
 - Use `docs/demo/judge-opening/variation-a-consensus-convergence.png` as the
-  recommended opening visual; B and C remain ready alternatives.
-- Rehearse the three-minute judge path once with Murphy operating the UI. The
-  automated production-like desktop/mobile flow and prior live signet booking
-  plus reward payouts are complete; a fresh disposable browser wallet also
-  reached the honest 2,500-sat pending-boarding state during the final pass.
-- Do not inspect or use CBAP credentials/deployments.
-- `codex/btcpp-consensus-mvp` has been fast-forwarded into and pushed on `main`;
-  production deployment remains separately controlled.
+  recommended opening visual; B and C remain alternatives.
+- Do not inspect or use CBAP credentials or deployments.
+- The public deployment intentionally excludes live staff access, wallet
+  operation, signet faucet/reward payment, production payment credentials, and
+  customer data. Future production-rail activation requires a separate review.
 
 See [docs/hackathon-mvp.md](./docs/hackathon-mvp.md).
