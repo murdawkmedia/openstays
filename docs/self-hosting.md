@@ -298,7 +298,6 @@ select or inspect the unrelated CBAP Convex project.
 Build and upload the static site:
 
 ```powershell
-npm run wavelength:runtime
 $env:VITE_PUBLIC_SHOWCASE='true'
 $env:VITE_BASE='/'
 $env:VITE_CONVEX_URL=$publicConvexUrl
