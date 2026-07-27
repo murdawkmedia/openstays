@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from 'convex/react';
 
 import { api } from '../../convex/_generated/api';
@@ -9,9 +9,17 @@ import { formatMoney } from '../lib/money';
 import { formatDisplayDate } from '../lib/dates';
 import { NotFoundPage } from './NotFoundPage';
 import { ConsensusReceiptSummary } from '../components/ConsensusReceiptSummary';
+import { TurnstileChallenge } from '../components/TurnstileChallenge';
+import {
+  getPublicDeviceId,
+  requestEligibilityToken,
+  storeEligibilityToken,
+} from '../lib/livePayments';
+import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 
 export function ManageBookingPage() {
   const { code } = useParams<{ code: string }>();
+  const navigate = useNavigate();
   const booking = useQuery(api.bookings.byConfirmationCode, code ? { code } : 'skip');
   const cancelByGuest = useMutation(api.bookings.cancelByGuest);
   const postMessage = useMutation((api as any).messages.postGuest);
@@ -23,6 +31,8 @@ export function ManageBookingPage() {
   const [result, setResult] = useState<{ refundCents: number; paidCents: number } | null>(null);
   const [messageText, setMessageText] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [rewardCheckToken, setRewardCheckToken] = useState<string | null>(null);
+  const [openingReward, setOpeningReward] = useState(false);
   const thread = useQuery(
     (api as any).messages.listGuest,
     code && email.trim().includes('@') ? { confirmationCode: code, email: email.trim() } : 'skip',
@@ -66,6 +76,36 @@ export function ManageBookingPage() {
       setError(extractErrorMessage(err));
     } finally {
       setSendingMessage(false);
+    }
+  }
+
+  async function handleRewardClaim() {
+    if (!code || !email.trim().includes('@') || !reward?.bookingId) {
+      setError('Enter the booking email before claiming the reward.');
+      return;
+    }
+    setOpeningReward(true);
+    setError(null);
+    try {
+      if (PUBLIC_SHOWCASE.enabled) {
+        if (!rewardCheckToken) {
+          throw new Error('Complete the reward anti-abuse check first.');
+        }
+        const eligibilityToken = await requestEligibilityToken({
+          action: 'reward_claim',
+          bookingId: String(reward.bookingId),
+          normalizedEmail: email.trim().toLowerCase(),
+          deviceId: getPublicDeviceId(),
+          turnstileToken: rewardCheckToken,
+        });
+        storeEligibilityToken('reward_claim', code, eligibilityToken);
+      }
+      navigate(
+        `/wallet/reward/${encodeURIComponent(code)}?email=${encodeURIComponent(email.trim())}`,
+      );
+    } catch (err) {
+      setError(extractErrorMessage(err));
+      setOpeningReward(false);
     }
   }
 
@@ -137,8 +177,21 @@ export function ManageBookingPage() {
           ))}</ol>
         </section> : null}
 
+        {receipt && PUBLIC_SHOWCASE.enabled && reward?.status !== 'paid' ? (
+          <section className="mt-6 rounded-xl border border-sky-200 bg-sky-50 p-4">
+            <h2 className="font-semibold text-sky-950">Reward eligibility check</h2>
+            <p className="mt-1 text-sm text-sky-900">
+              One 1,000-sat signet reward is available per person, device, and
+              network every 24 hours while the merchant bridge is healthy.
+            </p>
+            <TurnstileChallenge onToken={setRewardCheckToken} />
+            {openingReward ? <p role="status" className="mt-2 text-sm text-sky-900">Opening wallet…</p> : null}
+          </section>
+        ) : null}
+
         {receipt ? <ConsensusReceiptSummary receipt={receipt} reward={reward ?? null}
           rewardUrl={`/wallet/reward/${encodeURIComponent(code)}?email=${encodeURIComponent(email.trim())}`}
+          onClaimReward={PUBLIC_SHOWCASE.enabled ? () => void handleRewardClaim() : undefined}
           onDownloadJson={() => download(`${receipt.publicId}.json`, receipt.canonicalJson, 'application/json')}
           onDownloadProof={() => {
             if (!receipt.proofBase64) return;

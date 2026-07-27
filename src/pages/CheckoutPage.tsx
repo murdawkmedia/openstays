@@ -16,6 +16,7 @@ import {
   PUBLIC_CONSENT_VERSION,
   getPublicDeviceId,
   requestEligibilityToken,
+  storeEligibilityToken,
 } from '../lib/livePayments';
 import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 import { NotFoundPage } from './NotFoundPage';
@@ -159,6 +160,36 @@ export function CheckoutPage() {
     }
   }
 
+  async function handleWavelengthPay() {
+    setPaying(true);
+    setPayingProvider('wavelength');
+    setPayError(null);
+    try {
+      if (PUBLIC_SHOWCASE.enabled) {
+        if (!liveConsentAccepted || !turnstileToken) {
+          throw new Error('Accept the disclosure and complete the payment check.');
+        }
+        const eligibilityToken = await requestEligibilityToken({
+          action: 'wavelength_payment',
+          bookingId: activeBookingId,
+          normalizedEmail: normalizedGuestEmail,
+          deviceId: getPublicDeviceId(),
+          turnstileToken,
+        });
+        storeEligibilityToken(
+          'wavelength_payment',
+          activeBookingId,
+          eligibilityToken,
+        );
+      }
+      navigate(walletPath(bookingId!, code!));
+    } catch (error) {
+      setPayError(extractErrorMessage(error));
+      setPaying(false);
+      setPayingProvider(null);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-lg">
       <div className="card p-8">
@@ -217,6 +248,29 @@ export function CheckoutPage() {
           </div>
         ) : null}
 
+        {PUBLIC_SHOWCASE.enabled && (
+          (providerInfo?.providers.includes('zaprite') && PUBLIC_SHOWCASE.allowLiveZaprite)
+          || (wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength)
+        ) ? (
+          <>
+            <LivePaymentDisclosure
+              rail={
+                providerInfo?.providers.includes('zaprite')
+                  && PUBLIC_SHOWCASE.allowLiveZaprite
+                  && wavelengthInfo?.available
+                  && PUBLIC_SHOWCASE.allowLiveWavelength
+                  ? 'both'
+                  : wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength
+                    ? 'wavelength'
+                    : 'zaprite'
+              }
+              accepted={liveConsentAccepted}
+              onAcceptedChange={setLiveConsentAccepted}
+            />
+            <TurnstileChallenge onToken={setTurnstileToken} />
+          </>
+        ) : null}
+
         {demoMode ? (
           <>
             <button
@@ -252,16 +306,6 @@ export function CheckoutPage() {
           </div>
         ) : (
           <>
-          {providerInfo.providers.includes('zaprite') && PUBLIC_SHOWCASE.allowLiveZaprite ? (
-            <>
-              <LivePaymentDisclosure
-                rail="zaprite"
-                accepted={liveConsentAccepted}
-                onAcceptedChange={setLiveConsentAccepted}
-              />
-              <TurnstileChallenge onToken={setTurnstileToken} />
-            </>
-          ) : null}
           <div className={`mt-6 grid gap-3 ${providerInfo.providers.length > 1 ? 'sm:grid-cols-2' : ''}`}>
             {providerInfo.providers.map((provider) => (
               <button
@@ -287,21 +331,25 @@ export function CheckoutPage() {
           </>
         )}
 
-        {PUBLIC_SHOWCASE.enabled ? (
-          <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Live signet settlement is shown in the public tour but is not operated as a
-            public wallet faucet. Complete the simulated demo payment to explore the
-            authoritative booking state.
-          </p>
-        ) : null}
         {wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength && (
-          <Link
-            to={walletPath(bookingId, code)}
+          <button
+            type="button"
+            onClick={() => void handleWavelengthPay()}
+            disabled={
+              expired
+              || paying
+              || (
+                PUBLIC_SHOWCASE.enabled
+                && (!liveConsentAccepted || !turnstileToken)
+              )
+            }
             className={`btn-secondary mt-3 flex w-full items-center justify-center gap-2 ${expired ? 'pointer-events-none opacity-40' : ''}`}
           >
             <span aria-hidden="true">⚡</span>
-            Pay with a signet Wavelength wallet
-          </Link>
+            {paying && payingProvider === 'wavelength'
+              ? 'Opening wallet…'
+              : 'Pay 1,000 signet sats with Wavelength'}
+          </button>
         )}
         {wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength && (
           <p className="mt-2 text-center text-xs text-stone-500">

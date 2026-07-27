@@ -540,7 +540,7 @@ git commit -m "feat: enforce bounded live payment rewards"
 - Test: `tests/wavelengthRuntime.test.ts`
 - Test: `tests/cloudflarePagesShowcase.test.ts`
 
-- [ ] **Step 1: Write failing public-build tests**
+- [x] **Step 1: Write failing public-build tests**
 
 Assert:
 
@@ -551,7 +551,7 @@ Assert:
 - wallet seeds/passwords never enter API arguments or logs;
 - payment/reward eligibility token is read from and removed from `sessionStorage`.
 
-- [ ] **Step 2: Confirm red**
+- [x] **Step 2: Confirm red**
 
 ```powershell
 npx vitest run tests/wavelengthPayment.test.ts tests/wavelengthRuntime.test.ts tests/cloudflarePagesShowcase.test.ts
@@ -559,17 +559,17 @@ npx vitest run tests/wavelengthPayment.test.ts tests/wavelengthRuntime.test.ts t
 
 Expected: FAIL because the current public build removes wallet routes/runtime.
 
-- [ ] **Step 3: Enforce backend request conditions**
+- [x] **Step 3: Enforce backend request conditions**
 
 Update `convex/wavelength.ts` to require current disclosure consent, a valid `wavelength_payment` token, fresh heartbeat, and exact 1,000-sat snapshot. Legacy rows remain readable, but new public requests are always literal `signet`.
 
-- [ ] **Step 4: Include wallet modules conditionally**
+- [x] **Step 4: Include wallet modules conditionally**
 
 In `src/main.tsx`, include wallet routes when `VITE_PUBLIC_WAVELENGTH=true`; continue excluding all staff modules when `VITE_PUBLIC_SHOWCASE=true`.
 
 Remove the `dist/wavewalletdk` deletion from `vite.config.ts` when live Wavelength is enabled. Keep runtime checksum preflight mandatory for public live builds.
 
-- [ ] **Step 5: Scope cross-origin isolation**
+- [x] **Step 5: Scope cross-origin isolation**
 
 Set `public/_headers`:
 
@@ -585,13 +585,13 @@ Set `public/_headers`:
 
 Do not set COOP/COEP globally, allowing Turnstile on checkout/manage routes.
 
-- [ ] **Step 6: Complete wallet and reward UX**
+- [x] **Step 6: Complete wallet and reward UX**
 
 `WavelengthWalletPage.tsx` shows exact principal, quoted fee, balance, expiry, signet-only warning, and an explicit confirm button before `send`. It requests a fresh invoice after a definitive consumed/expired failure.
 
 `ManageBookingPage.tsx` shows the refund-request action and obtains reward Turnstile eligibility before navigating. `ConsensusRewardPage.tsx` reads the token from session storage, submits the exact 1,000-sat invoice, clears the token after acceptance, and announces authoritative paid state.
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 ```powershell
 npx vitest run tests/wavelengthPayment.test.ts tests/wavelengthRuntime.test.ts tests/cloudflarePagesShowcase.test.ts tests/consensusReward.test.ts
@@ -602,7 +602,7 @@ npm run wavelength:runtime:check -- dist/wavewalletdk
 
 Expected: tests/typecheck/build pass and all required runtime assets verify.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add convex/wavelength.ts src/main.tsx src/pages/WavelengthWalletPage.tsx src/pages/ManageBookingPage.tsx src/pages/ConsensusRewardPage.tsx vite.config.ts public/_headers tests/wavelengthPayment.test.ts tests/wavelengthRuntime.test.ts tests/cloudflarePagesShowcase.test.ts tests/consensusReward.test.ts

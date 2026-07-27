@@ -8,6 +8,11 @@ import { api } from '../../convex/_generated/api';
 import { Bolt11Invoice } from '../components/Bolt11Invoice';
 import { wavelengthRuntimeOptions } from '../lib/wavelengthRuntime';
 import { CONSENSUS_REWARD_LABEL, CONSENSUS_REWARD_SATS } from '../lib/consensusReward';
+import {
+  clearEligibilityToken,
+  readEligibilityToken,
+} from '../lib/livePayments';
+import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 
 const wavelengthEngine = createWebWalletEngine({
   ...wavelengthRuntimeOptions(window.location.href, wavelengthWorkerUrl),
@@ -54,9 +59,17 @@ function RewardWallet() {
   async function claim() {
     setError('');
     try {
+      const eligibilityToken = PUBLIC_SHOWCASE.enabled
+        ? readEligibilityToken('reward_claim', code)
+        : null;
+      if (PUBLIC_SHOWCASE.enabled && !eligibilityToken) {
+        throw new Error('Return to the booking page and complete the reward check.');
+      }
       const result = await receive.receive({ amountSat: CONSENSUS_REWARD_SATS, memo: `OpenStays consensus reward ${receipt.publicId}` });
       await submitInvoice({ confirmationCode: code, email, satsAmount: CONSENSUS_REWARD_SATS,
-        bolt11: result.invoice, expiresAt: Date.now() + 10 * 60_000 });
+        bolt11: result.invoice, expiresAt: Date.now() + 10 * 60_000,
+        eligibilityToken: eligibilityToken ?? undefined });
+      if (PUBLIC_SHOWCASE.enabled) clearEligibilityToken('reward_claim', code);
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
