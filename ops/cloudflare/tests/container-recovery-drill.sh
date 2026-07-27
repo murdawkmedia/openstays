@@ -15,6 +15,15 @@ for container_name in "$first_container" "$second_container"; do
 done
 
 cleanup() {
+  local exit_status=$?
+  if [[ "$exit_status" -ne 0 ]]; then
+    for container_name in "$first_container" "$second_container"; do
+      if docker container inspect "$container_name" >/dev/null 2>&1; then
+        echo "---- ${container_name} logs ----" >&2
+        docker logs --tail 100 "$container_name" >&2 || true
+      fi
+    done
+  fi
   docker rm --force "$first_container" "$second_container" >/dev/null 2>&1 || true
   rm -f -- "$backup_path"
 }
