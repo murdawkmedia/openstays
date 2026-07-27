@@ -9,6 +9,8 @@ Configure these Worker secrets at deployment time:
 - `TURNSTILE_SECRET`
 - `ELIGIBILITY_HMAC_SECRET`
 - `OPERATIONS_ADMIN_TOKEN`
+- `CONTAINER_CONTROL_TOKEN`
+- `WALLET_BACKUP_KEY_BASE64`
 
 Never commit secret values, wallet recovery material, or production resource
 identifiers.
