@@ -96,9 +96,24 @@ does not independently derive a commit from the archive.
 
    ```bash
    set -euo pipefail
+   launcher_parent=/usr/local
+   launcher_directory=/usr/local/sbin
+   test -d "$launcher_parent" && test ! -L "$launcher_parent" \
+     || { printf '%s\n' 'invalid launcher parent' >&2; exit 70; }
+   test "$(/usr/bin/readlink -f -- "$launcher_parent")" = "$launcher_parent" \
+     && test "$(/usr/bin/stat -c '%u:%g:%a' "$launcher_parent")" = "0:0:755" \
+     || { printf '%s\n' 'invalid launcher parent' >&2; exit 70; }
+   if test ! -e "$launcher_directory" && test ! -L "$launcher_directory"; then
+     /bin/mkdir -m 755 -- "$launcher_directory"
+   fi
+   test -d "$launcher_directory" && test ! -L "$launcher_directory" \
+     && test "$(/usr/bin/readlink -f -- "$launcher_directory")" = "$launcher_directory" \
+     && test "$(/usr/bin/stat -c '%u:%g:%a' "$launcher_directory")" = "0:0:755" \
+     || { printf '%s\n' 'invalid launcher directory' >&2; exit 71; }
    launcher_stage=/volume1/homes/murdawk/openstays-merchant-root-launcher.stage
    launcher_size=7966
-   launcher_temp=$(/usr/bin/mktemp /usr/local/sbin/.openstays-merchant-root.new-XXXXXX)
+   launcher_temp=$(/usr/bin/mktemp "$launcher_directory/.openstays-merchant-root.new-XXXXXX")
+   launcher_final="$launcher_directory/openstays-merchant-root"
    trap '/bin/rm -f -- "$launcher_temp"' EXIT
    copy_limit=$((launcher_size + 1))
    /usr/bin/timeout 5 /usr/bin/head -c "$copy_limit" -- "$launcher_stage" > "$launcher_temp"
@@ -111,12 +126,12 @@ does not independently derive a commit from the archive.
    esac
    /bin/chown root:root -- "$launcher_temp"
    /bin/chmod 700 -- "$launcher_temp"
-   /bin/mv -f -- "$launcher_temp" /usr/local/sbin/openstays-merchant-root
+   /bin/mv -f -- "$launcher_temp" "$launcher_final"
    trap - EXIT
    /usr/bin/env -i \
      PATH=/usr/local/bin:/usr/bin:/bin \
      HOME=/nonexistent \
-     /usr/local/sbin/openstays-merchant-root \
+     "$launcher_final" \
      deploy <40-character-commit> <source-archive-byte-size> \
        <64-character-source-archive-sha256>
    ```
@@ -130,6 +145,24 @@ the final mode and atomically renaming it over the trusted launcher. A symlink
 to an infinite source, an unwritten FIFO, an oversized or short file, or a hash
 mismatch removes only the exact temporary file, leaves any previous trusted
 launcher unchanged, and never executes either candidate.
+
+Host compatibility note (2026-07-27): the first live manual-task attempt
+stopped safely because `/usr/local/sbin` did not exist. It did not install a
+launcher or create an application root, backup root, or container. The current
+task validates `/usr/local` as a canonical, non-symlink, root-owned mode-`0755`
+directory before it does any staging work. It creates `/usr/local/sbin` with
+mode `0755` only when that exact child is absent, then validates the child with
+the same canonical-path, ownership, and mode checks. An existing symlink or a
+directory with different ownership or permissions is rejected without repair.
+
+To retry that stopped first run, replace the DSM task body with the complete
+current block above and rerun it with the same locally recorded, literal
+commit, source-archive size/digest, and launcher size/digest. Do not manually
+create `/usr/local/sbin`, loosen permissions, or run a checkout script
+directly. If the task reports `invalid launcher parent` or
+`invalid launcher directory`, stop and inspect that exact path before any
+further attempt.
+
 The installed launcher is root-owned mode `0700` outside the checkout. It
 re-executes itself through `env -i`, accepts only `deploy` or `recovery`, an
 exact commit, and an exact archive digest. It copies the staged archive to a
