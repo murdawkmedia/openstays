@@ -5,7 +5,8 @@
   "compatibility_date": "2026-07-26",
   "vars": {
     "PUBLIC_ORIGIN": "https://openstays.example.invalid",
-    "RELEASE": "local-unconfigured"
+    "RELEASE": "local-unconfigured",
+    "OPERATIONS_MODE": "cloudflare_container"
   },
   "secrets": {
     "required": [

@@ -6,6 +6,7 @@ import worker, { type Env } from '../src/index';
 const env: Env = {
   PUBLIC_ORIGIN: 'https://showcase.example',
   RELEASE: 'test',
+  OPERATIONS_MODE: 'cloudflare_container',
   TURNSTILE_SECRET: 'turnstile-secret',
   ELIGIBILITY_HMAC_SECRET: 'eligibility-signing-key-with-at-least-32-bytes',
   OPERATIONS_ADMIN_TOKEN: 'operator-secret',
@@ -54,6 +55,143 @@ describe('eligibility HTTP boundary', () => {
       token: expect.any(String),
     });
   });
+
+  it.each([
+    ['missing mode', { OPERATIONS_MODE: undefined }],
+    ['unknown mode', { OPERATIONS_MODE: 'synology_externl' }],
+  ])('fails closed with an accidental merchant binding for %s',
+    async (_label, override) => {
+      const getByName = vi.fn(() => ({
+        redactedHealth: vi.fn(async () => ({ status: 'ready' as const })),
+        bootstrapWallet: vi.fn(async () => ({
+          mnemonic: ['mnemonic-must-not-leak'],
+        })),
+        restartFromBackup: vi.fn(async () => ({ status: 'ready' as const })),
+        ensureReady: vi.fn(async () => ({ status: 'ready' as const })),
+      }));
+      const invalidModeEnv = {
+        ...env,
+        ...override,
+        MERCHANT_OPERATIONS: { getByName },
+      } as unknown as Env;
+      const context = { waitUntil: vi.fn(), passThroughOnException() {} };
+
+      const eligibilityResponse = await worker.fetch(
+        eligibilityRequest(),
+        invalidModeEnv,
+        context,
+        vi.fn(async () => new Response(JSON.stringify({ success: true }))),
+      );
+      const healthResponse = await worker.fetch(
+        new Request('https://edge.example/healthz'),
+        invalidModeEnv,
+        context,
+        vi.fn(),
+      );
+      const diagnosticsResponse = await worker.fetch(
+        new Request('https://edge.example/v1/operator/diagnostics', {
+          headers: { Authorization: 'Bearer operator-secret' },
+        }),
+        invalidModeEnv,
+        context,
+        vi.fn(),
+      );
+      const bootstrapResponse = await worker.fetch(
+        new Request('https://edge.example/v1/operator/bootstrap-wallet', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer operator-secret' },
+        }),
+        invalidModeEnv,
+        context,
+        vi.fn(),
+      );
+      const restoreResponse = await worker.fetch(
+        new Request('https://edge.example/v1/operator/restart-from-backup', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer operator-secret' },
+        }),
+        invalidModeEnv,
+        context,
+        vi.fn(),
+      );
+      await worker.scheduled!(
+        { cron: '* * * * *', scheduledTime: Date.now(), noRetry() {} },
+        invalidModeEnv,
+        context,
+        vi.fn(),
+      );
+
+      expect(eligibilityResponse.status).toBe(503);
+      expect(await eligibilityResponse.json()).toEqual({
+        error: 'CONFIGURATION_ERROR',
+      });
+      expect(healthResponse.status).toBe(503);
+      expect(await healthResponse.json()).toEqual({
+        release: 'test',
+        status: 'configuration_error',
+        failureCategory: 'configuration_error',
+      });
+      expect(diagnosticsResponse.status).toBe(503);
+      expect(bootstrapResponse.status).toBe(503);
+      expect(restoreResponse.status).toBe(503);
+      expect(await bootstrapResponse.text()).not.toContain('mnemonic');
+      expect(getByName).not.toHaveBeenCalled();
+      expect(context.waitUntil).not.toHaveBeenCalled();
+    });
+
+  it.each([
+    ['missing Turnstile secret', { TURNSTILE_SECRET: undefined }],
+    ['empty Turnstile secret', { TURNSTILE_SECRET: '  ' }],
+    ['missing eligibility key', { ELIGIBILITY_HMAC_SECRET: undefined }],
+    ['weak eligibility key', { ELIGIBILITY_HMAC_SECRET: 'too-short' }],
+    ['missing public origin', { PUBLIC_ORIGIN: undefined }],
+    ['malformed public origin', { PUBLIC_ORIGIN: 'not-a-url' }],
+    ['non-HTTPS public origin', { PUBLIC_ORIGIN: 'http://showcase.example' }],
+    ['public origin with path', { PUBLIC_ORIGIN: 'https://showcase.example/path' }],
+    ['missing release', { RELEASE: undefined }],
+    ['empty release', { RELEASE: '  ' }],
+    ['release with surrounding whitespace', { RELEASE: ' test ' }],
+  ])('returns one redacted configuration error for %s',
+    async (_label, override) => {
+      const invalidEnv = {
+        ...synologyEnv,
+        ...override,
+      } as unknown as Env;
+      const fetcher = vi.fn(async () =>
+        new Response(JSON.stringify({ success: true })));
+      const eligibilityResponse = await worker.fetch(
+        eligibilityRequest(),
+        invalidEnv,
+        { waitUntil() {}, passThroughOnException() {} },
+        fetcher,
+      );
+      const healthResponse = await worker.fetch(
+        new Request('https://edge.example/healthz'),
+        invalidEnv,
+        { waitUntil() {}, passThroughOnException() {} },
+        fetcher,
+      );
+
+      expect(eligibilityResponse.status).toBe(503);
+      expect(await eligibilityResponse.json()).toEqual({
+        error: 'CONFIGURATION_ERROR',
+      });
+      expect(healthResponse.status).toBe(503);
+      const healthBody = await healthResponse.text();
+      const safeRelease = typeof invalidEnv.RELEASE === 'string'
+        && invalidEnv.RELEASE.trim()
+        && invalidEnv.RELEASE === invalidEnv.RELEASE.trim()
+        ? invalidEnv.RELEASE
+        : 'unconfigured';
+      expect(JSON.parse(healthBody)).toEqual({
+        release: safeRelease,
+        status: 'configuration_error',
+        failureCategory: 'configuration_error',
+      });
+      expect(healthBody).not.toContain(String(invalidEnv.TURNSTILE_SECRET));
+      expect(healthBody).not.toContain(String(invalidEnv.ELIGIBILITY_HMAC_SECRET));
+      expect(fetcher).not.toHaveBeenCalled();
+    });
 
   it('returns CORS only to the configured origin', async () => {
     const fetcher = vi.fn(async () =>
@@ -363,5 +501,17 @@ describe('eligibility-only Wrangler configuration', () => {
     expect(raw).not.toMatch(
       /SYN(?:OLOGY)?_(?:ORIGIN|TOKEN)|MERCHANT_OPERATIONS|OPENSTAYS_URL|WAVELENGTH|BACKUP_/u,
     );
+  });
+
+  it('makes the legacy deployment mode explicit', async () => {
+    const raw = await readFile(
+      new URL('../wrangler.jsonc', import.meta.url),
+      'utf8',
+    );
+    const config = JSON.parse(raw) as {
+      vars?: Record<string, unknown>;
+    };
+
+    expect(config.vars?.OPERATIONS_MODE).toBe('cloudflare_container');
   });
 });

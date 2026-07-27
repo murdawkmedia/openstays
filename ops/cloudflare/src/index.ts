@@ -11,7 +11,7 @@ import {
 export interface Env extends MerchantOperationsEnv {
   PUBLIC_ORIGIN: string;
   RELEASE: string;
-  OPERATIONS_MODE?: 'cloudflare_container' | 'synology_external';
+  OPERATIONS_MODE: 'cloudflare_container' | 'synology_external';
   TURNSTILE_SECRET: string;
   ELIGIBILITY_HMAC_SECRET: string;
   OPERATIONS_ADMIN_TOKEN: string;
@@ -29,6 +29,53 @@ const ACTIONS = new Set<EligibilityAction>([
   'wavelength_payment',
   'reward_claim',
 ]);
+const OPERATIONS_MODES = new Set([
+  'cloudflare_container',
+  'synology_external',
+]);
+
+function validRuntimeConfiguration(env: Env): boolean {
+  if (!OPERATIONS_MODES.has(env.OPERATIONS_MODE)) return false;
+  if (
+    typeof env.RELEASE !== 'string'
+    || !env.RELEASE.trim()
+    || env.RELEASE !== env.RELEASE.trim()
+  ) return false;
+  if (
+    typeof env.TURNSTILE_SECRET !== 'string'
+    || !env.TURNSTILE_SECRET.trim()
+    || env.TURNSTILE_SECRET !== env.TURNSTILE_SECRET.trim()
+  ) return false;
+  if (
+    typeof env.ELIGIBILITY_HMAC_SECRET !== 'string'
+    || new TextEncoder().encode(env.ELIGIBILITY_HMAC_SECRET).byteLength < 32
+  ) return false;
+  if (typeof env.PUBLIC_ORIGIN !== 'string') return false;
+  try {
+    const origin = new URL(env.PUBLIC_ORIGIN);
+    return origin.protocol === 'https:'
+      && origin.origin === env.PUBLIC_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
+function configurationError(request: Request, env: Env): Response {
+  return json(request, env, 503, { error: 'CONFIGURATION_ERROR' });
+}
+
+function configurationHealth(request: Request, env: Env): Response {
+  const release = typeof env.RELEASE === 'string'
+    && env.RELEASE.trim()
+    && env.RELEASE === env.RELEASE.trim()
+    ? env.RELEASE
+    : 'unconfigured';
+  return json(request, env, 503, {
+    release,
+    status: 'configuration_error',
+    failureCategory: 'configuration_error',
+  });
+}
 
 function corsHeaders(request: Request, env: Env): Headers {
   const headers = new Headers({
@@ -137,7 +184,7 @@ function authorized(request: Request, expected: string): boolean {
 }
 
 function merchantOperations(env: Env) {
-  if (env.OPERATIONS_MODE === 'synology_external') return undefined;
+  if (env.OPERATIONS_MODE !== 'cloudflare_container') return undefined;
   return env.MERCHANT_OPERATIONS?.getByName('merchant');
 }
 
@@ -177,6 +224,11 @@ const worker = {
     fetcher: typeof fetch = fetch,
   ): Promise<Response> {
     const url = new URL(request.url);
+    if (!validRuntimeConfiguration(env)) {
+      return request.method === 'GET' && url.pathname === '/healthz'
+        ? configurationHealth(request, env)
+        : configurationError(request, env);
+    }
     if (request.method === 'OPTIONS') {
       if (request.headers.get('Origin') !== env.PUBLIC_ORIGIN) {
         return json(request, env, 403, { error: 'ORIGIN_FORBIDDEN' });
@@ -261,6 +313,7 @@ const worker = {
     context: WorkerContext,
     fetcher: typeof fetch = fetch,
   ): Promise<void> {
+    if (!validRuntimeConfiguration(env)) return;
     const operations = merchantOperations(env);
     if (!operations) return;
     context.waitUntil((async () => {
