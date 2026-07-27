@@ -1063,7 +1063,7 @@ git diff --check
 
 Expected: every command exits 0; root retains at least 440 passing tests and CLI retains at least 69.
 
-- [ ] **Step 2: Scan built artifacts**
+- [x] **Step 2: Scan built artifacts**
 
 Run a secret/local-path/recovery scan against `dist`, `cli/dist`, and `ops/cloudflare/dist`, then inspect frontend assets to confirm staff modules are absent and Wavelength runtime assets are present.
 
@@ -1084,7 +1084,7 @@ With generated disposable test secrets and fixture wallets only:
 
 Expected: every authority and fail-closed invariant matches the design.
 
-- [ ] **Step 4: Create a verified local checkpoint**
+- [x] **Step 4: Create a verified local checkpoint**
 
 Update `STATUS.md` with exact gate counts, release commit, remaining development-only advisories, and confirmation that no credentials/resources/deployment were touched.
 
