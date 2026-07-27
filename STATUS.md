@@ -1,19 +1,21 @@
 # OpenStays status
 
-**Updated: 2026-07-26 — fictional public showcase deployed; live rails remain disabled.**
+**Updated: 2026-07-27 - Synology merchant implementation locally verified; host deployment and live acceptance remain pending.**
 
 ## Current branch
 
 - `main` merge: `907d466`
-- Follow-up branch: `codex/public-live-payment-rails`
+- Current branch: `codex/synology-live-merchant`
 - Generated API follow-up: <https://github.com/murdawkmedia/openstays/pull/2>
 - Public showcase: <https://openstays-consensus.pages.dev/>
 - The dedicated `openstays-demo` production Convex deployment was updated and
   seeded with fictional Consensus Commons inventory.
 - `ZAPRITE_ENABLED`, `WAVELENGTH_ENABLED`, and
   `WAVELENGTH_REWARDS_ENABLED` remain `false`; the reward budget remains zero.
-- No Turnstile, R2, Worker, Durable Object, Container, or Zaprite resource was
-  created or changed.
+- Synology is the approved merchant host for this showcase; SHC is excluded.
+- No Synology deployment, wallet bootstrap, Turnstile widget, eligibility
+  Worker deployment, credential rotation, Zaprite resource, or rail enablement
+  has been completed by this branch.
 
 ## Implemented
 
@@ -36,19 +38,24 @@
 - Public retention deletes old booking messages, purges old guest identity and
   rendered email content, and removes only unpaid disposable expired bookings.
   Authoritative booking/payment/refund/reward/receipt records are preserved.
-- Cloudflare operations include:
+- Synology merchant operations now include locally verified source for:
   - one pinned non-root container for Wavelength, OpenTimestamps, and mail;
-  - service-scoped bridge and heartbeat tokens;
-  - 60-second fail-closed public Wavelength health;
-  - AES-256-GCM wallet archives with immutable, verified R2 generations;
-  - a single-use authenticated wallet bootstrap that commits the first backup;
-  - one-minute supervisor wakeups and redacted backup health;
-  - an authenticated forced restart from the newest verified archive.
+  - restore-first startup from atomic, verified encrypted `/volume2`
+    generations;
+  - single-use bootstrap that commits the first verified generation before
+    returning recovery words;
+  - serialized periodic backup and redacted stale-backup health;
+  - guarded fixed-root deployment and forced-recovery scripts;
+  - loopback-only operator/control access with no published container ports.
+- The Cloudflare eligibility-only configuration contains no Container, Durable
+  Object, R2, Synology origin, or Synology credential.
 
 ## Binding decisions
 
 - Live buttons and backend rails are independently controlled and begin
   disabled.
+- Zaprite acceptance does not depend on Synology wallet recovery. Wavelength
+  enablement requires the native Synology restore drill.
 - Reward daily budget defaults to zero.
 - Wavelength remains signet-only; no mainnet wallet or payment is created.
 - A stale Wavelength service hides only Wavelength. Zaprite and the simulated
@@ -60,14 +67,22 @@
 
 ## Verification
 
-- Task 10 complete:
+- Pre-Synology public showcase verification completed:
   - 469 root tests passed;
   - 72 CLI tests passed;
   - root and CLI typechecks/builds passed;
   - desktop and mobile public showcase smoke checks passed;
   - credential-dependent live payment browser checks remained correctly
     skipped.
-- Cloudflare operations pass 28 tests, typecheck, and Worker dry-run build.
+- Tasks 1-6 of the Synology plan are complete locally.
+- Cloudflare/Synology operations pass 144 tests, typecheck, the generic Worker
+  dry-run build, and the eligibility-only dry run with no Container, Durable
+  Object, or R2 binding.
+- The current full local gate passed:
+  - root: 469 tests, typecheck, production build, docs build, and runtime audit;
+  - CLI: 72 tests, typecheck, and build;
+  - operations: 144 tests, typecheck, and build;
+  - `git diff --check`.
 - GitHub CI run
   [30233083376](https://github.com/murdawkmedia/openstays/actions/runs/30233083376)
   passed both jobs:
@@ -80,9 +95,11 @@
     blocking fixable high/critical scan.
 - Focused public refund, simulated-tour, receipt-timeline, disclosure, wallet
   bootstrap, heartbeat, backup, and forced-restore tests pass.
-- The real Linux container and recovery drill passed on an amd64 GitHub-hosted
-  runner. The local workstation still has no Docker-compatible engine.
-- Fresh release-candidate verification:
+- The earlier Cloudflare-targeted Linux container and recovery drill passed on
+  an amd64 GitHub-hosted runner. The new Synology Compose rendering, native
+  image build, container health, and recovery drill have not yet run on the
+  Synology and remain acceptance gates.
+- Earlier Cloudflare-targeted release-candidate verification:
   - root: 469 tests, typecheck, production build, docs build, and the
     project-specific runtime audit passed;
   - CLI: 72 tests, typecheck, build, and the high-severity audit threshold
@@ -105,17 +122,21 @@
 ## Remaining gates
 
 1. Merge the generated Convex declaration follow-up.
-2. Run credential-dependent live integration acceptance, including
-   interrupted settlement reconciliation and 15-day retention.
-3. Gain access to a durable merchant host. The Synology was preferred but was
-   unreachable from the current network; the present Cloudflare token can
-   access Pages but not the required private R2 bucket.
-4. Deploy merchant infrastructure with all live rails disabled, bootstrap the wallet once,
-   record recovery offline, force a verified restore, then perform live
-   acceptance before enabling either rail.
+2. Render Compose, build the image, and deploy the disabled merchant on the
+   approved Synology roots.
+3. Bootstrap the signet wallet once, record recovery offline, and complete the
+   forced restore drill before enabling Wavelength.
+4. Create and verify the dedicated Turnstile widget and deploy the
+   eligibility-only Worker.
+5. Rotate the exposed Zaprite key and run exact CA$1 authoritative acceptance
+   before enabling Zaprite independently.
+6. Fund the capped signet budget and run Wavelength booking/reward acceptance
+   before enabling its booking rail and rewards.
+7. Complete desktop/mobile browser acceptance, stop-switch checks, interrupted
+   settlement reconciliation, and the 15-day retention check.
 
 See:
 
 - [Public live payments](./docs/public-live-payments.md)
 - [Operator runbook](./docs/operations/public-live-payments-runbook.md)
-- [Approved implementation plan](./docs/superpowers/plans/2026-07-26-public-live-payment-rails.md)
+- [Approved Synology implementation plan](./docs/superpowers/plans/2026-07-27-synology-live-merchant.md)

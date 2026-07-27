@@ -55,7 +55,7 @@ Render the eligibility-only Worker without deploying it:
 
 ```powershell
 npx --prefix ops/cloudflare wrangler deploy `
-  --config wrangler.synology.jsonc --dry-run
+  --config ops/cloudflare/wrangler.synology.jsonc --dry-run
 ```
 
 The dry run must contain no container image build. The checked-in Compose
@@ -190,7 +190,8 @@ docker exec openstays-merchant node /app/synology/operator.mjs backup
 docker exec openstays-merchant node /app/synology/operator.mjs health
 ```
 
-With all public rails still disabled, perform the required forced recovery:
+With all public rails still disabled, perform the forced recovery required
+before Wavelength enablement:
 
 ```bash
 cd /volume1/docker/openstays-merchant/source
@@ -306,10 +307,11 @@ Rollback:
 
 Only after separate Zaprite and Wavelength acceptance passes may each rail be
 enabled. Zaprite acceptance requires a fresh API key and one exact CA$1
-authoritative reconciliation. Wavelength acceptance requires the forced
-restore, spendable signet balance, one exact booking payment, one exact reward,
-and replay-safe completed activity. Enable the booking rail before rewards,
-and keep the daily reward budget capped.
+authoritative reconciliation; it does not depend on the signet-wallet recovery
+drill. Wavelength acceptance requires the forced restore, spendable signet
+balance, one exact booking payment, one exact reward, and replay-safe completed
+activity. Enable the Wavelength booking rail before rewards, and keep the daily
+reward budget capped.
 
 Record only release identifiers, public URLs, enabled/disabled states, redacted
 health, backup age, and test results. Never record secrets, recovery material,
