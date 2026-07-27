@@ -29,6 +29,7 @@ phrase. `POST /v1/operator/restart-from-backup` forces a restore rehearsal.
 Both require `OPERATIONS_ADMIN_TOKEN`; neither endpoint is a public UI.
 
 The `build` script validates the Worker and declared bindings with
-`--containers-rollout=none` because the Task 7 edge package is intentionally
-usable without Docker. A real, checksum-pinned container build is a mandatory
-Task 9 deployment gate.
+`--containers-rollout=none`. CI separately builds the checksum-pinned
+wallet-enabled Wavelength image, drills bootstrap/backup/restore, publishes a
+full high/critical vulnerability report, and blocks fixable application or
+base-image findings.
