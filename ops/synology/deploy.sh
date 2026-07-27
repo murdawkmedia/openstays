@@ -17,6 +17,40 @@ fail() {
   exit 1
 }
 
+verify_root_launcher_handoff() {
+  local expected_action="$1"
+  local handoff="${OPENSTAYS_ROOT_HANDOFF_FILE:-}"
+  local nonce="${OPENSTAYS_ROOT_HANDOFF_NONCE:-}"
+  local stored_nonce
+  local stored_action
+  local stored_commit
+  local extra
+  [[ "$nonce" =~ ^[0-9a-f]{32}$ ]] \
+    || fail ROOT_LAUNCHER_HANDOFF_REQUIRED
+  [[ "$handoff" =~ ^${APP_ROOT}/\.root-handoff-[0-9a-f]{32}$ ]] \
+    || fail ROOT_LAUNCHER_HANDOFF_REQUIRED
+  test "$handoff" = "$APP_ROOT/.root-handoff-$nonce" \
+    || fail ROOT_LAUNCHER_HANDOFF_REQUIRED
+  test -f "$handoff" && test ! -L "$handoff" \
+    || fail ROOT_LAUNCHER_HANDOFF_REQUIRED
+  test "$(readlink -f -- "$handoff")" = "$handoff" \
+    || fail ROOT_LAUNCHER_HANDOFF_REQUIRED
+  test "$(stat -c '%u:%g:%a' "$handoff")" = "0:0:600" \
+    || fail ROOT_LAUNCHER_HANDOFF_REQUIRED
+  {
+    IFS= read -r stored_nonce
+    IFS= read -r stored_action
+    IFS= read -r stored_commit
+    if IFS= read -r extra; then
+      fail ROOT_LAUNCHER_HANDOFF_REQUIRED
+    fi
+  } < "$handoff"
+  test "$stored_nonce" = "$nonce" \
+    && test "$stored_action" = "$expected_action" \
+    && test "$stored_commit" = "${OPENSTAYS_DSM_SOURCE_COMMIT:-}" \
+    || fail ROOT_LAUNCHER_HANDOFF_REQUIRED
+}
+
 require_clean_pinned_source() {
   local expected_commit="${OPENSTAYS_DSM_SOURCE_COMMIT:-}"
   local actual_commit
@@ -73,6 +107,9 @@ esac
 test "$(id -u murdawk)" = "$EXPECTED_UID" \
   && test "$(id -g murdawk)" = "$EXPECTED_GID" \
   || fail MURDAWK_RUNTIME_IDENTITY_MISMATCH
+if test "$root_task" = "true"; then
+  verify_root_launcher_handoff deploy
+fi
 
 assert_safe_target() {
   local target="$1"
@@ -138,6 +175,7 @@ container_identity() {
   docker inspect --format \
     '{{ index .Config.Labels "com.docker.compose.project" }}
 {{ index .Config.Labels "com.docker.compose.service" }}
+{{ .Config.User }}
 {{ len .Mounts }}
 {{ range .Mounts }}{{ .Source }}>{{ .Destination }}>{{ .Type }}>{{ .RW }}
 {{ end }}{{ len .HostConfig.PortBindings }}' \
@@ -151,6 +189,7 @@ container_identity_matches() {
   expected="$(printf '%s\n' \
     'openstays-merchant' \
     'merchant' \
+    '1026:100' \
     '2' \
     '/volume1/docker/openstays-merchant/state>/var/lib/openstays>bind>true' \
     '/volume2/openstays-wallet-backups>/var/backups/openstays>bind>true' \
@@ -178,11 +217,6 @@ assert_safe_target "$BACKUP_ROOT"
 if test "$root_task" = "true"; then
   assert_safe_target "$APP_ROOT/source"
   require_clean_pinned_source
-  install -d -m 700 -o "$EXPECTED_UID" -g "$EXPECTED_GID" \
-    "$APP_ROOT" \
-    "$APP_ROOT/config" \
-    "$APP_ROOT/state" \
-    "$BACKUP_ROOT"
 else
   install -d -m 700 \
     "$APP_ROOT" \
@@ -193,6 +227,20 @@ fi
 
 assert_managed_directory "$APP_ROOT" "$APP_ROOT"
 assert_managed_directory "$BACKUP_ROOT" "$BACKUP_ROOT"
+if test "$root_task" = "true"; then
+  test "$(stat -c '%u:%g:%a' "$APP_ROOT")" = "0:0:700" \
+    || fail MANAGED_DIRECTORY_IDENTITY_INVALID
+  test "$(stat -c '%u:%g:%a' "$APP_ROOT/source")" = "0:0:700" \
+    || fail MANAGED_DIRECTORY_IDENTITY_INVALID
+  for runtime_path in \
+    "$APP_ROOT/config" "$APP_ROOT/state" "$BACKUP_ROOT"
+  do
+    assert_managed_directory "$runtime_path" "$runtime_path"
+    test "$(stat -c '%u:%g:%a' "$runtime_path")" \
+      = "$EXPECTED_UID:$EXPECTED_GID:700" \
+      || fail MANAGED_DIRECTORY_IDENTITY_INVALID
+  done
+fi
 test -f "$ENV_FILE" && test ! -L "$ENV_FILE" \
   || fail MERCHANT_ENV_REQUIRED
 test -f "$COMPOSE_FILE" && test ! -L "$COMPOSE_FILE" \
