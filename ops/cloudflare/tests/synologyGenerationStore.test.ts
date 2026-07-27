@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
-  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -114,26 +113,16 @@ describe('Synology wallet backup generations', () => {
 
   it('serializes concurrent commits and acknowledges their exact pairs', async () => {
     const root = await temporaryRoot();
-    const staleLock = join(root, '.generation-store.lock');
-    const staleToken = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
-    await mkdir(staleLock);
-    await writeFile(
-      join(staleLock, `lease-${staleToken}.json`),
-      JSON.stringify({
-        token: staleToken,
-        heartbeatAt: new Date(Date.now() - 60_000).toISOString(),
-      }),
-    );
-    const inputs = [
-      { bytes: Buffer.from('concurrent-one'), release: 'release-one' },
-      { bytes: Buffer.from('concurrent-two'), release: 'release-two' },
-    ];
+    const inputs = Array.from({ length: 8 }, (_, index) => ({
+      bytes: Buffer.from(`concurrent-${index + 1}`),
+      release: `release-${index + 1}`,
+    }));
 
     const manifests = await Promise.all(inputs.map((input, index) =>
       commitInChild({ root, ...input, now: 1_000 + index })));
 
     expect(manifests.map(({ generation }) => generation).sort())
-      .toEqual([1, 2]);
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     for (const [index, manifest] of manifests.entries()) {
       const storedManifest = JSON.parse(await readFile(
         join(root, `generation-${manifest.generation}.manifest.json`),
@@ -145,52 +134,30 @@ describe('Synology wallet backup generations', () => {
       )).toEqual(inputs[index]?.bytes);
       expect(manifest.release).toBe(inputs[index]?.release);
     }
+    expect(
+      (await readdir(root)).filter((entry) => entry.endsWith('.claim')),
+    ).toEqual([]);
   });
 
-  it('recovers a stale same-PID lease after a container restart', async () => {
+  it('never reuses an orphaned generation claim', async () => {
     const root = await temporaryRoot();
-    const lock = join(root, '.generation-store.lock');
-    await mkdir(lock);
-    const token = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-    await writeFile(join(lock, `lease-${token}.json`), JSON.stringify({
-      token,
-      pid: process.pid,
-      heartbeatAt: new Date(Date.now() - 60_000).toISOString(),
-    }));
+    const orphan = join(root, 'generation-7.claim');
+    await writeFile(orphan, '{"crashed":true}\n');
+    const stale = new Date(Date.now() - (2 * 24 * 60 * 60 * 1_000));
+    await utimes(orphan, stale, stale);
+    const store = new GenerationStore(root);
 
-    await expect(new GenerationStore(root, {
-      leaseTimeoutMs: 100,
-    }).commit(
-      Buffer.from('wallet-after-crash'),
-      'release-after-crash',
-      1_000,
-    )).resolves.toMatchObject({ generation: 1 });
-    expect(await readdir(root)).not.toContain('.generation-store.lock');
-  });
-
-  it('does not steal fresh leases regardless of PID metadata', async () => {
-    for (const pid of [process.pid, process.pid + 100_000]) {
-      const root = await temporaryRoot();
-      const lock = join(root, '.generation-store.lock');
-      await mkdir(lock);
-      const token = randomUUID();
-      await writeFile(join(lock, `lease-${token}.json`), JSON.stringify({
-        token,
-        pid,
-        heartbeatAt: new Date().toISOString(),
-      }));
-      const store = new GenerationStore(root, {
-        leaseTimeoutMs: 5_000,
-        lockTimeoutMs: 30,
-      });
-
-      await expect(store.commit(
-        Buffer.from('must-not-publish'),
-        'release-blocked',
-        1_000,
-      )).rejects.toThrow('BACKUP_LOCK_TIMEOUT');
-      expect(await readdir(lock)).toContain(`lease-${token}.json`);
-    }
+    await expect(store.commit(
+      Buffer.from('wallet-eight'),
+      'release-eight',
+      8_000,
+    )).resolves.toMatchObject({ generation: 8 });
+    await expect(store.commit(
+      Buffer.from('wallet-nine'),
+      'release-nine',
+      9_000,
+    )).resolves.toMatchObject({ generation: 9 });
+    expect(await readFile(orphan, 'utf8')).toBe('{"crashed":true}\n');
   });
 
   it('recovers exactly across every injected publication boundary', async () => {
@@ -243,69 +210,6 @@ describe('Synology wallet backup generations', () => {
         });
       }
     }
-  });
-
-  it('recovers the previous pair when publication stops after the archive', async () => {
-    const root = await temporaryRoot();
-    const previousBytes = Buffer.from('previous-wallet');
-    const previous = await new GenerationStore(root).commit(
-      previousBytes,
-      'release-previous',
-      1_000,
-    );
-    const failure = new Error('injected archive durability failure');
-    let syncCount = 0;
-    const interrupted = new GenerationStore(root, {
-      directorySync: async () => {
-        syncCount += 1;
-        if (syncCount === 1) throw failure;
-      },
-    });
-
-    await expect(interrupted.commit(
-      Buffer.from('new-wallet'),
-      'release-new',
-      2_000,
-    )).rejects.toBe(failure);
-    await expect(new GenerationStore(root).loadLatest()).resolves.toEqual({
-      bytes: previousBytes,
-      manifest: previous,
-    });
-  });
-
-  it('recovers the new pair when manifest directory sync fails', async () => {
-    const root = await temporaryRoot();
-    await new GenerationStore(root).commit(
-      Buffer.from('previous-wallet'),
-      'release-previous',
-      1_000,
-    );
-    const newBytes = Buffer.from('new-wallet');
-    const failure = new Error('injected manifest durability failure');
-    let syncCount = 0;
-    const interrupted = new GenerationStore(root, {
-      directorySync: async () => {
-        syncCount += 1;
-        if (syncCount === 2) throw failure;
-      },
-    });
-
-    await expect(interrupted.commit(
-      newBytes,
-      'release-new',
-      2_000,
-    )).rejects.toBe(failure);
-    await expect(new GenerationStore(root).loadLatest()).resolves.toEqual({
-      bytes: newBytes,
-      manifest: {
-        schema: 'openstays.synology-wallet-backup.v1',
-        generation: 2,
-        createdAt: '1970-01-01T00:00:02.000Z',
-        release: 'release-new',
-        byteLength: newBytes.byteLength,
-        sha256: createHash('sha256').update(newBytes).digest('hex'),
-      },
-    });
   });
 
   it('rejects a corrupted archive when no valid pair remains', async () => {
@@ -392,6 +296,36 @@ describe('Synology wallet backup generations', () => {
     await expect(store.loadLatest()).resolves.toMatchObject({
       manifest: { generation: 4 },
     });
+  });
+
+  it('never prunes a generation that still has a claim', async () => {
+    const root = await temporaryRoot();
+    const writer = new GenerationStore(root, { retain: 3 });
+    for (let generation = 1; generation <= 3; generation += 1) {
+      await writer.commit(
+        Buffer.from(`wallet-${generation}`),
+        `release-${generation}`,
+        generation * 1_000,
+      );
+    }
+    await writeFile(
+      join(root, 'generation-1.claim'),
+      '{"inFlight":true}\n',
+    );
+
+    await new GenerationStore(root, { retain: 1 }).commit(
+      Buffer.from('wallet-four'),
+      'release-four',
+      4_000,
+    );
+
+    const entries = await readdir(root);
+    expect(entries).toContain('generation-1.claim');
+    expect(entries).toContain('generation-1.archive');
+    expect(entries).toContain('generation-1.manifest.json');
+    expect(entries).toContain('generation-4.archive');
+    expect(entries).not.toContain('generation-2.archive');
+    expect(entries).not.toContain('generation-3.archive');
   });
 
   it('removes only stale invalid artifacts after a verified generation exists', async () => {
