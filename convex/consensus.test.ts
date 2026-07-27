@@ -25,4 +25,17 @@ describe('consensus timeline', () => {
     expect(timeline[2]).toMatchObject({ state: 'attention' });
     expect(timeline[2].detail).toContain('manual refund');
   });
+  it('distinguishes pending, failed, and refunded payment authority', () => {
+    const base = {
+      statusHistory: ['hold'], paymentCount: 1, paid: false,
+      emailDelivered: false, messageCount: 0, openRefundCount: 0,
+      channelMapped: false, channelDirty: false,
+    };
+    expect(buildConsensusTimeline({ ...base, paymentPending: true })[2])
+      .toMatchObject({ state: 'pending', detail: expect.stringContaining('pending authoritative') });
+    expect(buildConsensusTimeline({ ...base, paymentFailed: true })[2])
+      .toMatchObject({ state: 'attention', detail: expect.stringContaining('failed') });
+    expect(buildConsensusTimeline({ ...base, paymentRefunded: true })[2])
+      .toMatchObject({ state: 'reached', detail: expect.stringContaining('refunded') });
+  });
 });

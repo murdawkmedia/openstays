@@ -914,7 +914,7 @@ git commit -m "feat: supervise payment and notification workers"
 - Modify: `tests/demoUXCopy.test.ts`
 - Create: `tests/e2e/public-live-payments.e2e.ts`
 
-- [ ] **Step 1: Write failing UI and authorization tests**
+- [x] **Step 1: Write failing UI and authorization tests**
 
 Assert:
 
@@ -926,7 +926,7 @@ Assert:
 - stale Wavelength health hides live wallet/reward actions but leaves Zaprite/simulated controls usable;
 - statuses distinguish payment requested/pending/paid/failed/refund requested, proof submitted/anchoring/anchored, and reward eligible/paid.
 
-- [ ] **Step 2: Confirm red**
+- [x] **Step 2: Confirm red**
 
 ```powershell
 npx vitest run tests/publicRefundRequest.test.ts tests/demoUXCopy.test.ts tests/e2e/public-live-payments.e2e.ts
@@ -934,15 +934,15 @@ npx vitest run tests/publicRefundRequest.test.ts tests/demoUXCopy.test.ts tests/
 
 Expected: FAIL on missing public refund request and live fallback states.
 
-- [ ] **Step 3: Implement guest refund request**
+- [x] **Step 3: Implement guest refund request**
 
 Add `refunds.requestForGuest` requiring confirmation code plus normalized email. Permit only paid Zaprite/Wavelength payments, create one open idempotent case per payment/reason, and queue `manual_refund_required` for staff. Do not alter payment status or send refund-completed email.
 
-- [ ] **Step 4: Complete public status UI**
+- [x] **Step 4: Complete public status UI**
 
 Render authoritative availability, exact amounts, clear rail differences, receipt preview/downloads, OTS pending-versus-anchored link, reward limits, refund request state, and a simulated-tour fallback. Use semantic live regions, visible focus, keyboard-operable dialogs, and no horizontal overflow.
 
-- [ ] **Step 5: Verify component/browser contracts**
+- [x] **Step 5: Verify component/browser contracts**
 
 ```powershell
 npx vitest run tests/publicRefundRequest.test.ts tests/demoUXCopy.test.ts tests/e2e/public-live-payments.e2e.ts
@@ -953,7 +953,7 @@ npm run test:e2e:smoke
 
 Expected: focused tests, build, and smoke walkthrough pass at desktop and 390 px with no console error or horizontal overflow.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add convex/refunds.ts src/pages/CheckoutPage.tsx src/pages/ManageBookingPage.tsx src/pages/ConfirmationPage.tsx src/pages/ConsensusRewardPage.tsx tests/publicRefundRequest.test.ts tests/demoUXCopy.test.ts tests/e2e/public-live-payments.e2e.ts

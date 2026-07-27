@@ -14,6 +14,7 @@ import {
   StayRuleError,
   validateStayRules,
 } from '../shared/pricing';
+import { readPublicPolicy } from './publicPolicy';
 
 /**
  * Hold TTL. NOT shorter: Stripe Checkout Sessions cannot expire sooner than
@@ -515,13 +516,30 @@ export const expireHolds = internalMutation({
  * demo) — production uses the provider webhook path (M1).
  */
 export const confirmSimulated = mutation({
-  args: { bookingId: v.id('bookings') },
+  args: {
+    bookingId: v.id('bookings'),
+    confirmationCode: v.optional(v.string()),
+    email: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
-    if (process.env.DEMO_MODE !== 'true') {
+    const demoMode = process.env.DEMO_MODE === 'true';
+    const policy = readPublicPolicy(process.env);
+    const publicTour = policy.liveMode && policy.simulatedEnabled;
+    if (!demoMode && !publicTour) {
       throw new ConvexError({ code: 'DEMO_ONLY', message: 'Simulated payment is demo-only.' });
     }
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new ConvexError({ code: 'NOT_FOUND', message: 'Booking not found.' });
+    if (publicTour) {
+      const guest = booking.guestId ? await ctx.db.get(booking.guestId) : null;
+      if (
+        booking.confirmationCode !== args.confirmationCode?.trim().toUpperCase()
+        || !guest
+        || guest.normalizedEmail !== args.email?.trim().toLowerCase()
+      ) {
+        throw new ConvexError({ code: 'NOT_FOUND', message: 'Booking not found.' });
+      }
+    }
     if (booking.status !== 'hold') {
       throw new ConvexError({ code: 'HOLD_NOT_ACTIVE', message: 'This booking is no longer holdable.' });
     }

@@ -5,6 +5,9 @@ type TimelineInput = {
   statusHistory: string[];
   paymentCount: number;
   paid: boolean;
+  paymentPending?: boolean;
+  paymentFailed?: boolean;
+  paymentRefunded?: boolean;
   emailDelivered: boolean;
   messageCount: number;
   openRefundCount: number;
@@ -24,10 +27,21 @@ export type ConsensusStep = {
 export function buildConsensusTimeline(input: TimelineInput): ConsensusStep[] {
   const held = input.statusHistory.some((status) => status === 'hold' || status === 'confirmed');
   const confirmed = input.statusHistory.includes('confirmed');
+  const paymentDetail = input.openRefundCount > 0
+    ? `${input.openRefundCount} manual refund case${input.openRefundCount === 1 ? '' : 's'} requires resolution.`
+    : input.paymentRefunded
+      ? 'The authoritative payment rail reports the payment as refunded.'
+      : input.paid
+        ? 'The authoritative payment rail reported settlement.'
+        : input.paymentFailed
+          ? 'The payment request failed without authoritative settlement.'
+          : input.paymentPending
+            ? 'The payment request is pending authoritative settlement.'
+            : 'Waiting for authoritative settlement.';
   return [
     { key: 'availability', label: 'Availability agreed', state: held ? 'reached' : 'pending', detail: held ? 'The requested nights were atomically reserved.' : 'Waiting for an availability hold.' },
     { key: 'requested', label: 'Payment requested', state: input.paymentCount > 0 ? 'reached' : 'pending', detail: input.paymentCount > 0 ? 'A payment request is recorded against this booking.' : 'No payment request yet.' },
-    { key: 'observed', label: 'Payment observed', state: input.openRefundCount > 0 ? 'attention' : input.paid ? 'reached' : 'pending', detail: input.openRefundCount > 0 ? `${input.openRefundCount} manual refund case${input.openRefundCount === 1 ? '' : 's'} requires resolution.` : input.paid ? 'The authoritative payment rail reported settlement.' : 'Waiting for authoritative settlement.' },
+    { key: 'observed', label: 'Payment observed', state: input.openRefundCount > 0 || input.paymentFailed ? 'attention' : input.paid || input.paymentRefunded ? 'reached' : 'pending', detail: paymentDetail },
     { key: 'confirmed', label: 'Booking confirmed', state: confirmed ? 'reached' : 'pending', detail: confirmed ? 'Payment and availability agree on one booking state.' : 'Confirmation waits for payment and availability consensus.' },
     { key: 'notified', label: 'Notification sent', state: input.emailDelivered ? 'reached' : 'pending', detail: `${input.emailDelivered ? 'Reservation email recorded' : 'Reservation email queued'} · ${input.messageCount} message${input.messageCount === 1 ? '' : 's'} in the booking thread.` },
     { key: 'timestamped', label: 'Consensus receipt timestamped', state: input.receiptStatus === 'submitted' || input.receiptStatus === 'bitcoin_anchored' ? 'reached' : input.receiptStatus === 'failed' ? 'attention' : 'pending', detail: input.receiptStatus === 'bitcoin_anchored' ? 'OpenTimestamps proof is independently anchored to Bitcoin.' : input.receiptStatus === 'submitted' ? 'OpenTimestamps calendars accepted the privacy-safe receipt commitment.' : input.receiptStatus === 'failed' ? 'Timestamp submission needs staff attention.' : 'Waiting for the canonical receipt and calendar proof.' },
@@ -60,6 +74,10 @@ export const forGuest = query({
       statusHistory: booking.statusHistory.map((entry) => entry.status),
       paymentCount: payments.length,
       paid: payments.some((payment) => ['paid', 'partially_refunded', 'refunded'].includes(payment.status)),
+      paymentPending: payments.some((payment) => payment.status === 'pending'),
+      paymentFailed: payments.some((payment) => payment.status === 'failed'),
+      paymentRefunded: payments.some((payment) =>
+        payment.status === 'partially_refunded' || payment.status === 'refunded'),
       emailDelivered: emails.some((email) => ['sent', 'logged'].includes(email.status)),
       messageCount: messages.length,
       openRefundCount: refunds.filter((refund) => refund.status === 'open').length,
