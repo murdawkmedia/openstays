@@ -1,6 +1,6 @@
 # OpenStays status
 
-**Updated: 2026-07-27 - Synology merchant implementation locally verified; host deployment and live acceptance remain pending.**
+**Updated: 2026-07-27 - Synology launcher bootstrap updated for the discovered host shape; host deployment and live acceptance remain pending.**
 
 ## Current branch
 
@@ -20,6 +20,10 @@
   `0755` Linux-mode parents without ACLs. The active application root is
   `/volume1/openstays-merchant`; writable `/volume1/docker` is excluded from
   privileged trust.
+- The first live DSM task attempt stopped safely because `/usr/local/sbin` was
+  absent. It created no launcher, application root, backup root, or container.
+  The current task validates `/usr/local`, creates that exact child only when
+  absent, and rejects a symlink or ownership/mode drift before staging.
 - No Synology deployment, wallet bootstrap, Turnstile widget, eligibility
   Worker deployment, credential rotation, Zaprite resource, or rail enablement
   has been completed by this branch.
@@ -58,9 +62,11 @@
     rejects unsafe archive members, atomically publishes a commit/size/digest
     attested source tree, preserves prior source in quarantine, and gives
     checkout scripts a root-only nonce handoff;
-  - a verify-before-publish Task Scheduler sequence that bounds staged launcher
-    reads by literal size and timeout, verifies SHA-256 before atomic rename,
-    and preserves the previous trusted launcher on mismatch;
+  - a verify-before-publish Task Scheduler sequence that first validates the
+    canonical root-owned launcher parent and safely creates only an absent
+    `/usr/local/sbin`, then bounds staged launcher reads by literal size and
+    timeout, verifies SHA-256 before atomic rename, and preserves the previous
+    trusted launcher on mismatch;
   - exact `1026:100` container-user attestation alongside the existing fixed
     labels, mounts, ports, disabled rails, and cleanup boundaries;
   - loopback-only operator/control access with no published container ports.
@@ -95,13 +101,13 @@
   - credential-dependent live payment browser checks remained correctly
     skipped.
 - Tasks 1-6 of the Synology plan are complete locally.
-- Cloudflare/Synology operations pass 167 tests, typecheck, the generic Worker
+- Cloudflare/Synology operations pass 172 tests, typecheck, the generic Worker
   dry-run build, and the eligibility-only dry run with no Container, Durable
   Object, or R2 binding.
 - The current full local gate passed:
   - root: 469 tests, typecheck, production build, docs build, and runtime audit;
   - CLI: 72 tests, typecheck, and build;
-  - operations: 167 tests, typecheck, and build;
+  - operations: 172 tests, typecheck, and build;
   - `git diff --check`.
 - GitHub CI run
   [30233083376](https://github.com/murdawkmedia/openstays/actions/runs/30233083376)
@@ -141,9 +147,10 @@
 
 ## Remaining gates
 
-1. Use the documented manual-only DSM root task to render Compose, build the
-   image, and deploy the disabled merchant on the approved Synology roots;
-   remove or disable the task after the one-shot run.
+1. Replace the stopped DSM task body with the current documented block, reuse
+   the same pinned inputs, and retry it to render Compose, build the image, and
+   deploy the disabled merchant on the approved Synology roots; remove or
+   disable the task after the one-shot run.
 2. Bootstrap the signet wallet once, record recovery offline, and complete the
    forced restore drill before enabling Wavelength.
 3. Create and verify the dedicated Turnstile widget and deploy the

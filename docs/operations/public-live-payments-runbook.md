@@ -163,6 +163,20 @@ flags, empty published-port bindings, and post-start health. They never prune
 Docker or target an unrelated container. Disable or remove the one-shot task
 after its successful result is recorded.
 
+The 2026-07-27 first live attempt stopped before deployment because this DSM
+host did not yet have `/usr/local/sbin`. No launcher, application root, backup
+root, or container was created. The current documented task safely handles
+that discovered host shape: it first validates `/usr/local` as a canonical
+root-owned mode-`0755` directory, creates only an absent `/usr/local/sbin`,
+and then validates that child before reading the staged launcher. Existing
+symlinks or owner/mode drift are hard failures and are not repaired.
+
+For the retry, replace the complete DSM task body with the current
+`ops/synology/README.md` block and reuse the same independently recorded
+literal inputs. Do not manually create the directory or loosen permissions.
+An `invalid launcher parent` or `invalid launcher directory` result requires
+inspection and a new operator decision rather than another blind retry.
+
 ## 6. Bootstrap and prove recovery
 
 **REQUIRES FRESH OPERATOR APPROVAL**

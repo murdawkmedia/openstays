@@ -53,7 +53,7 @@ function script(path: string) {
 
 function rootTaskInstallBlock() {
   const body = script(synologyReadmePath);
-  const marker = '   ```bash\n   set -euo pipefail\n   launcher_stage=';
+  const marker = '   ```bash\n   set -euo pipefail\n   launcher_parent=';
   const start = body.indexOf(marker);
   if (start < 0) throw new Error('ROOT_TASK_INSTALL_BLOCK_MISSING');
   const contentStart = start + '   ```bash\n'.length;
@@ -367,8 +367,22 @@ describe('Synology script contracts', () => {
 
   it('documents a verify-before-publish launcher install that preserves the trusted final on mismatch', () => {
     const body = script(synologyReadmePath);
+    expect(body).toContain('launcher_parent=/usr/local');
+    expect(body).toContain('launcher_directory=/usr/local/sbin');
     expect(body).toContain(
-      'launcher_temp=$(/usr/bin/mktemp /usr/local/sbin/.openstays-merchant-root.new-XXXXXX)',
+      'test "$(/usr/bin/stat -c \'%u:%g:%a\' "$launcher_parent")" = "0:0:755"',
+    );
+    expect(body).toContain(
+      '/bin/mkdir -m 755 -- "$launcher_directory"',
+    );
+    expect(body).toContain(
+      'test "$(/usr/bin/stat -c \'%u:%g:%a\' "$launcher_directory")" = "0:0:755"',
+    );
+    expect(body.indexOf('launcher_parent=/usr/local')).toBeLessThan(
+      body.indexOf('launcher_temp=$(/usr/bin/mktemp'),
+    );
+    expect(body).toContain(
+      'launcher_temp=$(/usr/bin/mktemp "$launcher_directory/.openstays-merchant-root.new-XXXXXX")',
     );
     expect(body).toContain(
       '/usr/bin/timeout 5 /usr/bin/head -c "$copy_limit" -- "$launcher_stage" > "$launcher_temp"',
@@ -380,7 +394,7 @@ describe('Synology script contracts', () => {
       'candidate_sha256=$(/bin/sha256sum "$launcher_temp")',
     );
     expect(body).toContain(
-      '/bin/mv -f -- "$launcher_temp" /usr/local/sbin/openstays-merchant-root',
+      '/bin/mv -f -- "$launcher_temp" "$launcher_final"',
     );
     expect(body).toContain(
       'trap \'/bin/rm -f -- "$launcher_temp"\' EXIT',
@@ -389,10 +403,12 @@ describe('Synology script contracts', () => {
       body.indexOf('candidate_sha256='),
     );
     expect(body.indexOf('candidate_sha256=')).toBeLessThan(
-      body.indexOf('/bin/mv -f -- "$launcher_temp"'),
+      body.indexOf('/bin/mv -f -- "$launcher_temp" "$launcher_final"'),
     );
-    expect(body.indexOf('/bin/mv -f -- "$launcher_temp"')).toBeLessThan(
-      body.indexOf('/usr/local/sbin/openstays-merchant-root \\\n     deploy'),
+    expect(
+      body.indexOf('/bin/mv -f -- "$launcher_temp" "$launcher_final"'),
+    ).toBeLessThan(
+      body.indexOf('"$launcher_final" \\\n     deploy'),
     );
   });
 
@@ -412,10 +428,18 @@ describe('Synology script contracts', () => {
     ['FIFO without a writer', 'fifo'],
   ])('root task preserves the trusted launcher for %s', (_, scenario) => {
     const root = temporaryRoot();
+    const bin = join(root, 'bin');
+    const launcherParent = join(root, 'usr', 'local');
+    const launcherDirectory = join(launcherParent, 'sbin');
     const stage = join(root, 'launcher.stage');
-    const final = join(root, 'launcher.final');
-    const tempPattern = join(root, '.launcher.new-XXXXXX');
+    const final = join(launcherDirectory, 'openstays-merchant-root');
     const launcherSize = statSync(rootLauncherPath).size;
+    mkdirSync(bin);
+    mkdirSync(launcherDirectory, { recursive: true });
+    executable(
+      join(bin, 'stat'),
+      `#!/usr/bin/env bash\nprintf '%s\\n' '0:0:755'\n`,
+    );
     writeFileSync(final, 'trusted-final');
     if (scenario === 'same-size') {
       writeFileSync(stage, Buffer.alloc(launcherSize, 0x78));
@@ -434,17 +458,18 @@ describe('Synology script contracts', () => {
     }
     const source = rootTaskInstallBlock()
       .replace(
+        'launcher_parent=/usr/local',
+        `launcher_parent=${gitBashPath(launcherParent)}`,
+      )
+      .replace(
+        'launcher_directory=/usr/local/sbin',
+        `launcher_directory=${gitBashPath(launcherDirectory)}`,
+      )
+      .replace(
         'launcher_stage=/volume1/homes/murdawk/openstays-merchant-root-launcher.stage',
         `launcher_stage=${gitBashPath(stage)}`,
       )
-      .replace(
-        '/usr/local/sbin/.openstays-merchant-root.new-XXXXXX',
-        gitBashPath(tempPattern),
-      )
-      .replaceAll(
-        '/usr/local/sbin/openstays-merchant-root',
-        gitBashPath(final),
-      )
+      .replaceAll('/usr/bin/stat', gitBashPath(join(bin, 'stat')))
       .replace('/usr/bin/timeout 5', '/usr/bin/timeout 1');
     const task = join(root, 'root-task.sh');
     writeFileSync(task, source, { mode: 0o700 });
@@ -458,7 +483,104 @@ describe('Synology script contracts', () => {
     expect(result.status).not.toBe(0);
     expect(readFileSync(final, 'utf8')).toBe('trusted-final');
     expect(
-      readdirSync(root).filter((name) => name.startsWith('.launcher.new-')),
+      readdirSync(launcherDirectory).filter((name) =>
+        name.startsWith('.openstays-merchant-root.new-')),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ['absent directory is created', 'absent', '0:0:755'],
+    ['existing valid directory passes', 'valid', '0:0:755'],
+    ['wrong owner is rejected', 'wrong-owner', '1026:100:755'],
+    ['wrong mode is rejected', 'wrong-mode', '0:0:777'],
+    ['symlink is rejected', 'symlink', '0:0:755'],
+  ])('root task launcher directory: %s', (_, scenario, identity) => {
+    const root = temporaryRoot();
+    const bin = join(root, 'bin');
+    const launcherParent = join(root, 'usr', 'local');
+    const launcherDirectory = join(launcherParent, 'sbin');
+    const stage = join(root, 'launcher.stage');
+    const stageReadMarker = join(root, 'stage-read');
+    const launcherFinal = join(
+      launcherDirectory,
+      'openstays-merchant-root',
+    );
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(launcherParent, { recursive: true });
+    if (scenario === 'valid' || scenario.startsWith('wrong')) {
+      mkdirSync(launcherDirectory);
+    } else if (scenario === 'symlink') {
+      const outside = join(root, 'outside');
+      mkdirSync(outside);
+      symlinkSync(
+        outside,
+        launcherDirectory,
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+    }
+    writeFileSync(stage, Buffer.alloc(statSync(rootLauncherPath).size, 0x78));
+    executable(
+      join(bin, 'stat'),
+      `#!/usr/bin/env bash
+case "\${@: -1}" in
+  "${gitBashPath(launcherParent)}") printf '%s\\n' '0:0:755' ;;
+  "${gitBashPath(launcherDirectory)}") printf '%s\\n' '${identity}' ;;
+  *) exit 91 ;;
+esac
+`,
+    );
+    executable(
+      join(bin, 'head'),
+      `#!/usr/bin/env bash
+: > ${gitBashPath(stageReadMarker)}
+exec /usr/bin/head "$@"
+`,
+    );
+    let source = rootTaskInstallBlock()
+      .replace(
+        'launcher_parent=/usr/local',
+        `launcher_parent=${gitBashPath(launcherParent)}`,
+      )
+      .replace(
+        'launcher_directory=/usr/local/sbin',
+        `launcher_directory=${gitBashPath(launcherDirectory)}`,
+      )
+      .replace(
+        'launcher_stage=/volume1/homes/murdawk/openstays-merchant-root-launcher.stage',
+        `launcher_stage=${gitBashPath(stage)}`,
+      )
+      .replaceAll('/usr/bin/stat', gitBashPath(join(bin, 'stat')))
+      .replaceAll('/usr/bin/head', gitBashPath(join(bin, 'head')))
+      .replace('/usr/bin/timeout 5', '/usr/bin/timeout 1');
+    source = source.replace(
+      '/usr/local/sbin/.openstays-merchant-root.new-XXXXXX',
+      `${gitBashPath(launcherDirectory)}/.openstays-merchant-root.new-XXXXXX`,
+    ).replaceAll(
+      '/usr/local/sbin/openstays-merchant-root',
+      `${gitBashPath(launcherDirectory)}/openstays-merchant-root`,
+    );
+    const task = join(root, 'root-task-directory.sh');
+    writeFileSync(task, source, { mode: 0o700 });
+    chmodSync(task, 0o700);
+
+    const result = run(task, {
+      ...process.env,
+      PATH: '/usr/local/bin:/usr/bin:/bin',
+    });
+
+    if (scenario === 'absent' || scenario === 'valid') {
+      expect(statSync(launcherDirectory).isDirectory()).toBe(true);
+      expect(result.stderr).not.toContain('launcher directory');
+      expect(readFileSync(stageReadMarker, 'utf8')).toBe('');
+    } else {
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('launcher directory');
+      expect(() => readFileSync(stageReadMarker)).toThrow();
+      expect(() => readFileSync(launcherFinal)).toThrow();
+    }
+    expect(
+      readdirSync(launcherDirectory).filter((name) =>
+        name.startsWith('.openstays-merchant-root.new-')),
     ).toEqual([]);
   });
 
