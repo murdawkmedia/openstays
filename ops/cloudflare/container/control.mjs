@@ -57,6 +57,7 @@ export class MerchantControl {
     this.status = 'starting';
     this.failureCategory = undefined;
     this.restored = false;
+    this.stopping = false;
   }
 
   async restore(ciphertext, expectedSha256) {
@@ -85,26 +86,105 @@ export class MerchantControl {
     }
   }
 
-  start() {
-    if (!this.restored) throw new Error('RESTORE_REQUIRED');
+  spawnRequired(command) {
+    const spawnCommand = this.options.spawnCommand ?? spawn;
+    const child = spawnCommand(command.file, command.args ?? [], {
+      cwd: command.cwd,
+      env: command.env,
+      stdio: ['ignore', 'inherit', 'inherit'],
+    });
     const failRequiredProcess = () => {
+      if (this.stopping) return;
       this.status = 'failed';
       this.failureCategory = 'required_process_exited';
       this.stop();
     };
-    for (const command of this.options.commands) {
-      const child = spawn(command.file, command.args ?? [], {
-        cwd: command.cwd,
-        env: command.env,
-        stdio: ['ignore', 'inherit', 'inherit'],
-      });
-      child.once('error', failRequiredProcess);
-      child.once('exit', (code) => {
-        if (code !== 0) failRequiredProcess();
-      });
-      this.processes.push(child);
+    child.once('error', failRequiredProcess);
+    child.once('exit', (code) => {
+      if (code !== 0) failRequiredProcess();
+    });
+    this.processes.push(child);
+  }
+
+  async waitForDaemon() {
+    const fetchDaemon = this.options.fetchDaemon ?? fetch;
+    const wait = this.options.wait ?? ((delayMs) =>
+      new Promise((resolve) => setTimeout(resolve, delayMs)));
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        const response = await fetchDaemon(
+          'http://127.0.0.1:10031/v1/wallet/status',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          },
+        );
+        if (response.ok) return;
+      } catch {
+        // The loopback gateway is still starting.
+      }
+      await wait(200);
     }
+    throw new Error('WAVELENGTH_DAEMON_START_TIMEOUT');
+  }
+
+  async walletLifecycle(path) {
+    const password = this.options.walletPassword ?? '';
+    if (Buffer.byteLength(password, 'utf8') < 8) {
+      throw new Error('WAVELENGTH_WALLET_PASSWORD_TOO_SHORT');
+    }
+    const fetchDaemon = this.options.fetchDaemon ?? fetch;
+    const response = await fetchDaemon(
+      `http://127.0.0.1:10031/v1/wallet/${path}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet_password: Buffer.from(password, 'utf8').toString('base64'),
+        }),
+      },
+    );
+    if (!response.ok) throw new Error(`WAVELENGTH_WALLET_${path.toUpperCase()}_FAILED`);
+    return await response.json();
+  }
+
+  startWorkers() {
+    for (const command of this.options.workerCommands) {
+      this.spawnRequired(command);
+    }
+  }
+
+  async start() {
+    if (!this.restored) throw new Error('RESTORE_REQUIRED');
+    this.spawnRequired(this.options.daemonCommand);
+    await this.waitForDaemon();
+    await this.walletLifecycle('unlock');
+    this.startWorkers();
     this.status = 'ready';
+  }
+
+  async bootstrap() {
+    if (this.restored || existsSync(this.options.walletDirectory)) {
+      throw new Error('BOOTSTRAP_ALREADY_ATTEMPTED');
+    }
+    mkdirSync(this.options.walletDirectory, { recursive: true, mode: 0o700 });
+    this.spawnRequired(this.options.daemonCommand);
+    await this.waitForDaemon();
+    const created = await this.walletLifecycle('create');
+    if (
+      !Array.isArray(created.mnemonic)
+      || created.mnemonic.length !== 24
+      || created.mnemonic.some((word) => (
+        typeof word !== 'string' || !/^[a-z]+$/u.test(word)
+      ))
+    ) {
+      throw new Error('WAVELENGTH_CREATE_RESPONSE_INVALID');
+    }
+    this.restored = true;
+    this.startWorkers();
+    this.status = 'ready';
+    return { mnemonic: created.mnemonic };
   }
 
   backup(outputPath) {
@@ -125,6 +205,7 @@ export class MerchantControl {
   }
 
   stop() {
+    this.stopping = true;
     for (const child of this.processes) child.kill('SIGTERM');
     this.processes = [];
   }
@@ -144,8 +225,13 @@ export function createControlServer(control, token) {
       if (request.method === 'POST' && request.url === '/restore') {
         const digest = String(request.headers['x-backup-sha256'] ?? '');
         await control.restore(await readBounded(request), digest);
-        control.start();
-        json(response, 202, { status: 'starting' });
+        await control.start();
+        json(response, 200, { status: 'ready' });
+        return;
+      }
+      if (request.method === 'POST' && request.url === '/bootstrap') {
+        const result = await control.bootstrap();
+        json(response, 201, result);
         return;
       }
       if (request.method === 'POST' && request.url === '/backup') {
@@ -192,23 +278,22 @@ if (process.argv[1]
   const control = new MerchantControl({
     walletDirectory,
     backupKeyBase64: process.env.WALLET_BACKUP_KEY_BASE64,
+    walletPassword: process.env.WAVELENGTH_WALLET_PASSWORD,
     release: process.env.OPENSTAYS_RELEASE ?? 'unknown',
-    commands: [
-      {
-        file: '/usr/local/bin/waved',
-        args: [
-          '--network=signet',
-          `--datadir=${walletDirectory}`,
-          `--logdir=${join(walletDirectory, 'logs')}`,
-          `--wallet.password_file=${process.env.WAVELENGTH_WALLET_PASSWORD_FILE
-            ?? join(walletDirectory, 'merchant-wallet.password')}`,
-          '--wallet.esploraurl=https://mempool.space/signet/api',
-          '--rpc.listenaddr=127.0.0.1:10029',
-          '--rpc.gateway.listenaddr=127.0.0.1:10031',
-          '--rpc.notls',
-        ],
-        env: childEnv,
-      },
+    daemonCommand: {
+      file: '/usr/local/bin/waved',
+      args: [
+        '--network=signet',
+        `--datadir=${walletDirectory}`,
+        `--logdir=${join(walletDirectory, 'logs')}`,
+        '--wallet.esploraurl=https://mempool.space/signet/api',
+        '--rpc.listenaddr=127.0.0.1:10029',
+        '--rpc.gateway.listenaddr=127.0.0.1:10031',
+        '--rpc.notls',
+      ],
+      env: childEnv,
+    },
+    workerCommands: [
       { file: process.execPath, args: [cli, 'wave-bridge'], env: childEnv },
       { file: process.execPath, args: [cli, 'ots-bridge'], env: childEnv },
       { file: process.execPath, args: [cli, 'mail-bridge'], env: childEnv },

@@ -14,7 +14,7 @@ export interface Env extends MerchantOperationsEnv {
   TURNSTILE_SECRET: string;
   ELIGIBILITY_HMAC_SECRET: string;
   OPERATIONS_ADMIN_TOKEN: string;
-  MERCHANT_OPERATIONS?: DurableObjectNamespace;
+  MERCHANT_OPERATIONS?: DurableObjectNamespace<MerchantOperations>;
 }
 
 type WorkerContext = Pick<
@@ -135,6 +135,36 @@ function authorized(request: Request, expected: string): boolean {
   return Boolean(expected && supplied === `Bearer ${expected}`);
 }
 
+function merchantOperations(env: Env) {
+  return env.MERCHANT_OPERATIONS?.getByName('merchant');
+}
+
+async function publishBackupHeartbeat(
+  env: Env,
+  status: 'ready' | 'failed',
+  fetcher: typeof fetch,
+): Promise<void> {
+  if (!env.OPENSTAYS_URL || !env.BACKUP_HEARTBEAT_TOKEN) return;
+  const response = await fetcher(
+    `${env.OPENSTAYS_URL.replace(/\/$/u, '')}/operations-bridge/heartbeat`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.BACKUP_HEARTBEAT_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        service: 'backup',
+        status,
+        release: env.RELEASE,
+        observedAt: Date.now(),
+        ...(status === 'failed' ? { failureCategory: 'backup_stale' } : {}),
+      }),
+    },
+  );
+  if (!response.ok) throw new Error('BACKUP_HEARTBEAT_FAILED');
+}
+
 export { MerchantOperations };
 
 const worker = {
@@ -155,22 +185,81 @@ const worker = {
       return eligibility(request, env, fetcher);
     }
     if (request.method === 'GET' && url.pathname === '/healthz') {
+      const operations = merchantOperations(env);
+      const health = operations
+        ? await operations.redactedHealth()
+        : { status: 'starting' as const };
       return json(request, env, 200, {
         release: env.RELEASE,
-        status: 'starting',
+        status: health.status,
       });
     }
     if (url.pathname === '/v1/operator/diagnostics') {
       if (!authorized(request, env.OPERATIONS_ADMIN_TOKEN)) {
         return json(request, env, 401, { error: 'UNAUTHORIZED' });
       }
+      const health = merchantOperations(env)
+        ? await merchantOperations(env)!.redactedHealth()
+        : { status: 'starting' as const };
       return json(request, env, 200, {
         release: env.RELEASE,
-        status: 'starting',
-        components: {},
+        status: health.status,
+        components: {
+          merchant: health,
+        },
+      });
+    }
+    if (
+      request.method === 'POST'
+      && url.pathname === '/v1/operator/bootstrap-wallet'
+    ) {
+      if (!authorized(request, env.OPERATIONS_ADMIN_TOKEN)) {
+        return json(request, env, 401, { error: 'UNAUTHORIZED' });
+      }
+      if (!env.MERCHANT_OPERATIONS) {
+        return json(request, env, 503, { error: 'OPERATIONS_UNAVAILABLE' });
+      }
+      try {
+        const result = await merchantOperations(env)!.bootstrapWallet();
+        return json(request, env, 201, { mnemonic: result.mnemonic });
+      } catch {
+        return json(request, env, 409, { error: 'BOOTSTRAP_FAILED' });
+      }
+    }
+    if (
+      request.method === 'POST'
+      && url.pathname === '/v1/operator/restart-from-backup'
+    ) {
+      if (!authorized(request, env.OPERATIONS_ADMIN_TOKEN)) {
+        return json(request, env, 401, { error: 'UNAUTHORIZED' });
+      }
+      const operations = merchantOperations(env);
+      if (!operations) {
+        return json(request, env, 503, { error: 'OPERATIONS_UNAVAILABLE' });
+      }
+      const result = await operations.restartFromBackup();
+      return json(request, env, result.status === 'ready' ? 200 : 503, {
+        status: result.status,
       });
     }
     return json(request, env, 404, { error: 'NOT_FOUND' });
+  },
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    context: WorkerContext,
+    fetcher: typeof fetch = fetch,
+  ): Promise<void> {
+    const operations = merchantOperations(env);
+    if (!operations) return;
+    context.waitUntil((async () => {
+      let status: 'ready' | 'failed' = 'failed';
+      try {
+        status = (await operations.ensureReady()).status;
+      } finally {
+        await publishBackupHeartbeat(env, status, fetcher);
+      }
+    })());
   },
 };
 

@@ -116,4 +116,117 @@ describe('eligibility HTTP boundary', () => {
     );
     expect(denied.status).toBe(401);
   });
+
+  it('protects the single-use merchant wallet bootstrap route', async () => {
+    const bootstrapWallet = vi.fn(async () => ({
+      mnemonic: Array.from({ length: 24 }, (_, index) => `word${index}`),
+    }));
+    const operations = {
+      getByName: vi.fn(() => ({ bootstrapWallet })),
+    };
+    const withOperations = {
+      ...env,
+      MERCHANT_OPERATIONS: operations,
+    } as unknown as Env;
+    const denied = await worker.fetch(
+      new Request('https://edge.example/v1/operator/bootstrap-wallet', {
+        method: 'POST',
+      }),
+      withOperations,
+      { waitUntil() {}, passThroughOnException() {} },
+      vi.fn(),
+    );
+    expect(denied.status).toBe(401);
+    expect(bootstrapWallet).not.toHaveBeenCalled();
+
+    const accepted = await worker.fetch(
+      new Request('https://edge.example/v1/operator/bootstrap-wallet', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer operator-secret' },
+      }),
+      withOperations,
+      { waitUntil() {}, passThroughOnException() {} },
+      vi.fn(),
+    );
+    expect(accepted.status).toBe(201);
+    expect((await accepted.json() as { mnemonic: string[] }).mnemonic)
+      .toHaveLength(24);
+    expect(bootstrapWallet).toHaveBeenCalledOnce();
+  });
+
+  it('wakes the merchant supervisor and publishes only redacted backup health', async () => {
+    const ensureReady = vi.fn(async () => ({ status: 'ready' as const }));
+    const operations = {
+      getByName: vi.fn(() => ({ ensureReady })),
+    };
+    const withOperations = {
+      ...env,
+      OPENSTAYS_URL: 'https://backend.example',
+      BACKUP_HEARTBEAT_TOKEN: 'backup-heartbeat-secret',
+      MERCHANT_OPERATIONS: operations,
+    } as unknown as Env;
+    const fetcher = vi.fn(async (
+      _url: string | URL | Request,
+      _init?: RequestInit,
+    ) => new Response(null, { status: 204 }));
+    let pending: Promise<unknown> | undefined;
+
+    await worker.scheduled!(
+      { cron: '* * * * *', scheduledTime: Date.now(), noRetry() {} },
+      withOperations,
+      {
+        waitUntil(value) {
+          pending = value;
+        },
+        passThroughOnException() {},
+      },
+      fetcher,
+    );
+    await pending;
+
+    expect(ensureReady).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledOnce();
+    const [, request] = fetcher.mock.calls[0];
+    expect(request?.headers).toMatchObject({
+      Authorization: 'Bearer backup-heartbeat-secret',
+    });
+    expect(String(request?.body)).not.toContain('backup-heartbeat-secret');
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      service: 'backup',
+      status: 'ready',
+      release: 'test',
+    });
+  });
+
+  it('protects the forced merchant restore rehearsal route', async () => {
+    const restartFromBackup = vi.fn(async () => ({ status: 'ready' as const }));
+    const withOperations = {
+      ...env,
+      MERCHANT_OPERATIONS: {
+        getByName: vi.fn(() => ({ restartFromBackup })),
+      },
+    } as unknown as Env;
+    const denied = await worker.fetch(
+      new Request('https://edge.example/v1/operator/restart-from-backup', {
+        method: 'POST',
+      }),
+      withOperations,
+      { waitUntil() {}, passThroughOnException() {} },
+      vi.fn(),
+    );
+    expect(denied.status).toBe(401);
+
+    const accepted = await worker.fetch(
+      new Request('https://edge.example/v1/operator/restart-from-backup', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer operator-secret' },
+      }),
+      withOperations,
+      { waitUntil() {}, passThroughOnException() {} },
+      vi.fn(),
+    );
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toEqual({ status: 'ready' });
+    expect(restartFromBackup).toHaveBeenCalledOnce();
+  });
 });

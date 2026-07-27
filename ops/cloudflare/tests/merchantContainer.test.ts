@@ -116,6 +116,99 @@ describe('merchant wallet restore safety', () => {
     await coordinator.backupIfDue(Date.now());
     expect(backupCount).toBe(2);
   });
+
+  it('bootstraps exactly once and commits a verified first backup', async () => {
+    const order: string[] = [];
+    const initialBackup = new TextEncoder().encode('fresh-encrypted-wallet');
+    const manifest: BackupManifest = {
+      version: 1,
+      generation: 1,
+      objectKey: `wallet/1-${await sha256Hex(initialBackup)}.tar.gz.enc`,
+      sha256: await sha256Hex(initialBackup),
+      byteLength: initialBackup.byteLength,
+      createdAt: new Date().toISOString(),
+      release: 'test',
+    };
+    const coordinator = new MerchantOperationsCoordinator({
+      loadBackup: async () => null,
+      restore: vi.fn(),
+      start: vi.fn(),
+      bootstrap: async () => {
+        order.push('bootstrap');
+        return { mnemonic: Array.from({ length: 24 }, () => 'word') };
+      },
+      createBackup: async () => {
+        order.push('backup');
+        return initialBackup;
+      },
+      commitBackup: async () => {
+        order.push('commit');
+        return manifest;
+      },
+    });
+
+    const created = await coordinator.bootstrapFresh();
+    expect(created.mnemonic).toHaveLength(24);
+    expect(order).toEqual(['bootstrap', 'backup', 'commit']);
+    await expect(coordinator.bootstrapFresh()).rejects.toThrow(
+      'MERCHANT_ALREADY_STARTED',
+    );
+  });
+
+  it('refuses bootstrap when a verified backup already exists', async () => {
+    const ciphertext = new TextEncoder().encode('encrypted-wallet');
+    const manifest: BackupManifest = {
+      version: 1,
+      generation: 1,
+      objectKey: `wallet/1-${await sha256Hex(ciphertext)}.tar.gz.enc`,
+      sha256: await sha256Hex(ciphertext),
+      byteLength: ciphertext.byteLength,
+      createdAt: new Date().toISOString(),
+      release: 'test',
+    };
+    const bootstrap = vi.fn();
+    const coordinator = new MerchantOperationsCoordinator({
+      loadBackup: async () => ({ manifest, ciphertext }),
+      restore: vi.fn(),
+      start: vi.fn(),
+      bootstrap,
+      createBackup: vi.fn(),
+      commitBackup: vi.fn(),
+    });
+
+    await expect(coordinator.bootstrapFresh()).rejects.toThrow(
+      'BACKUP_ALREADY_EXISTS',
+    );
+    expect(bootstrap).not.toHaveBeenCalled();
+  });
+
+  it('can reset runtime state and restore again from the verified backup', async () => {
+    const ciphertext = new TextEncoder().encode('encrypted-wallet');
+    const manifest: BackupManifest = {
+      version: 1,
+      generation: 1,
+      objectKey: `wallet/1-${await sha256Hex(ciphertext)}.tar.gz.enc`,
+      sha256: await sha256Hex(ciphertext),
+      byteLength: ciphertext.byteLength,
+      createdAt: new Date().toISOString(),
+      release: 'test',
+    };
+    const restore = vi.fn();
+    const start = vi.fn();
+    const coordinator = new MerchantOperationsCoordinator({
+      loadBackup: async () => ({ manifest, ciphertext }),
+      restore,
+      start,
+      createBackup: vi.fn(async () => ciphertext),
+      commitBackup: vi.fn(async () => manifest),
+    });
+
+    await coordinator.restoreAndStart();
+    coordinator.resetForRestart();
+    await coordinator.restoreAndStart();
+    expect(restore).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('backup health', () => {
