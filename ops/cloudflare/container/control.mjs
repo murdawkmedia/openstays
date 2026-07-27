@@ -224,6 +224,25 @@ export class MerchantControl {
   }
 }
 
+/**
+ * @param {{
+ *   health(): Record<string, unknown>,
+ *   bootstrap(): Promise<{ mnemonic: string[] }>,
+ *   backup(outputPath: string): Promise<{
+ *     bytes?: Uint8Array,
+ *     sha256: string,
+ *     byteLength: number,
+ *   }> | {
+ *     bytes?: Uint8Array,
+ *     sha256: string,
+ *     byteLength: number,
+ *   },
+ *   restore?(ciphertext: Uint8Array, expectedSha256: string): Promise<void>,
+ *   start?(): Promise<void>,
+ *   stop(): void,
+ * }} control
+ * @param {string} token
+ */
 export function createControlServer(control, token) {
   return createServer(async (request, response) => {
     try {
@@ -236,6 +255,13 @@ export function createControlServer(control, token) {
         return;
       }
       if (request.method === 'POST' && request.url === '/restore') {
+        if (
+          typeof control.restore !== 'function'
+          || typeof control.start !== 'function'
+        ) {
+          json(response, 404, { error: 'NOT_FOUND' });
+          return;
+        }
         const digest = String(request.headers['x-backup-sha256'] ?? '');
         await control.restore(await readBounded(request), digest);
         await control.start();
@@ -252,8 +278,10 @@ export function createControlServer(control, token) {
           process.env.WALLET_BACKUP_OUTPUT_PATH
             ?? '/run/openstays/wallet.tar.gz.enc',
         );
-        const result = control.backup(outputPath);
-        const ciphertext = readFileSync(outputPath);
+        const result = await control.backup(outputPath);
+        const ciphertext = result.bytes
+          ? Buffer.from(result.bytes)
+          : readFileSync(outputPath);
         rmSync(outputPath, { force: true });
         response.writeHead(201, {
           'Content-Type': 'application/octet-stream',
