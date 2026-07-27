@@ -21,6 +21,7 @@ type Dependencies = {
   loadBackup(): Promise<VerifiedBackup | null>;
   restore(backup: VerifiedBackup): Promise<void>;
   start(): Promise<void>;
+  bootstrap?(): Promise<{ mnemonic: string[] }>;
   createBackup(): Promise<Uint8Array>;
   commitBackup(input: {
     ciphertext: Uint8Array;
@@ -49,6 +50,7 @@ export class MerchantOperationsCoordinator {
   constructor(private readonly dependencies: Dependencies) {}
 
   async restoreAndStart(): Promise<void> {
+    if (this.started) throw new Error('MERCHANT_ALREADY_STARTED');
     const backup = await this.dependencies.loadBackup();
     if (!backup) throw new Error('BACKUP_REQUIRED');
     if (
@@ -61,6 +63,36 @@ export class MerchantOperationsCoordinator {
     await this.dependencies.start();
     this.started = true;
     this.lastVerifiedBackupAt = Date.parse(backup.manifest.createdAt);
+  }
+
+  async bootstrapFresh(): Promise<{ mnemonic: string[] }> {
+    if (this.started) throw new Error('MERCHANT_ALREADY_STARTED');
+    if (await this.dependencies.loadBackup()) {
+      throw new Error('BACKUP_ALREADY_EXISTS');
+    }
+    if (!this.dependencies.bootstrap) {
+      throw new Error('BOOTSTRAP_UNAVAILABLE');
+    }
+    const created = await this.dependencies.bootstrap();
+    if (
+      created.mnemonic.length !== 24
+      || created.mnemonic.some((word) => !/^[a-z]+$/u.test(word))
+    ) {
+      throw new Error('INVALID_BOOTSTRAP_RESPONSE');
+    }
+    this.started = true;
+    this.dirtyVersion += 1;
+    await this.backupIfDue(Date.now());
+    return created;
+  }
+
+  isStarted(): boolean {
+    return this.started;
+  }
+
+  resetForRestart(): void {
+    this.started = false;
+    this.backupInFlight = null;
   }
 
   markDirty(): void {
@@ -124,10 +156,12 @@ export interface MerchantOperationsEnv {
   OPENSTAYS_URL: string;
   WAVELENGTH_BRIDGE_TOKEN: string;
   WAVELENGTH_HEARTBEAT_TOKEN: string;
+  WAVELENGTH_WALLET_PASSWORD: string;
   OTS_BRIDGE_TOKEN: string;
   OTS_HEARTBEAT_TOKEN: string;
   MAIL_BRIDGE_TOKEN: string;
   MAIL_HEARTBEAT_TOKEN: string;
+  BACKUP_HEARTBEAT_TOKEN: string;
   SMTP_HOST?: string;
   SMTP_PORT?: string;
   SMTP_SECURE?: string;
@@ -152,33 +186,36 @@ export class MerchantOperations extends Container<MerchantOperationsEnv> {
     super(context, env);
     const storage = context.storage as unknown as ManifestStorage;
     const bucket = env.WALLET_BACKUPS as unknown as BackupBucket;
+    const startContainer = () => this.startAndWaitForPorts(
+      [this.defaultPort],
+      { portReadyTimeoutMS: 30_000 },
+      {
+        enableInternet: true,
+        envVars: {
+          CONTAINER_CONTROL_TOKEN: env.CONTAINER_CONTROL_TOKEN,
+          WALLET_BACKUP_KEY_BASE64: env.WALLET_BACKUP_KEY_BASE64,
+          OPENSTAYS_RELEASE: env.RELEASE,
+          OPENSTAYS_URL: env.OPENSTAYS_URL,
+          WAVELENGTH_BRIDGE_TOKEN: env.WAVELENGTH_BRIDGE_TOKEN,
+          WAVELENGTH_HEARTBEAT_TOKEN: env.WAVELENGTH_HEARTBEAT_TOKEN,
+          WAVELENGTH_WALLET_PASSWORD: env.WAVELENGTH_WALLET_PASSWORD,
+          OTS_BRIDGE_TOKEN: env.OTS_BRIDGE_TOKEN,
+          OTS_HEARTBEAT_TOKEN: env.OTS_HEARTBEAT_TOKEN,
+          MAIL_BRIDGE_TOKEN: env.MAIL_BRIDGE_TOKEN,
+          MAIL_HEARTBEAT_TOKEN: env.MAIL_HEARTBEAT_TOKEN,
+          BACKUP_HEARTBEAT_TOKEN: env.BACKUP_HEARTBEAT_TOKEN,
+          ...(env.SMTP_HOST ? { SMTP_HOST: env.SMTP_HOST } : {}),
+          ...(env.SMTP_PORT ? { SMTP_PORT: env.SMTP_PORT } : {}),
+          ...(env.SMTP_SECURE ? { SMTP_SECURE: env.SMTP_SECURE } : {}),
+          ...(env.SMTP_USERNAME ? { SMTP_USERNAME: env.SMTP_USERNAME } : {}),
+          ...(env.SMTP_PASSWORD ? { SMTP_PASSWORD: env.SMTP_PASSWORD } : {}),
+        },
+      },
+    );
     this.coordinator = new MerchantOperationsCoordinator({
       loadBackup: () => loadVerifiedBackup({ bucket, storage }),
       restore: async ({ manifest, ciphertext }) => {
-        await this.startAndWaitForPorts(
-          [this.defaultPort],
-          { portReadyTimeoutMS: 30_000 },
-          {
-            enableInternet: true,
-            envVars: {
-              CONTAINER_CONTROL_TOKEN: env.CONTAINER_CONTROL_TOKEN,
-              WALLET_BACKUP_KEY_BASE64: env.WALLET_BACKUP_KEY_BASE64,
-              OPENSTAYS_RELEASE: env.RELEASE,
-              OPENSTAYS_URL: env.OPENSTAYS_URL,
-              WAVELENGTH_BRIDGE_TOKEN: env.WAVELENGTH_BRIDGE_TOKEN,
-              WAVELENGTH_HEARTBEAT_TOKEN: env.WAVELENGTH_HEARTBEAT_TOKEN,
-              OTS_BRIDGE_TOKEN: env.OTS_BRIDGE_TOKEN,
-              OTS_HEARTBEAT_TOKEN: env.OTS_HEARTBEAT_TOKEN,
-              MAIL_BRIDGE_TOKEN: env.MAIL_BRIDGE_TOKEN,
-              MAIL_HEARTBEAT_TOKEN: env.MAIL_HEARTBEAT_TOKEN,
-              ...(env.SMTP_HOST ? { SMTP_HOST: env.SMTP_HOST } : {}),
-              ...(env.SMTP_PORT ? { SMTP_PORT: env.SMTP_PORT } : {}),
-              ...(env.SMTP_SECURE ? { SMTP_SECURE: env.SMTP_SECURE } : {}),
-              ...(env.SMTP_USERNAME ? { SMTP_USERNAME: env.SMTP_USERNAME } : {}),
-              ...(env.SMTP_PASSWORD ? { SMTP_PASSWORD: env.SMTP_PASSWORD } : {}),
-            },
-          },
-        );
+        await startContainer();
         const response = await this.containerFetch(
           'http://container/restore',
           {
@@ -193,6 +230,27 @@ export class MerchantOperations extends Container<MerchantOperationsEnv> {
           this.defaultPort,
         );
         if (!response.ok) throw new Error('CONTAINER_RESTORE_FAILED');
+      },
+      bootstrap: async () => {
+        await startContainer();
+        const response = await this.containerFetch(
+          'http://container/bootstrap',
+          {
+            method: 'POST',
+            headers: bearer(env.CONTAINER_CONTROL_TOKEN),
+          },
+          this.defaultPort,
+        );
+        if (!response.ok) throw new Error('CONTAINER_BOOTSTRAP_FAILED');
+        const body = await response.json() as { mnemonic?: unknown };
+        if (
+          !Array.isArray(body.mnemonic)
+          || body.mnemonic.length !== 24
+          || body.mnemonic.some((word) => typeof word !== 'string')
+        ) {
+          throw new Error('CONTAINER_BOOTSTRAP_INVALID');
+        }
+        return { mnemonic: body.mnemonic as string[] };
       },
       start: async () => {
         const response = await this.containerFetch(
@@ -240,7 +298,9 @@ export class MerchantOperations extends Container<MerchantOperationsEnv> {
 
   async ensureReady(): Promise<{ status: 'ready' | 'failed' }> {
     try {
-      await this.coordinator.restoreAndStart();
+      if (!this.coordinator.isStarted()) {
+        await this.coordinator.restoreAndStart();
+      }
       await this.coordinator.backupIfDue(Date.now());
       if (this.coordinator.health(Date.now()).status !== 'ready') {
         throw new Error('VERIFIED_BACKUP_STALE');
@@ -250,6 +310,16 @@ export class MerchantOperations extends Container<MerchantOperationsEnv> {
       await this.stop().catch(() => undefined);
       return { status: 'failed' };
     }
+  }
+
+  async bootstrapWallet(): Promise<{ mnemonic: string[] }> {
+    return await this.coordinator.bootstrapFresh();
+  }
+
+  async restartFromBackup(): Promise<{ status: 'ready' | 'failed' }> {
+    await this.stop();
+    this.coordinator.resetForRestart();
+    return await this.ensureReady();
   }
 
   async markWalletDirty(): Promise<void> {
