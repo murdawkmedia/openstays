@@ -33,8 +33,8 @@ describe('merchant wallet bootstrap control', () => {
     const fetchDaemon = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       requests.push({ url: String(url), body: String(init?.body ?? '') });
       if (String(url).endsWith('/v1/daemon/get-info')) {
-        return new Response(JSON.stringify({ state: 'needs_wallet' }), {
-          status: 200,
+        return new Response(JSON.stringify({ code: 'FAILED_PRECONDITION' }), {
+          status: 412,
         });
       }
       if (String(url).endsWith('/create')) {

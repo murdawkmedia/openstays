@@ -112,7 +112,7 @@ export class MerchantControl {
       new Promise((resolve) => setTimeout(resolve, delayMs)));
     for (let attempt = 0; attempt < 100; attempt += 1) {
       try {
-        const response = await fetchDaemon(
+        await fetchDaemon(
           'http://127.0.0.1:10031/v1/daemon/get-info',
           {
             method: 'POST',
@@ -120,7 +120,10 @@ export class MerchantControl {
             body: '{}',
           },
         );
-        if (response.ok) return;
+        // Before wallet creation, Wavelength may answer this probe with
+        // FAILED_PRECONDITION. Any HTTP response proves the loopback gateway
+        // is listening; the create/unlock call below remains authoritative.
+        return;
       } catch {
         // The loopback gateway is still starting.
       }
