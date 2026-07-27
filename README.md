@@ -10,6 +10,14 @@
 > certification, or customer inventory is included. See
 > [the hackathon runbook](./docs/hackathon-mvp.md).
 
+> **Public showcase candidate:** Consensus Commons can run as an explicitly
+> fictional product demo with an exact CA$1 Zaprite contribution, an exact
+> 1,000-sat Wavelength signet payment, a no-charge simulated tour, privacy-safe
+> OpenTimestamps receipts, and one budgeted 1,000-sat signet reward. Live rails
+> fail closed and remain disabled until deployment-specific acceptance passes.
+> See [Public live payments](./docs/public-live-payments.md) and the
+> [operator runbook](./docs/operations/public-live-payments-runbook.md).
+
 **Open-source booking engine and property-management system for independent
 lodging — campgrounds, cabins, glamping, yurts, small resorts.**
 

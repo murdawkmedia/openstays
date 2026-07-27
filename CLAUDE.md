@@ -241,6 +241,28 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   paid/refunded payment self-heals an interrupted request using its recorded
   payment hash. Exact retries are no-ops and the guest creates a fresh invoice
   rather than retrying a consumed one.
+- 2026-07-26 (public payment authority): Zaprite webhook payloads and browser
+  redirects remain untrusted nudges. Only a server-side order fetch with the
+  dedicated API credential may confirm the exact CA$1 contribution.
+- 2026-07-26 (public Wavelength authority): a public booking or reward settles
+  only after completed merchant activity matches the signet network, request,
+  amount-bearing invoice, exact 1,000-sat principal, and recorded payment
+  identifier. Prepared or ambiguous sends are never confirmation.
+- 2026-07-26 (public receipt states): a validated OpenTimestamps calendar
+  submission may unlock reward eligibility, but it is not a Bitcoin anchor.
+  `bitcoin_anchored` requires a later proof upgrade with a verified Bitcoin
+  block attestation.
+- 2026-07-26 (public operations): the live reward daily budget defaults to
+  zero. Missing, corrupt, or stale encrypted wallet recovery fails closed.
+  Merchant wallet bootstrap is explicit, authenticated, single-use, and must
+  commit its first verified archive before returning success.
+- 2026-07-26 (public data boundary): 14-day maintenance minimizes old guest,
+  message, and rendered-email data but never rewrites real payment, refund,
+  reward, receipt, or booking-state authority. Demo reset must never touch
+  rows associated with a real provider payment.
+- 2026-07-26 (scope): only dedicated OpenStays resources may be configured.
+  Unrelated projects, deployments, credentials, and customer data are out of
+  scope.
 - 2026-07-22 (OpenStays Mail): Convex is authoritative for rendered email,
   idempotency, leases, retries, and audit state. `mail_bridge` exposes only
   bearer-authenticated bounded claims and acknowledgements; the local worker

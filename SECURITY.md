@@ -30,3 +30,31 @@ neither React Router server tooling nor any RSC API. `npm run audit:runtime`
 fails for every other high/critical runtime advisory and also fails if RSC
 tooling or an RSC identifier is introduced. Remove this narrow exception once
 a compatible patched `react-router-dom` release is available.
+
+## Public payment showcase
+
+Consensus Commons is fictional and provides no lodging service. Public live
+payment mode requires an explicit disclosure and Turnstile-backed,
+five-minute eligibility token before either rail can start.
+
+- Zaprite webhook bodies and redirects are untrusted. The server-held API
+  credential fetches the authoritative order and exact amount/currency.
+- Wavelength is signet-only. Settlement requires matching completed merchant
+  activity; invoices, prepared sends, pending activity, and browser claims are
+  not authority.
+- OpenTimestamps submission and Bitcoin anchoring are separate states.
+- Zaprite/Wavelength refunds remain paid until staff records the completed
+  external refund reference.
+- The reward budget defaults to zero and Wavelength disappears when its
+  heartbeat, balance, or verified backup is unhealthy.
+- Wallet archives use AES-256-GCM and immutable verified R2 generations.
+  Missing/corrupt recovery prevents startup. Wallet bootstrap and forced
+  restore are operator-authenticated, and recovery material is returned only
+  during the single bootstrap response.
+- Public maintenance minimizes nonessential guest/message/email data after 14
+  days without deleting authoritative payment or receipt records.
+
+Never expose a bridge token, provider credential, wallet password, recovery
+phrase, invoice, payment identifier, guest record, or raw network address in a
+public issue or diagnostic report. See the
+[public-payment operator runbook](./docs/operations/public-live-payments-runbook.md).

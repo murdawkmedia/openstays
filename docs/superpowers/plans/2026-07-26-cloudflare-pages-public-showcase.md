@@ -464,7 +464,7 @@ npx convex env set EMAIL_PROVIDER log_only
 npx convex run seed:run
 ```
 
-State that provider/bridge/OAuth keys must remain unset and CBAP is excluded.
+State that provider/bridge/OAuth keys must remain unset and unrelated projects are excluded.
 
 - [ ] **Step 2: Update status**
 
@@ -533,7 +533,7 @@ Expected: PASS.
 
 Confirm `dist/_headers`, `dist/_redirects`, `dist/index.html`, all three
 Consensus Commons images, and `dist/wavewalletdk/` exist. Search `dist/` for
-`localhost`, `affable-wildcat-206`, wallet recovery words, and provider token
+`localhost`, development deployment identifiers, wallet recovery words, and provider token
 names; none may appear.
 
 - [ ] **Step 5: Commit any narrow verification fixes**
@@ -555,13 +555,13 @@ creating provider resources, obtain an explicit current-session approval for:
 - creation of `openstays-consensus`;
 - deployment to a public `pages.dev` URL.
 
-Do not proceed on inherited or CBAP credentials.
+Do not proceed on inherited or unrelated-project credentials.
 
 - [ ] **Step 2: Verify identities without exposing values**
 
 Confirm Cloudflare account ID equals
 `d113f919b7e29373ccac141104bea5b0`. Confirm the Convex organization/project
-label is Murdawk Media and not CBAP. Report only labels and permission status.
+label is the intended organization and not an unrelated account. Report only labels and permission status.
 
 ### Task 9: Provision the dedicated Convex demo
 
@@ -570,7 +570,7 @@ label is Murdawk Media and not CBAP. Report only labels and permission status.
 - [ ] **Step 1: Create the new Convex project/deployment**
 
 Use the authenticated Convex CLI interactive flow from this worktree. Select a
-new project named `openstays-consensus` under Murdawk Media. Never select CBAP.
+new project named `openstays-consensus` under the intended organization. Never select an unrelated project.
 
 - [ ] **Step 2: Configure only safe demo variables**
 

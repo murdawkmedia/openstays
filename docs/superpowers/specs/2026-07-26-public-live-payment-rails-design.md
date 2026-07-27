@@ -273,7 +273,7 @@ display amounts, and non-secret feature state. Secrets, recovery words, wallet
 passwords, raw IP addresses, and payment hashes do not enter documentation,
 screenshots, analytics, or client logs.
 
-CBAP and unrelated Murdawk credentials, deployments, checkouts, and wallets
+Unrelated credentials, deployments, checkouts, and wallets
 remain out of scope.
 
 ## Failure behaviour

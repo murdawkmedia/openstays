@@ -1,275 +1,92 @@
 # OpenStays status
 
-**Updated: 2026-07-26 — public live-payment implementation plan ready.**
+**Updated: 2026-07-26 — public live-payment release candidate in local verification.**
 
-## Current state
+## Current branch
 
-- The approved design now has a task-by-task implementation plan at
-  `docs/superpowers/plans/2026-07-26-public-live-payment-rails.md`. It covers
-  the runtime dependency gate, exact live-rail enforcement, disclosure and
-  Turnstile eligibility, 14-day retention, bounded rewards, public wallet
-  routes, the Cloudflare Worker/Container/Durable Object/R2 layer, encrypted
-  wallet recovery, bridge supervision, refund UX, operations documentation,
-  forced-restart rehearsal, and final live acceptance.
-- The plan remains documentation-only. No credential file was opened, no
-  provider or Cloudflare resource was created, no deployment was changed, and
-  every external action is held behind a fresh execution-time approval.
-- Approved public live-payment design is recorded on
-  `codex/public-live-payment-rails` in
-  `docs/superpowers/specs/2026-07-26-public-live-payment-rails-design.md`.
-  It adds a production CA$1 Zaprite project contribution and an exact
-  1,000-sat Wavelength signet booking option, followed by a one-time
-  1,000-sat reward after either authoritative rail. Consensus Commons remains
-  explicitly fictional and supplies no lodging service. No credentials,
-  provider resources, Cloudflare Container resources, or deployments have
-  been changed for this design-only checkpoint.
-- A fresh `npm audit` during design verification reports one critical
-  `@auth/core` advisory group and high findings involving direct `postcss` and
-  `react-router-dom` dependencies plus transitive Vite tooling. The approved
-  design now makes resolution of critical/high runtime findings a binding
-  precondition before live payment credentials or public rails are enabled.
-- The sanitized Consensus Commons public showcase is merged into and pushed on
-  `main`. Merge commit `b4f6f0b` adds the product tour, fail-closed
-  staff/wallet route boundaries, Cloudflare Pages SPA/header contracts, and a
-  complete demo reset. The direct-upload production site is live at
-  `https://openstays-consensus.pages.dev/`; no custom domain, DNS record,
-  Git-integrated deployment, or Worker was created.
-- The public deployment uses a new dedicated Murdawk Media Convex project with
-  fictional inventory, simulated payments, and log-only email. It must not
-  contain provider, bridge, SMTP, OAuth, or wallet credentials, and the
-  unrelated CBAP project remains explicitly out of scope.
-- The dedicated backend is `murdawkmedia/openstays-consensus` on the isolated
-  `usable-rooster-938` deployment. Its complete environment-name inventory is
-  `DEMO_MODE` and `EMAIL_PROVIDER`; the reset was invoked successfully and
-  restored Consensus Commons.
-- The public build preserves the real booking-system context while explaining
-  the hackathon's Wavelength signet and OpenTimestamps work. It does not operate
-  an always-on wallet, faucet, reward payer, or staff console.
-- The public bundle removes live staff/wallet modules and the 123 MiB Wavelength
-  WASM directory. Cloudflare Pages accepted the resulting eight-file build.
-- Live acceptance passed for the tour, property, unit, fictional booking,
-  simulated payment, confirmation, manage-booking authentication, conversation
-  unlock, Consensus timeline, receipt preview, `/admin`, and `/wallet/demo`.
-  Every checked route returned HTTP 200 with COOP/COEP headers; staff and wallet
-  paths rendered the public boundary. Desktop and 390 px browser checks had no
-  horizontal overflow. The acceptance booking was removed with `demo:reset`.
-- Final merged-main verification passed 440 root tests, root typecheck/build,
-  docs build, 69 CLI tests, CLI typecheck/build, and `git diff --check`.
+- Branch: `codex/public-live-payment-rails`
+- Latest completed product checkpoint: `1faaecb`
+- The branch is local only. It has not been pushed, merged, or deployed.
+- No credential-bearing file was opened. No provider, Convex, Cloudflare,
+  Turnstile, R2, Worker, Durable Object, Container, Pages, or Zaprite resource
+  was created or changed.
 
-- Latest scoped implementation verification: 428 root tests passed; root
-  typecheck and production build passed. The receipt inspector fails closed,
-  QR generation has a capacity fallback, and expiry/amount gates remain enforced.
-  Scoped checks exposed no invoice strings, hashes, secrets, tokens, or payment
-  hashes in committed judge-facing documentation.
+## Implemented
 
-- Working branch: `codex/public-live-payment-rails`.
-- The complete Consensus Commons MVP, judge-flow hardening, and public showcase
-  are merged and pushed on `main` at `230b7d6`.
-- With Murphy's explicit approval, commit `3815f7d` was uploaded only to the
-  isolated `affable-wildcat-206` development deployment. The receipt, reward,
-  and bridge routes are live there; no production deployment was touched.
-- Competition baseline: annotated local tag
-  `btcpp-toronto-2026-pre-kickoff` points to `5c3038e`; see
-  `HACKATHON_BASELINE.md` for the pre-existing capability disclosure.
-- Fresh 2026-07-23 final gates passed 395 root tests, 69 CLI tests, and four
-  desktop/mobile production-like browser checks. Root and CLI
-  typechecks/builds plus the documentation build passed. The existing Node
-  `TimeoutNegativeWarning` remains non-fatal in the runner.
-- A localhost-only demo-wallet preflight is implemented on
-  `/wallet/demo?demoSetup=1`. Pure policy tests require an explicit loopback
-  request, pin the target to 12,000 spendable Signet sats, and count only
-  complete 1,000-sat attempts. The UI can create one amount-bearing funding
-  invoice and never auto-pays it. The dedicated `http://localhost:4173` browser
-  origin now holds 12,000 spendable Signet sats and shows all twelve attempts
-  funded. Merchant activity
-  `8f70b3fc4b8c9239033020aed8b6b7eb9e1b5612a1fcccef2496f3c98ff97a66`
-  reconciled as one completed exact `-12000` send on `SEND_RAIL_IN_ARK`, with
-  zero fee and matching invoice/payment hash. No sats remain pending.
-  Desktop and 390px acceptance had no horizontal overflow or browser
-  warning/error logs; removing the setup flag restored the booking-email gate.
-- The pushed hardening adds exact Wavelength terminal-failure reconciliation,
-  paid-state crash recovery, single-use prepared payments, a tracked Signet
-  deposit address for empty wallets, and bounded/consistent fee validation.
-  Failed or pending money cannot be rewritten as settled.
-- The isolated deployment now has fresh demo-only Convex Auth signing
-  configuration and localhost site URL. `Consensus Commons Judge` was created
-  and bootstrapped as an owner; live staff sign-in, Booking tape, Settings, and
-  Operations were verified. `CONSENSUS10` was also applied successfully in a
-  fresh public booking.
-- A fresh browser failure was traced to ignored Wavelength runtime binaries
-  being absent from the active worktree. The pinned checksum-verified installer
-  restored all eight assets; desktop/mobile live-wallet acceptance passed.
-  Preview and live browser tests now have an actionable runtime preflight, and
-  the wallet exposes pending-inbound boarding progress, a manual balance
-  refresh, and visibility-aware 12-second automatic checks that stop when
-  boarding completes or an error requires manual retry.
-- Consensus Commons now has three generated fictional property images, an
-  accessible gallery/lightbox, clickable stay amenities, an idempotent
-  `CONSENSUS10` demo promotion, and honest marketing-consent copy. A fresh
-  desktop/390px production-preview pass found no broken images, horizontal
-  overflow, or browser warnings.
-- Fresh judge walkthrough passed on the production preview: homepage, fictional
-  inventory, date picker, guest booking form, authenticated guest chat,
-  consensus timeline, receipt/reward card, and desktop/mobile layouts. The
-  390px checks had no horizontal overflow or browser warnings.
-- A fresh 2026-07-23 Murphy-proxy rehearsal on commit `6d6ac0a` created a
-  fictional discounted hold through the public flow, reached both payment
-  choices, requested a real 1,000-sat merchant invoice, unlocked the protected
-  browser wallet, and observed its 2,500 sats as pending inbound. The new
-  12-second refresh ran automatically and displayed its last-check time.
-  Staff owner sign-in and Operations also passed; both prior accepted bookings
-  still show verified Bitcoin anchors and exactly one paid 1,000-sat reward.
-  The wallet polling state had no console warnings or horizontal overflow at
-  the tested mobile width.
-- Three editable 1600×900 judge-opening infographics and matching jot-note
-  scripts are under `docs/demo/judge-opening/`. Variation A, Consensus
-  Convergence, is the recommended 30–40 second opener.
-- Added: manual provider refund cases, authoritative Zaprite reconciliation,
-  Wavelength signet bridge/wallet, booking chat and alerts, staff operations,
-  fictional Consensus Commons seed/branding, and a consensus timeline.
-- Post-kickoff addition: immutable privacy-safe OpenTimestamps consensus
-  receipts, authenticated local OTS worker endpoints/CLI, guest proof downloads,
-  and a one-time exact-1,000-sat Wavelength signet reward with prepared-send and
-  completed-activity reconciliation.
-- The permanent reward principal is now implemented locally as exactly 1,000
-  signet sats. Convex keeps legacy 210-sat rows readable, creates only 1,000-sat
-  rows, and includes an idempotent migration limited to inactive unpaid rewards.
-  The isolated demo migration upgraded its one eligible unpaid legacy row; an
-  immediate replay upgraded zero rows.
-- With Murphy's explicit live-acceptance approval, the current functions were
-  uploaded using `convex dev --once` only to the isolated development
-  deployment. No production deployment was touched.
-- OpenStays Mail now renders into a durable provider-neutral Convex queue and
-  delivers through an authenticated generic SMTP worker. Resend and log-only
-  remain supported; the pinned Mailpit profile is loopback capture only.
-- Live local runtime: isolated Murdawk Convex dev deployment
-  `affable-wildcat-206`, seeded demo inventory, production preview on
-  `127.0.0.1:4173`,
-  loopback-only Wavelength v0.1.0 wallets/merchant bridge, the WSL-backed OTS
-  worker, and Mailpit plus its SMTP bridge.
-- The dedicated Consensus Commons Zaprite API key/custom checkout are configured
-  on the isolated deployment with the OpenStays webhook. Live acceptance created
-  the fictional CA$0.21 order `od_3nG1v01J53`; Zaprite's own test-payment
-  connection marked it paid, an authenticated nudge triggered authoritative
-  API reconciliation, and OpenStays confirmed booking `OS-A52VVM`. Rotate the
-  session-shared API key after the hackathon.
-- Wavelength merchant recovery material is stored outside the repository under
-  `%LOCALAPPDATA%\OpenStays\wavelength-signet` with user-only ACLs.
-- Two independent Wavelength signet wallets are running on loopback. The
-  merchant received two confirmed 10,000-sat faucet deposits and completed its
-  boarding round with 19,490 spendable sats after the operator's 510-sat fee.
-  A real merchant-to-guest 210-sat signet payment completed, leaving the guest
-  with 210 sats of reusable operator credit. A later guest-to-merchant booking
-  payment passed `prepare-send` with an exact 210-sat principal and zero fee,
-  but remained in `settling` through invoice expiry while the merchant receive
-  remained pending. It was not retried or reported paid; its OpenStays request
-  is now expired and that payment hash must not be reused.
-- The production browser build now starts exactly one embedded Wavelength
-  engine, serves all required runtime assets with cross-origin isolation, and
-  has no horizontal overflow at the tested mobile viewport. Confirmation query
-  parameters use `confirmation` because Convex Auth consumes the reserved
-  OAuth `code` parameter.
-- A persistent browser guest wallet was created under
-  `%LOCALAPPDATA%\OpenStays\wavelength-browser-guest-demo`; its 24-word
-  recovery material and Chrome profile are protected by a user-only ACL. Its
-  funded recovery material was never printed, but the reused local demo
-  password appeared in the automation trace and must be rotated before public
-  use. It creates/unlocks correctly. Diagnostic reward
-  invoice attempts isolated Wavelength's public signet `CreateCredit` failure
-  to amounts below the operator's 1,000-sat minimum: two native wallets and the
-  browser timed out at 210 sats, while a 1,000-sat control invoice returned
-  immediately.
-- Live reward acceptance completed on the isolated development deployment. The
-  protected browser guest wallet created a fresh amount-bearing invoice, the
-  merchant prepared and sent exactly 1,000 signet sats, and Wavelength reported
-  one completed outgoing activity. The bridge now requires Wavelength's signed
-  outgoing amount (`-1000`) before reporting settlement. OpenStays recorded one
-  paid reward with one attempt, and repeated bridge polls produced no second
-  payment. The guest wallet and reloaded reward UI both showed 1,000 sats and
-  the authoritative paid announcement.
-- A second browser-driven acceptance completed from a fresh public booking
-  through both directions of the signet flow. Booking `OS-X2A4RP` charged the
-  fictional CA$0.21 reservation as a 1,000-sat signet demo quote, confirmed only
-  after the merchant receive completed, produced a receipt accepted by four OTS
-  calendars, and paid one 1,000-sat reward back to the same guest wallet. The
-  wallet moved from 1,000 to 0 to 1,000 sats across reloads. Both booking and
-  reward rows have exactly one authoritative settlement/attempt.
-- Wavelength booking quotes now floor at 1,000 signet sats to match the public
-  operator while keeping the fiat booking amount authoritative. Queue claims
-  mark expired requests expired and cancelled/non-hold requests failed before
-  returning payable work, preventing stale 210-sat requests from blocking the
-  bridge. The first incompatible unpaid test hold was cancelled normally with
-  $0 paid and $0 refunded.
-- A separate, unfunded disposable in-app-browser wallet was abandoned after its
-  recovery words appeared in the local automation trace. It never received an
-  invoice payment and must not be used. The protected persistent demo wallet's
-  recovery material was not exposed.
-- The pinned official OpenTimestamps client is installed in WSL because its
-  `python-bitcoinlib` dependency could not discover the native Windows Python
-  OpenSSL 3 DLL. The CLI now has a tested WSL invocation/path adapter while
-  preserving native execution by default.
-- `docs/demo/consensus-receipt-sample.json.ots` is a real proof for the
-  fictional sample hash
-  `2bebb8b87c3d27c9a875beae80355a1fde04c6bf66566f60740e4bdbddf132ba`.
-  Four public calendars accepted it; all attestations are currently pending,
-  not Bitcoin-anchored.
-- Live acceptance also created receipt
-  `cr_jd7e1w0s3wb1t719gvnsctpsed8b27wp`: its 724-byte canonical JSON hashes to
-  `55172b52543346ce34558f7ac7558fa7e40c5036e17d735d4e96dc6afeacc0bb`.
-  The OTS worker validated and uploaded a 700-byte proof accepted by four
-  calendars. The normal background upgrade later verified a Bitcoin attestation
-  at block 959197 and advanced it to `bitcoin_anchored`; both browser downloads
-  round-tripped successfully. The newer `OS-X2A4RP` receipt has now also
-  matured to a verified Bitcoin attestation at block 959201.
-- Mailpit is running on loopback SMTP `127.0.0.1:1025` and inbox
-  `127.0.0.1:8025`; the local mail bridge targets only the isolated dev
-  deployment. Current live acceptance delivered the fictional confirmation,
-  consensus-receipt notice, and guest-to-staff message alert for `OS-A52VVM`.
-  The booking-scoped message also persisted and rendered without mobile
-  overflow.
-- Nodemailer was advanced to 9.0.3 after the original pin surfaced a direct
-  high-severity advisory. The stale `fast-uri` lock entry is also patched. CLI
-  audit now has zero high/critical findings and two moderate findings in the
-  MCP SDK's unused Hono static-file adapter; an upstream-compatible MCP update
-  is the remaining dependency follow-up.
-- Root `npm audit` reports one high and two moderate development-only findings
-  in VitePress 1.6.4's nested Vite/esbuild toolchain, with no compatible fix
-  currently offered. The booking application uses the separately resolved
-  Vite 7.3.6 build; do not expose the documentation development server.
+- Consensus Commons is consistently disclosed as a fictional property with no
+  lodging or reservation service.
+- The public payment policy fixes Zaprite at CA$1 and Wavelength at exactly
+  1,000 signet sats. The simulated tour remains a no-charge, no-reward path.
+- Turnstile-backed eligibility tokens are five-minute, action-scoped,
+  booking-scoped, replay-protected, and contain keyed digests rather than raw
+  guest/device/network identifiers.
+- Zaprite confirmation uses authoritative server-side order reconciliation;
+  webhook content and redirects are nudges only.
+- Wavelength confirmation and rewards require exact signet amount, invoice,
+  prepared intent, completed matching merchant activity, and idempotent
+  settlement.
+- Submitted privacy-safe OpenTimestamps receipts and later Bitcoin block
+  attestations remain distinct states.
+- Guests can request a manual Zaprite/Wavelength refund. The payment remains
+  paid until staff records the completed external reference.
+- Public retention deletes old booking messages, purges old guest identity and
+  rendered email content, and removes only unpaid disposable expired bookings.
+  Authoritative booking/payment/refund/reward/receipt records are preserved.
+- Cloudflare operations include:
+  - one pinned non-root container for Wavelength, OpenTimestamps, and mail;
+  - service-scoped bridge and heartbeat tokens;
+  - 60-second fail-closed public Wavelength health;
+  - AES-256-GCM wallet archives with immutable, verified R2 generations;
+  - a single-use authenticated wallet bootstrap that commits the first backup;
+  - one-minute supervisor wakeups and redacted backup health;
+  - an authenticated forced restart from the newest verified archive.
 
-## Decisions in force
+## Binding decisions
 
-- Zaprite webhook content is untrusted; authenticated fetch is authoritative.
-- Zaprite/Wavelength refunds remain paid until staff records an external
-  reference; no premature guest success email.
-- Wavelength is signet-only. Legacy mainnet schema rows remain readable, but
-  active configuration, UI, claims, tests, scripts, and bridges reject them.
-- Wavelength booking invoices use `max(1,000, ceil(amountCents × rate / 100))`
-  so every public-signet request is at least 1,000 sats; the stored fiat amount
-  remains the authoritative reservation payment amount.
-- Receipt canonical JSON/hash never mutate. A valid submitted proof unlocks
-  the reward; `bitcoin_anchored` requires a later verified Bitcoin block
-  attestation and is never inferred from calendar submission.
-- Each submitted receipt permits one exact 1,000 signet-sat reward. This matches
-  Wavelength's public signet minimum and uses its standard receive path. The bridge
-  checks the prepared payment, fee cap, invoice, payment hash, and completed
-  merchant activity before recording payment.
-- Channex is adapter-ready but not connected/certified.
-- Convex owns email rendering, deduplication, queue leases, retries, and audit;
-  SMTP/Resend are replaceable delivery adapters. Public demo mode stays
-  log-only by design.
-- No customer data, credentials, production rail, push, deploy, or merge is in
-  scope without explicit approval.
+- Live buttons and backend rails are independently controlled and begin
+  disabled.
+- Reward daily budget defaults to zero.
+- Wavelength remains signet-only; no mainnet wallet or payment is created.
+- A stale Wavelength service hides only Wavelength. Zaprite and the simulated
+  tour remain independent.
+- Missing, corrupt, or stale wallet recovery fails closed.
+- Real-payment rows are never touched by demo reset.
+- Only dedicated OpenStays resources may be configured. Unrelated projects,
+  customer data, credentials, and deployments remain out of scope.
 
-## Remaining follow-up
+## Verification
 
-- Keep the fictional sample receipt labeled pending. The historical anchored
-  demo receipts remain evidence of final Bitcoin verification.
-- Use `docs/demo/judge-opening/variation-a-consensus-convergence.png` as the
-  recommended opening visual; B and C remain alternatives.
-- Do not inspect or use CBAP credentials or deployments.
-- The public deployment intentionally excludes live staff access, wallet
-  operation, signet faucet/reward payment, production payment credentials, and
-  customer data. Future production-rail activation requires a separate review.
+- Task 10 complete:
+  - 469 root tests passed;
+  - 72 CLI tests passed;
+  - root and CLI typechecks/builds passed;
+  - desktop and mobile public showcase smoke checks passed;
+  - credential-dependent live payment browser checks remained correctly
+    skipped.
+- Cloudflare operations currently pass 28 tests, typecheck, and Worker dry-run
+  build.
+- Focused public refund, simulated-tour, receipt-timeline, disclosure, wallet
+  bootstrap, heartbeat, backup, and forced-restore tests pass.
+- A real Linux container build and vulnerability scan are still required.
+  No Docker-compatible engine is installed in the current environment.
 
-See [docs/hackathon-mvp.md](./docs/hackathon-mvp.md).
+## Remaining gates
+
+1. Complete the public integration guide, operator runbook, security notes, and
+   privacy scan.
+2. Run every root, CLI, docs, Cloudflare, audit, built-artifact, and
+   whitespace gate from the approved plan.
+3. Build and scan the real container image on a Docker-capable host.
+4. Run disposable failure injection, including corrupt-copy restore,
+   interrupted settlement reconciliation, and 15-day retention.
+5. Stop for fresh approval before opening/using credentials, creating
+   resources, pushing, or deploying.
+6. Deploy with all live rails disabled, bootstrap the merchant wallet once,
+   record recovery offline, force a verified restore, then perform live
+   acceptance before enabling either rail.
+
+See:
+
+- [Public live payments](./docs/public-live-payments.md)
+- [Operator runbook](./docs/operations/public-live-payments-runbook.md)
+- [Approved implementation plan](./docs/superpowers/plans/2026-07-26-public-live-payment-rails.md)

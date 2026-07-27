@@ -13,8 +13,8 @@
 ## Working boundaries
 
 - Work only on `codex/public-live-payment-rails` in the dedicated worktree.
-- Do not inspect, copy, or configure credentials until Murphy gives a fresh credential approval during execution.
-- Do not use CBAP or any unrelated Convex, Zaprite, Cloudflare, SMTP, or wallet resource.
+- Do not inspect, copy, or configure credentials until the operator gives a fresh credential approval during execution.
+- Do not use any unrelated Convex, Zaprite, Cloudflare, SMTP, or wallet resource.
 - Keep every live rail disabled until dependency, automated, recovery, and live-acceptance gates pass.
 - Preserve the existing simulated public path and the historical hackathon evidence.
 - Do not push, deploy, create paid resources, or enable public traffic without the separate execution-time approval stated in Task 12.
@@ -972,7 +972,7 @@ git commit -m "feat: complete public payment and refund experience"
 - Modify: `SECURITY.md`
 - Modify: `STATUS.md`
 
-- [ ] **Step 1: Write the public integration guide**
+- [x] **Step 1: Write the public integration guide**
 
 Document:
 
@@ -984,7 +984,7 @@ Document:
 - refund-request procedure;
 - all public environment variable names with non-secret example values only.
 
-- [ ] **Step 2: Write the operator runbook**
+- [x] **Step 2: Write the operator runbook**
 
 Include exact commands for:
 
@@ -1000,9 +1000,9 @@ Include exact commands for:
 - rotating each scoped secret;
 - rollback without deleting authoritative records.
 
-Mark every credential/resource/deploy command with `REQUIRES FRESH MURPHY APPROVAL`.
+Mark every credential/resource/deploy command with `REQUIRES FRESH OPERATOR APPROVAL`.
 
-- [ ] **Step 3: Record binding decisions**
+- [x] **Step 3: Record binding decisions**
 
 Update `CLAUDE.md` and `STATUS.md` with:
 
@@ -1012,9 +1012,9 @@ Update `CLAUDE.md` and `STATUS.md` with:
 - live reward default budget is zero;
 - container restore failure fails closed;
 - real-payment rows are never touched by reset;
-- CBAP and unrelated resources remain out of scope.
+- Unrelated resources remain out of scope.
 
-- [ ] **Step 4: Scan documentation for private material**
+- [x] **Step 4: Scan documentation for private material**
 
 Run:
 
@@ -1024,7 +1024,7 @@ rg -n -i "(seed phrase|recovery words|private key|api[_ -]?key|bearer [a-z0-9]|p
 
 Expected: no credential value, recovery material, payment hash, or local user path; documented variable names and explicit safety prose are reviewed manually.
 
-- [ ] **Step 5: Build docs and commit**
+- [x] **Step 5: Build docs and commit**
 
 ```powershell
 npm run docs:build
@@ -1098,7 +1098,7 @@ Expected: clean worktree.
 
 - [ ] **Step 5: Stop for explicit external-action approval**
 
-Ask Murphy for one fresh approval covering only:
+Ask the operator for one fresh approval covering only:
 
 - opening/using the dedicated Murdawk Media Cloudflare and OpenStays credential pointers;
 - creating the dedicated R2 bucket, Worker, Durable Object/container, Turnstile widget, and scoped secrets;
