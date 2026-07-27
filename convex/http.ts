@@ -56,6 +56,7 @@ const wavelengthInternal = (internal as unknown as {
 }).wavelength as Record<string, any>;
 const receiptInternal = (internal as any).consensusReceipts as Record<string, any>;
 const rewardInternal = (internal as any).wavelengthRewards as Record<string, any>;
+const operationsHealthInternal = (internal as any).operationsHealth as Record<string, any>;
 
 function wavelengthAuthorized(request: Request): boolean {
   return bridgeBearerAuthorized(
@@ -77,6 +78,81 @@ function json(data: unknown, status = 200): Response {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+const heartbeatServices = ['wavelength', 'ots', 'mail', 'backup'] as const;
+const heartbeatStatuses = ['starting', 'ready', 'degraded', 'failed'] as const;
+const heartbeatFailureCategories = [
+  'configuration',
+  'dependency_unavailable',
+  'network',
+  'authentication',
+  'processing',
+  'backup_stale',
+  'unknown',
+] as const;
+
+function heartbeatToken(service: typeof heartbeatServices[number]): string {
+  const envName = `${service.toUpperCase()}_HEARTBEAT_TOKEN`;
+  return process.env[envName]?.trim() ?? '';
+}
+
+function parseHeartbeatBody(value: unknown) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('INVALID_HEARTBEAT');
+  }
+  const body = value as Record<string, unknown>;
+  const allowed = new Set([
+    'service', 'status', 'release', 'observedAt', 'spendableSats', 'failureCategory',
+  ]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) throw new Error('UNKNOWN_HEARTBEAT_FIELD');
+  if (!heartbeatServices.includes(body.service as any)) throw new Error('INVALID_HEARTBEAT_SERVICE');
+  if (!heartbeatStatuses.includes(body.status as any)) throw new Error('INVALID_HEARTBEAT_STATUS');
+  if (
+    typeof body.release !== 'string' ||
+    !body.release.trim() ||
+    body.release.length > 80 ||
+    !/^[A-Za-z0-9._:@/+ -]+$/.test(body.release)
+  ) throw new Error('INVALID_HEARTBEAT_RELEASE');
+  if (!Number.isSafeInteger(body.observedAt) || Number(body.observedAt) <= 0) {
+    throw new Error('INVALID_HEARTBEAT_TIMESTAMP');
+  }
+  if (body.spendableSats !== undefined) {
+    if (body.service !== 'wavelength') throw new Error('HEARTBEAT_BALANCE_SERVICE_MISMATCH');
+    if (!Number.isSafeInteger(body.spendableSats) || Number(body.spendableSats) < 0) {
+      throw new Error('INVALID_HEARTBEAT_BALANCE');
+    }
+  }
+  if (
+    body.failureCategory !== undefined &&
+    !heartbeatFailureCategories.includes(body.failureCategory as any)
+  ) throw new Error('INVALID_HEARTBEAT_FAILURE_CATEGORY');
+  return body as {
+    service: typeof heartbeatServices[number];
+    status: typeof heartbeatStatuses[number];
+    release: string;
+    observedAt: number;
+    spendableSats?: number;
+    failureCategory?: typeof heartbeatFailureCategories[number];
+  };
+}
+
+http.route({
+  path: '/operations-bridge/heartbeat',
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const body = parseHeartbeatBody(await request.json());
+      if (!bridgeBearerAuthorized(
+        request.headers.get('authorization') ?? undefined,
+        heartbeatToken(body.service),
+      )) return json({ error: 'unauthorized' }, 401);
+      await ctx.runMutation(operationsHealthInternal.recordHeartbeat, body);
+      return new Response(null, { status: 204 });
+    } catch {
+      return json({ error: 'invalid_request' }, 400);
+    }
+  }),
+});
 
 const emailDeliveryInternal = (internal as unknown as {
   emailDelivery: Record<string, Parameters<typeof httpAction>[0]>;

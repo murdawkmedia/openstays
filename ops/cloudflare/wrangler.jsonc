@@ -7,6 +7,22 @@
     "PUBLIC_ORIGIN": "https://openstays.example.invalid",
     "RELEASE": "local-unconfigured"
   },
+  "secrets": {
+    "required": [
+      "TURNSTILE_SECRET",
+      "ELIGIBILITY_HMAC_SECRET",
+      "OPERATIONS_ADMIN_TOKEN",
+      "CONTAINER_CONTROL_TOKEN",
+      "WALLET_BACKUP_KEY_BASE64",
+      "OPENSTAYS_URL",
+      "WAVELENGTH_BRIDGE_TOKEN",
+      "WAVELENGTH_HEARTBEAT_TOKEN",
+      "OTS_BRIDGE_TOKEN",
+      "OTS_HEARTBEAT_TOKEN",
+      "MAIL_BRIDGE_TOKEN",
+      "MAIL_HEARTBEAT_TOKEN"
+    ]
+  },
   "r2_buckets": [
     {
       "binding": "WALLET_BACKUPS",
@@ -25,6 +41,7 @@
     {
       "class_name": "MerchantOperations",
       "image": "./container/Dockerfile",
+      "image_build_context": "../..",
       "instance_type": "basic",
       "max_instances": 1
     }

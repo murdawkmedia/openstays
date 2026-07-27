@@ -1,5 +1,10 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import {
+  runOperationsHeartbeat,
+  waitForAbortableDelay,
+  type OperationsHeartbeatSnapshot,
+} from './operationsHeartbeat.js';
 
 export interface MailBridgeOptions {
   openStaysUrl: string;
@@ -11,6 +16,9 @@ export interface MailBridgeOptions {
   smtpPassword?: string;
   pollMs?: number;
   once?: boolean;
+  signal?: AbortSignal;
+  heartbeatToken?: string;
+  release?: string;
 }
 
 interface QueuedEmail {
@@ -124,18 +132,42 @@ export function createSmtpSender(options: MailBridgeOptions): Transporter {
 export async function runMailBridge(options: MailBridgeOptions): Promise<void> {
   const sender = createSmtpSender(options);
   const pollMs = options.pollMs ?? 2_000;
-  for (;;) {
+  const ownController = new AbortController();
+  if (options.signal?.aborted) ownController.abort();
+  else options.signal?.addEventListener('abort', () => ownController.abort(), { once: true });
+  const signal = ownController.signal;
+  let heartbeatStatus: OperationsHeartbeatSnapshot = { status: 'starting' };
+  const heartbeat = options.heartbeatToken
+    ? runOperationsHeartbeat({
+        openStaysUrl: options.openStaysUrl,
+        heartbeatToken: options.heartbeatToken,
+        service: 'mail',
+        release: options.release ?? 'openstays-cli-0.1.0',
+        signal,
+        snapshot: async () => heartbeatStatus,
+      })
+    : Promise.resolve();
+  while (!signal.aborted) {
     try {
       const result = await runMailBridgeOnce(options, sender);
+      heartbeatStatus = { status: 'ready' };
       if (result.claimed > 0) {
         process.stderr.write(
           `mail bridge: claimed=${result.claimed} delivered=${result.delivered} failed=${result.failed}\n`,
         );
       }
     } catch (error) {
-      process.stderr.write(`mail bridge: ${safeErrorMessage(error)}\n`);
+      heartbeatStatus = { status: 'degraded', failureCategory: 'processing' };
+      process.stderr.write('mail bridge: processing_failed\n');
+      if (options.once) {
+        ownController.abort();
+        await heartbeat;
+        throw error;
+      }
     }
-    if (options.once) return;
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    if (options.once) break;
+    await waitForAbortableDelay(pollMs, signal);
   }
+  ownController.abort();
+  await heartbeat;
 }

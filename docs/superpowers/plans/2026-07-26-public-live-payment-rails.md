@@ -839,7 +839,7 @@ git commit -m "feat: add encrypted merchant wallet recovery"
 - Modify: `convex/http.ts`
 - Create: `convex/http.test.ts`
 
-- [ ] **Step 1: Write failing heartbeat and auth tests**
+- [x] **Step 1: Write failing heartbeat and auth tests**
 
 Assert:
 
@@ -849,7 +849,7 @@ Assert:
 - secrets, BOLT11 invoices, payment hashes, email addresses, SMTP details, and local paths are redacted;
 - a heartbeat older than 60 seconds makes Wavelength unavailable.
 
-- [ ] **Step 2: Confirm red**
+- [x] **Step 2: Confirm red**
 
 ```powershell
 npm --prefix cli test -- operationsHeartbeat
@@ -858,7 +858,7 @@ npx vitest run convex/http.test.ts
 
 Expected: FAIL because heartbeat endpoints/modules are absent.
 
-- [ ] **Step 3: Implement shared heartbeat publisher**
+- [x] **Step 3: Implement shared heartbeat publisher**
 
 Create:
 
@@ -876,19 +876,19 @@ export type OperationsHeartbeat = {
 
 Post to `/operations-bridge/heartbeat` with the service’s bearer token. Retry with capped exponential backoff and jitter; never print the token or request body.
 
-- [ ] **Step 4: Add Convex heartbeat endpoint**
+- [x] **Step 4: Add Convex heartbeat endpoint**
 
 `convex/http.ts` validates service-specific bearer tokens, rejects unknown fields, upserts `bridgeHealth`, and responds 204. Add an operator-only query that returns redacted health and a public query that returns only `{ wavelengthAvailable, rewardAvailable, updatedAt }`.
 
-- [ ] **Step 5: Make CLI workers container-friendly**
+- [x] **Step 5: Make CLI workers container-friendly**
 
 Add `--once` and continuous modes, `SIGTERM` handling, health publication, and process exit codes. Preserve existing idempotent reconciliation. OTS continues to use `opentimestamps-client==0.7.2`; mail continues to consume the generic SMTP queue.
 
-- [ ] **Step 6: Pin the container image**
+- [x] **Step 6: Pin the container image**
 
 `Dockerfile` uses a pinned Node LTS digest and pinned Python base tooling, installs the exact CLI lockfile, installs `opentimestamps-client==0.7.2`, downloads Wavelength `v0.1.0`, and verifies the published binary SHA-256 before installation. Run as a non-root user and expose only the loopback control port to the container runtime.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ```powershell
 npm --prefix cli test
