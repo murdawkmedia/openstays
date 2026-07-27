@@ -148,7 +148,11 @@ export class MerchantControl {
         }),
       },
     );
-    if (!response.ok) throw new Error(`WAVELENGTH_WALLET_${path.toUpperCase()}_FAILED`);
+    if (!response.ok) {
+      throw new Error(
+        `WAVELENGTH_WALLET_${path.toUpperCase()}_FAILED_HTTP_${response.status}`,
+      );
+    }
     return await response.json();
   }
 
