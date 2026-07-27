@@ -52,6 +52,13 @@ jobs:
           --file ops/cloudflare/container/Dockerfile
           .
 
+      - name: Smoke-test bundled runtimes
+        run: >-
+          docker run --rm
+          --entrypoint sh
+          openstays-merchant-operations:${{ github.sha }}
+          -c "node --version && ots --version && waved --version"
+
       # SHA-pinned because tags in the upstream Trivy action were compromised
       # in March 2026. This commit is the verified v0.36.0 release.
       - name: Scan merchant image for high and critical vulnerabilities

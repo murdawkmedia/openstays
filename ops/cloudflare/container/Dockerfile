@@ -5,7 +5,9 @@
 FROM python:3.13.14-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS ots-runtime
 RUN python -m pip install --no-cache-dir "opentimestamps-client==0.7.2"
 
-FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS cli-build
+FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS node-runtime
+
+FROM node-runtime AS cli-build
 WORKDIR /build/cli
 COPY cli/package.json cli/package-lock.json ./
 RUN npm ci
@@ -13,13 +15,13 @@ COPY cli/tsconfig.json ./
 COPY cli/src ./src
 RUN npm run build && npm prune --omit=dev
 
-FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
+FROM ots-runtime
 
 ARG WAVELENGTH_VERSION=v0.1.0
 ARG WAVELENGTH_ARCHIVE_SHA256=78502f588c38281e646e0e6a302c1f23e1ee1589686dbebf186739b6d41796fe
 ARG WAVELENGTH_DAEMON_SHA256=09cc6e77c2abadaebfd4fe9362440aad096851382d9aa3ee58e7a947bd37284a
 
-COPY --from=ots-runtime /usr/local /usr/local
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 ADD --checksum=sha256:78502f588c38281e646e0e6a302c1f23e1ee1589686dbebf186739b6d41796fe \
   https://github.com/lightninglabs/wavelength/releases/download/v0.1.0/wavelength-linux-amd64-v0.1.0.tar.gz \
   /tmp/wavelength.tar.gz
@@ -30,6 +32,9 @@ RUN tar -xzf /tmp/wavelength.tar.gz -C /tmp --strip-components=1 \
   && test "$WAVELENGTH_VERSION" = "v0.1.0" \
   && test "$WAVELENGTH_ARCHIVE_SHA256" = "78502f588c38281e646e0e6a302c1f23e1ee1589686dbebf186739b6d41796fe" \
   && ots --version
+
+RUN groupadd --gid 1000 node \
+  && useradd --uid 1000 --gid 1000 --shell /usr/sbin/nologin --create-home node
 
 WORKDIR /app
 COPY --from=cli-build --chown=node:node /build/cli/package.json /app/cli/package.json
