@@ -33,6 +33,15 @@ const OPERATIONS_MODES = new Set([
   'cloudflare_container',
   'synology_external',
 ]);
+const SECRET_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u;
+
+function validSecret(value: unknown, minimumUtf8Bytes = 1): value is string {
+  return typeof value === 'string'
+    && Boolean(value.trim())
+    && value === value.trim()
+    && !SECRET_CONTROL_CHARACTERS.test(value)
+    && new TextEncoder().encode(value).byteLength >= minimumUtf8Bytes;
+}
 
 function validRuntimeConfiguration(env: Env): boolean {
   if (!OPERATIONS_MODES.has(env.OPERATIONS_MODE)) return false;
@@ -41,15 +50,8 @@ function validRuntimeConfiguration(env: Env): boolean {
     || !env.RELEASE.trim()
     || env.RELEASE !== env.RELEASE.trim()
   ) return false;
-  if (
-    typeof env.TURNSTILE_SECRET !== 'string'
-    || !env.TURNSTILE_SECRET.trim()
-    || env.TURNSTILE_SECRET !== env.TURNSTILE_SECRET.trim()
-  ) return false;
-  if (
-    typeof env.ELIGIBILITY_HMAC_SECRET !== 'string'
-    || new TextEncoder().encode(env.ELIGIBILITY_HMAC_SECRET).byteLength < 32
-  ) return false;
+  if (!validSecret(env.TURNSTILE_SECRET)) return false;
+  if (!validSecret(env.ELIGIBILITY_HMAC_SECRET, 32)) return false;
   if (typeof env.PUBLIC_ORIGIN !== 'string') return false;
   try {
     const origin = new URL(env.PUBLIC_ORIGIN);

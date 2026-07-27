@@ -144,6 +144,21 @@ describe('eligibility HTTP boundary', () => {
     ['empty Turnstile secret', { TURNSTILE_SECRET: '  ' }],
     ['missing eligibility key', { ELIGIBILITY_HMAC_SECRET: undefined }],
     ['weak eligibility key', { ELIGIBILITY_HMAC_SECRET: 'too-short' }],
+    ['whitespace-only eligibility key', {
+      ELIGIBILITY_HMAC_SECRET: ' '.repeat(32),
+    }],
+    ['leading whitespace in eligibility key', {
+      ELIGIBILITY_HMAC_SECRET: ` ${'a'.repeat(32)}`,
+    }],
+    ['trailing whitespace in eligibility key', {
+      ELIGIBILITY_HMAC_SECRET: `${'a'.repeat(32)} `,
+    }],
+    ['CRLF in eligibility key', {
+      ELIGIBILITY_HMAC_SECRET: `${'a'.repeat(16)}\r\n${'b'.repeat(16)}`,
+    }],
+    ['control character in eligibility key', {
+      ELIGIBILITY_HMAC_SECRET: `${'a'.repeat(31)}\u0000`,
+    }],
     ['missing public origin', { PUBLIC_ORIGIN: undefined }],
     ['malformed public origin', { PUBLIC_ORIGIN: 'not-a-url' }],
     ['non-HTTPS public origin', { PUBLIC_ORIGIN: 'http://showcase.example' }],
@@ -156,6 +171,11 @@ describe('eligibility HTTP boundary', () => {
       const invalidEnv = {
         ...synologyEnv,
         ...override,
+        MERCHANT_OPERATIONS: {
+          getByName: vi.fn(() => {
+            throw new Error('invalid configuration must not access bindings');
+          }),
+        },
       } as unknown as Env;
       const fetcher = vi.fn(async () =>
         new Response(JSON.stringify({ success: true })));
@@ -191,6 +211,7 @@ describe('eligibility HTTP boundary', () => {
       expect(healthBody).not.toContain(String(invalidEnv.TURNSTILE_SECRET));
       expect(healthBody).not.toContain(String(invalidEnv.ELIGIBILITY_HMAC_SECRET));
       expect(fetcher).not.toHaveBeenCalled();
+      expect(invalidEnv.MERCHANT_OPERATIONS?.getByName).not.toHaveBeenCalled();
     });
 
   it('returns CORS only to the configured origin', async () => {
