@@ -59,6 +59,11 @@ jobs:
           openstays-merchant-operations:${{ github.sha }}
           -c "node --version && ots --version && waved --version"
 
+      - name: Drill wallet bootstrap, backup, and restore
+        run: >-
+          bash ops/cloudflare/tests/container-recovery-drill.sh
+          openstays-merchant-operations:${{ github.sha }}
+
       # Keep the complete upstream report visible even when Lightning Labs has
       # not yet published a rebuilt Wavelength release. The deploy-blocking
       # scan below still rejects every fixable first-party/base-image finding.
