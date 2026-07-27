@@ -51,6 +51,21 @@ function script(path: string) {
   return readFileSync(path, 'utf8');
 }
 
+function rootTaskInstallBlock() {
+  const body = script(synologyReadmePath);
+  const marker = '   ```bash\n   set -euo pipefail\n   launcher_stage=';
+  const start = body.indexOf(marker);
+  if (start < 0) throw new Error('ROOT_TASK_INSTALL_BLOCK_MISSING');
+  const contentStart = start + '   ```bash\n'.length;
+  const end = body.indexOf('\n   ```', contentStart);
+  if (end < 0) throw new Error('ROOT_TASK_INSTALL_BLOCK_UNTERMINATED');
+  return body
+    .slice(contentStart, end)
+    .split('\n')
+    .map((line) => line.replace(/^ {3}/u, ''))
+    .join('\n');
+}
+
 function temporaryRoot() {
   const root = mkdtempSync(join(tmpdir(), 'openstays-synology-script-'));
   temporaryRoots.push(root);
@@ -69,13 +84,13 @@ function gitBashPath(path: string) {
 }
 
 function sandboxedScript(sourcePath: string, root: string) {
-  const appRoot = join(root, 'volume1', 'docker', 'openstays-merchant');
+  const appRoot = join(root, 'volume1', 'openstays-merchant');
   const backupRoot = join(root, 'volume2', 'openstays-wallet-backups');
   const scriptAppRoot = gitBashPath(appRoot);
   const scriptBackupRoot = gitBashPath(backupRoot);
   const destination = join(root, 'script.sh');
   const rewritten = script(sourcePath)
-    .replaceAll('/volume1/docker/openstays-merchant', scriptAppRoot)
+    .replaceAll('/volume1/openstays-merchant', scriptAppRoot)
     .replaceAll('/volume2/openstays-wallet-backups', scriptBackupRoot)
     .replaceAll(
       'ROOT_TASK_PATH=/usr/local/bin:/usr/bin:/bin',
@@ -88,13 +103,14 @@ function sandboxedScript(sourcePath: string, root: string) {
 
 function sandboxedRootLauncher(root: string) {
   const bin = join(root, 'bin');
-  const appRoot = join(root, 'volume1', 'docker', 'openstays-merchant');
+  const appRoot = join(root, 'volume1', 'openstays-merchant');
   const backupRoot = join(root, 'volume2', 'openstays-wallet-backups');
-  const volume1Docker = join(root, 'volume1', 'docker');
+  const volume1 = join(root, 'volume1');
   const volume2 = join(root, 'volume2');
   const destination = join(root, 'openstays-merchant-root');
+  const stagedArchive = join(root, 'openstays-merchant-source.tar');
   mkdirSync(bin, { recursive: true });
-  mkdirSync(volume1Docker, { recursive: true });
+  mkdirSync(volume1, { recursive: true });
   mkdirSync(volume2, { recursive: true });
   const replacements = new Map([
     [
@@ -102,19 +118,26 @@ function sandboxedRootLauncher(root: string) {
       `INSTALL_PATH=${gitBashPath(destination)}`,
     ],
     [
-      'APP_ROOT=/volume1/docker/openstays-merchant',
+      'APP_ROOT=/volume1/openstays-merchant',
       `APP_ROOT=${gitBashPath(appRoot)}`,
     ],
     [
       'BACKUP_ROOT=/volume2/openstays-wallet-backups',
       `BACKUP_ROOT=${gitBashPath(backupRoot)}`,
     ],
-    ['assert_root_parent /volume1/docker', `assert_root_parent ${gitBashPath(volume1Docker)}`],
+    [
+      'STAGED_ARCHIVE=/volume1/homes/murdawk/openstays-merchant-source.tar',
+      `STAGED_ARCHIVE=${gitBashPath(stagedArchive)}`,
+    ],
+    [
+      'ARCHIVE_TEMP_ROOT=/volume1',
+      `ARCHIVE_TEMP_ROOT=${gitBashPath(volume1)}`,
+    ],
+    ['assert_root_parent /volume1', `assert_root_parent ${gitBashPath(volume1)}`],
     ['assert_root_parent /volume2', `assert_root_parent ${gitBashPath(volume2)}`],
     ['ENV=/usr/bin/env', `ENV=${gitBashPath(join(bin, 'env'))}`],
     ['READLINK=/usr/bin/readlink', 'READLINK=/usr/bin/readlink'],
     ['STAT=/usr/bin/stat', `STAT=${gitBashPath(join(bin, 'stat'))}`],
-    ['GIT=/usr/local/bin/git', `GIT=${gitBashPath(join(bin, 'git'))}`],
     ['MKDIR=/bin/mkdir', `MKDIR=${gitBashPath(join(bin, 'mkdir'))}`],
     ['CHOWN=/bin/chown', `CHOWN=${gitBashPath(join(bin, 'chown'))}`],
     ['CHMOD=/bin/chmod', `CHMOD=${gitBashPath(join(bin, 'chmod'))}`],
@@ -134,7 +157,7 @@ function sandboxedRootLauncher(root: string) {
   for (const [from, to] of replacements) body = body.replaceAll(from, to);
   writeFileSync(destination, body, { mode: 0o700 });
   chmodSync(destination, 0o700);
-  return { destination, appRoot, backupRoot, bin };
+  return { destination, appRoot, backupRoot, bin, stagedArchive };
 }
 
 function run(
@@ -233,6 +256,7 @@ function prepareRootLauncherTools(
     `#!/usr/bin/env bash
 case "$*" in
   *"%u:%g:%a"*"openstays-merchant-root"*) echo 0:0:700 ;;
+  *"%u:%g:%a"*".source-stage-"*) echo 0:0:700 ;;
   *"%u:%g:%a"*"openstays-merchant/source"*) echo 0:0:700 ;;
   *"%u:%g:%a"*"source-quarantine"*) echo 0:0:700 ;;
   *"%u:%g:%a"*"openstays-merchant/quarantine"*) echo 0:0:700 ;;
@@ -269,40 +293,38 @@ done
     join(bin, 'env'),
     '#!/usr/bin/env bash\nexec /usr/bin/env "$@"\n',
   );
+  const archiveSource = join(appRoot, 'test-archive-source');
+  mkdirSync(join(archiveSource, 'ops', 'synology'), { recursive: true });
   executable(
-    join(bin, 'git'),
-    `#!/usr/bin/env bash
-directory=
-previous=
-for argument in "$@"; do
-  if [[ "$previous" == "-C" ]]; then directory="$argument"; fi
-  previous="$argument"
-done
-case "$*" in
-  *" init --quiet")
-    mkdir -p -- "$directory/.git"
-    ;;
-  *" checkout --quiet --detach "*)
-    mkdir -p -- "$directory/ops/synology"
-    cat > "$directory/ops/synology/deploy.sh" <<'SAFE'
-#!/bin/bash
+    join(archiveSource, 'ops', 'synology', 'deploy.sh'),
+    `#!/bin/bash
 set -euo pipefail
 test "$OPENSTAYS_ROOT_HANDOFF_NONCE" = "${'0'.repeat(32)}"
 test -f "$OPENSTAYS_ROOT_HANDOFF_FILE"
 printf safe > "${safeMarker.replaceAll('\\', '/')}"
-SAFE
-    chmod 700 "$directory/ops/synology/deploy.sh"
-    ;;
-  *" rev-parse HEAD")
-    printf '%s\\n' '${commit}'
-    ;;
-  *" status --porcelain")
-    exit 0
-    ;;
-esac
 `,
   );
+  executable(
+    join(archiveSource, 'ops', 'synology', 'recovery-drill.sh'),
+    '#!/bin/bash\nexit 0\n',
+  );
+  execFileSync(
+    bash,
+    [
+      '-c',
+      'tar -cf "$1" -C "$2" .',
+      'bash',
+      gitBashPath(prepared.stagedArchive),
+      gitBashPath(archiveSource),
+    ],
+  );
+  const archiveSha = createHash('sha256')
+    .update(readFileSync(prepared.stagedArchive))
+    .digest('hex');
+  const archiveSize = statSync(prepared.stagedArchive).size;
   return {
+    archiveSize,
+    archiveSha,
     maliciousMarker: join(appRoot, 'malicious-executed'),
     sourceRoot: join(appRoot, 'source'),
   };
@@ -316,13 +338,20 @@ describe('Synology script contracts', () => {
     );
     expect(body).toContain('ROOT_LAUNCHER_INSTALL_IDENTITY_INVALID');
     expect(body).toContain(
-      'REPOSITORY_URL=https://github.com/murdawkmedia/openstays.git',
+      'STAGED_ARCHIVE=/volume1/homes/murdawk/openstays-merchant-source.tar',
     );
+    expect(body).not.toContain('GIT=/');
+    expect(body).not.toMatch(/"\$GIT"/u);
     expect(body).toContain('/usr/bin/env -i');
     expect(body).toContain('OPENSTAYS_LAUNCHER_SANITIZED=1');
     expect(body).toContain('BASH_FUNC_');
     expect(body).toContain('GIT_DIR');
     expect(body).toContain('OPENSTAYS_ROOT_HANDOFF_NONCE');
+    expect(body).toContain('TIMEOUT=/usr/bin/timeout');
+    expect(body).toContain('HEAD=/usr/bin/head');
+    expect(body).toContain('WC=/usr/bin/wc');
+    expect(body).toContain('copy_limit=$((archive_size + 1))');
+    expect(body).toContain('ROOT_LAUNCHER_ARCHIVE_SIZE_MISMATCH');
     expect(body).toContain('trap handoff_cleanup EXIT');
     expect(body).toContain("trap 'exit 130' INT TERM");
     expect(body).not.toContain('eval ');
@@ -336,6 +365,103 @@ describe('Synology script contracts', () => {
     expect(script(synologyReadmePath)).toContain(digest);
   });
 
+  it('documents a verify-before-publish launcher install that preserves the trusted final on mismatch', () => {
+    const body = script(synologyReadmePath);
+    expect(body).toContain(
+      'launcher_temp=$(/usr/bin/mktemp /usr/local/sbin/.openstays-merchant-root.new-XXXXXX)',
+    );
+    expect(body).toContain(
+      '/usr/bin/timeout 5 /usr/bin/head -c "$copy_limit" -- "$launcher_stage" > "$launcher_temp"',
+    );
+    expect(body).toContain(
+      'candidate_size=$(/usr/bin/wc -c < "$launcher_temp")',
+    );
+    expect(body).toContain(
+      'candidate_sha256=$(/bin/sha256sum "$launcher_temp")',
+    );
+    expect(body).toContain(
+      '/bin/mv -f -- "$launcher_temp" /usr/local/sbin/openstays-merchant-root',
+    );
+    expect(body).toContain(
+      'trap \'/bin/rm -f -- "$launcher_temp"\' EXIT',
+    );
+    expect(body.indexOf('candidate_size=')).toBeLessThan(
+      body.indexOf('candidate_sha256='),
+    );
+    expect(body.indexOf('candidate_sha256=')).toBeLessThan(
+      body.indexOf('/bin/mv -f -- "$launcher_temp"'),
+    );
+    expect(body.indexOf('/bin/mv -f -- "$launcher_temp"')).toBeLessThan(
+      body.indexOf('/usr/local/sbin/openstays-merchant-root \\\n     deploy'),
+    );
+  });
+
+  it('requires authenticated DSM Container Manager terminals for interactive wallet operations', () => {
+    const body = script(synologyReadmePath);
+    expect(body).toContain('DSM Container Manager');
+    expect(body).toContain('authenticated terminal');
+    expect(body).toContain('A second bootstrap must fail');
+    expect(body).toContain('Write the words offline');
+    expect(body).not.toMatch(/```bash[\s\S]*?docker exec[\s\S]*?```/u);
+  });
+
+  it.each([
+    ['same-size digest mismatch', 'same-size'],
+    ['oversized stage', 'oversized'],
+    ['infinite symlink stage', 'infinite'],
+    ['FIFO without a writer', 'fifo'],
+  ])('root task preserves the trusted launcher for %s', (_, scenario) => {
+    const root = temporaryRoot();
+    const stage = join(root, 'launcher.stage');
+    const final = join(root, 'launcher.final');
+    const tempPattern = join(root, '.launcher.new-XXXXXX');
+    const launcherSize = statSync(rootLauncherPath).size;
+    writeFileSync(final, 'trusted-final');
+    if (scenario === 'same-size') {
+      writeFileSync(stage, Buffer.alloc(launcherSize, 0x78));
+    } else if (scenario === 'oversized') {
+      writeFileSync(stage, Buffer.alloc(launcherSize + 1, 0x78));
+    } else if (scenario === 'infinite') {
+      execFileSync(
+        bash,
+        ['-c', 'ln -s /dev/zero "$1"', 'bash', gitBashPath(stage)],
+      );
+    } else {
+      execFileSync(
+        bash,
+        ['-c', 'mkfifo "$1"', 'bash', gitBashPath(stage)],
+      );
+    }
+    const source = rootTaskInstallBlock()
+      .replace(
+        'launcher_stage=/volume1/homes/murdawk/openstays-merchant-root-launcher.stage',
+        `launcher_stage=${gitBashPath(stage)}`,
+      )
+      .replace(
+        '/usr/local/sbin/.openstays-merchant-root.new-XXXXXX',
+        gitBashPath(tempPattern),
+      )
+      .replaceAll(
+        '/usr/local/sbin/openstays-merchant-root',
+        gitBashPath(final),
+      )
+      .replace('/usr/bin/timeout 5', '/usr/bin/timeout 1');
+    const task = join(root, 'root-task.sh');
+    writeFileSync(task, source, { mode: 0o700 });
+    chmodSync(task, 0o700);
+
+    const result = run(task, {
+      ...process.env,
+      PATH: '/usr/local/bin:/usr/bin:/bin',
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(readFileSync(final, 'utf8')).toBe('trusted-final');
+    expect(
+      readdirSync(root).filter((name) => name.startsWith('.launcher.new-')),
+    ).toEqual([]);
+  });
+
   it('requires the launcher handoff before either checkout script accepts root', () => {
     for (const body of [script(deployPath), script(recoveryPath)]) {
       expect(body).toContain('verify_root_launcher_handoff');
@@ -347,7 +473,7 @@ describe('Synology script contracts', () => {
   it('pins the only approved roots, user, project, and container', () => {
     for (const body of [script(deployPath), script(recoveryPath)]) {
       expect(body).toContain(
-        'APP_ROOT=/volume1/docker/openstays-merchant',
+        'APP_ROOT=/volume1/openstays-merchant',
       );
       expect(body).toContain(
         'BACKUP_ROOT=/volume2/openstays-wallet-backups',
@@ -366,7 +492,7 @@ describe('Synology script contracts', () => {
       expect(body).toContain('com.docker.compose.service');
       expect(body).toContain('{{ .Config.User }}');
       expect(body).toContain(
-        '/volume1/docker/openstays-merchant/state>/var/lib/openstays',
+        '/volume1/openstays-merchant/state>/var/lib/openstays',
       );
       expect(body).toContain(
         '/volume2/openstays-wallet-backups>/var/backups/openstays',
@@ -375,6 +501,35 @@ describe('Synology script contracts', () => {
       expect(body).toContain('{{ .Type }}>{{ .RW }}');
       expect(body).toContain('CONTAINER_IDENTITY_INVALID');
     }
+  });
+
+  it('anchors privileged state directly under trusted volume1, never its writable docker share', () => {
+    for (const body of [
+      script(rootLauncherPath),
+      script(deployPath),
+      script(recoveryPath),
+    ]) {
+      expect(body).toContain('/volume1/openstays-merchant');
+      expect(body).not.toContain(
+        ['/volume1', 'docker', 'openstays-merchant'].join('/'),
+      );
+    }
+    expect(script(rootLauncherPath)).toContain('assert_root_parent /volume1');
+    expect(script(rootLauncherPath)).not.toContain(
+      'assert_root_parent /volume1/docker',
+    );
+  });
+
+  it('attests the extracted stage before quarantining or publishing source', () => {
+    const body = script(rootLauncherPath);
+    const chmodStage = body.indexOf('"$CHMOD" 700 -- "$stage"');
+    const attestStage = body.indexOf(
+      'assert_exact_directory "$stage" 0 0 700',
+    );
+    const quarantine = body.indexOf('if test -e "$SOURCE_ROOT"');
+    expect(chmodStage).toBeGreaterThan(-1);
+    expect(attestStage).toBeGreaterThan(chmodStage);
+    expect(quarantine).toBeGreaterThan(attestStage);
   });
 
   it('never prunes Docker, deletes protected state, or targets other containers', () => {
@@ -440,7 +595,12 @@ describe('Synology script behavior with fake host commands', () => {
     const prepared = sandboxedRootLauncher(root);
     const commit = 'a'.repeat(40);
     const safeMarker = join(root, 'safe-executed');
-    const { maliciousMarker, sourceRoot } = prepareRootLauncherTools(
+    const {
+      archiveSha,
+      archiveSize,
+      maliciousMarker,
+      sourceRoot,
+    } = prepareRootLauncherTools(
       prepared,
       commit,
       safeMarker,
@@ -458,7 +618,7 @@ describe('Synology script behavior with fake host commands', () => {
         HOME: '/nonexistent',
         OPENSTAYS_LAUNCHER_SANITIZED: '1',
       },
-      ['deploy', commit],
+      ['deploy', commit, String(archiveSize), archiveSha],
     );
 
     expect(result.status, result.stderr).toBe(0);
@@ -472,6 +632,78 @@ describe('Synology script behavior with fake host commands', () => {
     ).toContain('printf safe');
   });
 
+  it('root launcher rejects an archive swap before extraction or execution', () => {
+    const root = temporaryRoot();
+    const prepared = sandboxedRootLauncher(root);
+    const commit = 'a'.repeat(40);
+    const safeMarker = join(root, 'safe-executed');
+    const { archiveSha, archiveSize } = prepareRootLauncherTools(
+      prepared,
+      commit,
+      safeMarker,
+    );
+    writeFileSync(prepared.stagedArchive, Buffer.alloc(archiveSize, 0x78));
+
+    const result = run(
+      prepared.destination,
+      {
+        PATH: `${gitBashPath(prepared.bin)}:/usr/bin:/bin`,
+        HOME: '/nonexistent',
+        OPENSTAYS_LAUNCHER_SANITIZED: '1',
+      },
+      ['deploy', commit, String(archiveSize), archiveSha],
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('ROOT_LAUNCHER_ARCHIVE_DIGEST_MISMATCH');
+    expect(() => readFileSync(safeMarker)).toThrow();
+    expect(() => statSync(`${prepared.appRoot}/source`)).toThrow();
+  });
+
+  it('root launcher rejects traversal members before extraction or execution', () => {
+    const root = temporaryRoot();
+    const prepared = sandboxedRootLauncher(root);
+    const commit = 'a'.repeat(40);
+    const safeMarker = join(root, 'safe-executed');
+    const { archiveSha, archiveSize } = prepareRootLauncherTools(
+      prepared,
+      commit,
+      safeMarker,
+    );
+    executable(
+      join(prepared.bin, 'tar'),
+      `#!/usr/bin/env bash
+case "$*" in
+  "-tf"*) printf '%s\\n' '../escape' ;;
+  *) exit 90 ;;
+esac
+`,
+    );
+    writeFileSync(
+      prepared.destination,
+      readFileSync(prepared.destination, 'utf8').replaceAll(
+        'TAR=/bin/tar',
+        `TAR=${gitBashPath(join(prepared.bin, 'tar'))}`,
+      ),
+      { mode: 0o700 },
+    );
+
+    const result = run(
+      prepared.destination,
+      {
+        PATH: `${gitBashPath(prepared.bin)}:/usr/bin:/bin`,
+        HOME: '/nonexistent',
+        OPENSTAYS_LAUNCHER_SANITIZED: '1',
+      },
+      ['deploy', commit, String(archiveSize), archiveSha],
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('ROOT_LAUNCHER_ARCHIVE_MEMBER_INVALID');
+    expect(() => readFileSync(safeMarker)).toThrow();
+    expect(() => readFileSync(join(root, 'escape'))).toThrow();
+  });
+
   it('root launcher eliminates Git and exported-function environment injection', () => {
     for (const [name, value] of [
       ['GIT_DIR', '/tmp/decoy'],
@@ -479,7 +711,7 @@ describe('Synology script behavior with fake host commands', () => {
     ]) {
       const root = temporaryRoot();
       const prepared = sandboxedRootLauncher(root);
-      prepareRootLauncherTools(
+      const { archiveSha, archiveSize } = prepareRootLauncherTools(
         prepared,
         'a'.repeat(40),
         join(root, 'safe-executed'),
@@ -492,7 +724,7 @@ describe('Synology script behavior with fake host commands', () => {
           OPENSTAYS_LAUNCHER_SANITIZED: '1',
           [name]: value,
         },
-        ['deploy', 'a'.repeat(40)],
+        ['deploy', 'a'.repeat(40), String(archiveSize), archiveSha],
       );
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain('ROOT_LAUNCHER_ENVIRONMENT_INVALID');
@@ -511,7 +743,7 @@ describe('Synology script behavior with fake host commands', () => {
       `${prepared.appRoot}/config`,
       process.platform === 'win32' ? 'junction' : 'dir',
     );
-    prepareRootLauncherTools(
+    const { archiveSha, archiveSize } = prepareRootLauncherTools(
       prepared,
       'a'.repeat(40),
       join(root, 'safe-executed'),
@@ -525,7 +757,7 @@ describe('Synology script behavior with fake host commands', () => {
         HOME: '/nonexistent',
         OPENSTAYS_LAUNCHER_SANITIZED: '1',
       },
-      ['deploy', 'a'.repeat(40)],
+      ['deploy', 'a'.repeat(40), String(archiveSize), archiveSha],
     );
 
     expect(result.status).not.toBe(0);
@@ -698,16 +930,6 @@ esac
 `,
     );
     executable(
-      join(bin, 'git'),
-      `#!/usr/bin/env bash
-case "$*" in
-  *"rev-parse HEAD"*) printf '%040d\\n' 0 ;;
-  *"status --porcelain"*) exit 0 ;;
-  *) exit 91 ;;
-esac
-`,
-    );
-    executable(
       join(bin, 'install'),
       `#!/usr/bin/env bash
 printf 'install %s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
@@ -735,6 +957,7 @@ esac
       `#!/usr/bin/env bash
 case "$*" in
   *"%u:%g:%a"*".root-handoff-"*) echo 0:0:600 ;;
+  *"%u:%g:%a"*".openstays-source-attestation"*) echo 0:0:400 ;;
   *"%u:%g:%a"*"openstays-merchant/source"*) echo 0:0:700 ;;
   *"%u:%g:%a"*"openstays-merchant") echo 0:0:700 ;;
   *"%u:%g:%a"*) echo 1026:100:700 ;;
@@ -744,10 +967,17 @@ esac
 `,
     );
     const nonce = '0'.repeat(32);
+    const archiveSize = '12345';
+    const archiveSha = 'b'.repeat(64);
     const handoff = `${appRoot}/.root-handoff-${nonce}`;
     writeFileSync(
+      `${appRoot}/source/.openstays-source-attestation`,
+      `${'0'.repeat(40)}\n${archiveSize}\n${archiveSha}\n`,
+      { mode: 0o400 },
+    );
+    writeFileSync(
       handoff,
-      `${nonce}\ndeploy\n${'0'.repeat(40)}\n`,
+      `${nonce}\ndeploy\n${'0'.repeat(40)}\n${archiveSize}\n${archiveSha}\n`,
       { mode: 0o600 },
     );
 
@@ -756,6 +986,8 @@ esac
       PATH: `${gitBashPath(bin)}:/usr/bin:/bin`,
       OPENSTAYS_DSM_ROOT_TASK: '1',
       OPENSTAYS_DSM_SOURCE_COMMIT: '0'.repeat(40),
+      OPENSTAYS_DSM_SOURCE_ARCHIVE_SIZE: archiveSize,
+      OPENSTAYS_DSM_SOURCE_ARCHIVE_SHA256: archiveSha,
       OPENSTAYS_ROOT_HANDOFF_FILE: gitBashPath(handoff),
       OPENSTAYS_ROOT_HANDOFF_NONCE: nonce,
     });
@@ -872,7 +1104,7 @@ esac
     mkdirSync(volume2);
     symlinkSync(
       outside,
-      join(volume1, 'docker'),
+      join(volume1, 'openstays-merchant'),
       process.platform === 'win32' ? 'junction' : 'dir',
     );
     const { destination } = sandboxedScript(deployPath, root);
@@ -1036,7 +1268,7 @@ done
   it('leaves a pre-existing attested project container running after a successful update', () => {
     const root = temporaryRoot();
     const placeholderApp = gitBashPath(
-      join(root, 'volume1', 'docker', 'openstays-merchant'),
+      join(root, 'volume1', 'openstays-merchant'),
     );
     const placeholderBackup = gitBashPath(
       join(root, 'volume2', 'openstays-wallet-backups'),
@@ -1098,7 +1330,7 @@ esac
     const root = temporaryRoot();
     const calls = join(root, 'calls');
     const placeholderApp = gitBashPath(
-      join(root, 'volume1', 'docker', 'openstays-merchant'),
+      join(root, 'volume1', 'openstays-merchant'),
     );
     const placeholderBackup = gitBashPath(
       join(root, 'volume2', 'openstays-wallet-backups'),
@@ -1155,7 +1387,7 @@ esac
   it('scoped-stops the project when post-up health fails', () => {
     const root = temporaryRoot();
     const placeholderApp = gitBashPath(
-      join(root, 'volume1', 'docker', 'openstays-merchant'),
+      join(root, 'volume1', 'openstays-merchant'),
     );
     const placeholderBackup = gitBashPath(
       join(root, 'volume2', 'openstays-wallet-backups'),

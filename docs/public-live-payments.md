@@ -45,6 +45,13 @@ the browser and the eligibility-only Cloudflare Worker cannot reach the NAS.
 Both talk only to public application services, while the merchant initiates
 authenticated bridge calls to authoritative Convex state.
 
+Privileged state is rooted at `/volume1/openstays-merchant`, directly beneath
+the root-owned non-writable `/volume1` parent. The shared writable
+`/volume1/docker` directory is not a trust anchor. Source is generated locally
+with `git archive`, then bounded by literal byte count and SHA-256 before the
+root-owned launcher validates members and atomically publishes a root-attested
+tree. The NAS does not require Git.
+
 Encrypted wallet generations are written atomically to
 `/volume2/openstays-wallet-backups`, a separate volume from live application
 state. Those verified archive/manifest pairs are the recovery authority.

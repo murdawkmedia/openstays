@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT=/volume1/docker/openstays-merchant
+APP_ROOT=/volume1/openstays-merchant
 BACKUP_ROOT=/volume2/openstays-wallet-backups
 ENV_FILE="$APP_ROOT/config/merchant.env"
 COMPOSE_FILE="$APP_ROOT/source/ops/synology/docker-compose.yml"
@@ -24,6 +24,8 @@ verify_root_launcher_handoff() {
   local stored_nonce
   local stored_action
   local stored_commit
+  local stored_archive_size
+  local stored_archive_sha256
   local extra
   [[ "$nonce" =~ ^[0-9a-f]{32}$ ]] \
     || fail ROOT_LAUNCHER_HANDOFF_REQUIRED
@@ -41,6 +43,8 @@ verify_root_launcher_handoff() {
     IFS= read -r stored_nonce
     IFS= read -r stored_action
     IFS= read -r stored_commit
+    IFS= read -r stored_archive_size
+    IFS= read -r stored_archive_sha256
     if IFS= read -r extra; then
       fail ROOT_LAUNCHER_HANDOFF_REQUIRED
     fi
@@ -48,32 +52,44 @@ verify_root_launcher_handoff() {
   test "$stored_nonce" = "$nonce" \
     && test "$stored_action" = "$expected_action" \
     && test "$stored_commit" = "${OPENSTAYS_DSM_SOURCE_COMMIT:-}" \
+    && test "$stored_archive_size" \
+      = "${OPENSTAYS_DSM_SOURCE_ARCHIVE_SIZE:-}" \
+    && test "$stored_archive_sha256" \
+      = "${OPENSTAYS_DSM_SOURCE_ARCHIVE_SHA256:-}" \
     || fail ROOT_LAUNCHER_HANDOFF_REQUIRED
 }
 
-require_clean_pinned_source() {
+require_pinned_source_attestation() {
   local expected_commit="${OPENSTAYS_DSM_SOURCE_COMMIT:-}"
+  local expected_archive_size="${OPENSTAYS_DSM_SOURCE_ARCHIVE_SIZE:-}"
+  local expected_archive_sha256="${OPENSTAYS_DSM_SOURCE_ARCHIVE_SHA256:-}"
+  local attestation="$APP_ROOT/source/.openstays-source-attestation"
   local actual_commit
-  local dirty
+  local actual_archive_size
+  local actual_archive_sha256
+  local extra
   [[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]] \
     || fail DSM_SOURCE_COMMIT_PIN_REQUIRED
-  actual_commit="$(
-    git -c "safe.directory=$APP_ROOT/source" \
-      -c core.hooksPath=/dev/null \
-      -c core.fsmonitor=false \
-      -C "$APP_ROOT/source" rev-parse HEAD
-  )" \
-    || fail DSM_SOURCE_COMMIT_UNREADABLE
+  [[ "$expected_archive_size" =~ ^[1-9][0-9]{0,9}$ ]] \
+    || fail DSM_SOURCE_ARCHIVE_SIZE_PIN_REQUIRED
+  [[ "$expected_archive_sha256" =~ ^[0-9a-f]{64}$ ]] \
+    || fail DSM_SOURCE_ARCHIVE_DIGEST_PIN_REQUIRED
+  test -f "$attestation" && test ! -L "$attestation" \
+    && test "$(readlink -f -- "$attestation")" = "$attestation" \
+    && test "$(stat -c '%u:%g:%a' "$attestation")" = "0:0:400" \
+    || fail DSM_SOURCE_ATTESTATION_INVALID
+  {
+    IFS= read -r actual_commit
+    IFS= read -r actual_archive_size
+    IFS= read -r actual_archive_sha256
+    if IFS= read -r extra; then
+      fail DSM_SOURCE_ATTESTATION_INVALID
+    fi
+  } < "$attestation"
   test "$actual_commit" = "$expected_commit" \
-    || fail DSM_SOURCE_COMMIT_MISMATCH
-  dirty="$(
-    git -c "safe.directory=$APP_ROOT/source" \
-      -c core.hooksPath=/dev/null \
-      -c core.fsmonitor=false \
-      -C "$APP_ROOT/source" status --porcelain
-  )" \
-    || fail DSM_SOURCE_STATUS_UNREADABLE
-  test -z "$dirty" || fail DSM_SOURCE_MUST_BE_CLEAN
+    && test "$actual_archive_size" = "$expected_archive_size" \
+    && test "$actual_archive_sha256" = "$expected_archive_sha256" \
+    || fail DSM_SOURCE_ATTESTATION_MISMATCH
 }
 
 root_task=false
@@ -191,7 +207,7 @@ container_identity_matches() {
     'merchant' \
     '1026:100' \
     '2' \
-    '/volume1/docker/openstays-merchant/state>/var/lib/openstays>bind>true' \
+    '/volume1/openstays-merchant/state>/var/lib/openstays>bind>true' \
     '/volume2/openstays-wallet-backups>/var/backups/openstays>bind>true' \
     '0')"
   test "$observed" = "$expected"
@@ -216,7 +232,7 @@ assert_safe_target "$BACKUP_ROOT"
 
 if test "$root_task" = "true"; then
   assert_safe_target "$APP_ROOT/source"
-  require_clean_pinned_source
+  require_pinned_source_attestation
 else
   install -d -m 700 \
     "$APP_ROOT" \

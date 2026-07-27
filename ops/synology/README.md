@@ -6,7 +6,7 @@ gateway, or control port.
 
 ## Fixed trust boundary
 
-- Application root: `/volume1/docker/openstays-merchant`
+- Application root: `/volume1/openstays-merchant`
 - Encrypted generations: `/volume2/openstays-wallet-backups`
 - Runtime identity: `murdawk` (`1026:100`)
 - Root launcher: `/usr/local/sbin/openstays-merchant-root`
@@ -32,7 +32,7 @@ source quarantine.
 
 ## Prepare disabled configuration
 
-Create `/volume1/docker/openstays-merchant/config/merchant.env` as a regular,
+Create `/volume1/openstays-merchant/config/merchant.env` as a regular,
 non-symlink file owned by `murdawk` or `root`, mode `0600`. Start from
 `.env.example`, set `OPENSTAYS_UID=1026` and `OPENSTAYS_GID=100`, and generate
 a distinct value for every secret without placing values in shell history,
@@ -52,56 +52,92 @@ WAVELENGTH_REWARDS_ENABLED=false
 ```
 
 Do not place or execute a checkout supplied by `murdawk` at the live source
-path. The root-owned launcher fetches and publishes source itself.
+path. The root-owned launcher verifies and publishes a locally generated,
+digest-pinned source archive itself. Git is not required on the NAS.
 
 ## Install and run the root-owned launcher once
 
 DSM Task Scheduler must never execute `deploy.sh`, `recovery-drill.sh`, or any
 other file from a checkout writable by `murdawk`.
 
-1. From a trusted checkout, record the full 40-character commit and compute:
+1. From a trusted, clean local checkout, record the full 40-character commit,
+   create a Git archive of that exact commit, and compute both digests:
 
    ```bash
-   git rev-parse HEAD
+   commit="$(git rev-parse HEAD)"
+   test -z "$(git status --porcelain)"
+   git archive --format=tar \
+     --output=openstays-merchant-source.tar "$commit"
+   sha256sum openstays-merchant-source.tar
+   wc -c < openstays-merchant-source.tar
    sha256sum ops/synology/root-launcher.sh
+   wc -c < ops/synology/root-launcher.sh
    ```
 
-2. Copy only `root-launcher.sh` to the fixed, `murdawk`-writable staging path:
-   `/volume1/homes/murdawk/openstays-merchant-root-launcher.stage`.
+2. Upload only those two generated inputs to their fixed, `murdawk`-writable
+   staging paths:
+   `/volume1/homes/murdawk/openstays-merchant-root-launcher.stage` and
+   `/volume1/homes/murdawk/openstays-merchant-source.tar`.
+
+The archive byte size and SHA-256 are the execution-integrity authority on the
+NAS. The commit is a provenance label tied to those bytes by the trusted local
+`git archive <exact-commit>` creation and recording step; without Git, the NAS
+does not independently derive a commit from the archive.
+
 3. In DSM **Control Panel → Task Scheduler**, create a manual-only
    **User-defined script** owned by `root`.
 4. Confirm the trusted launcher digest is
-   `7094a2cc8175f3800f138eb4683e95516f3bafa15efd43ca534ad0a4760f612b`.
-   Replace both `<40-character-commit>` values with the same lowercase commit.
-   The digest must remain a literal in the task, never read from the staging
-   folder.
+   `8d5fdd6c887624aec4af6f4e61e4676e786e1a432f27fd001b1201ef2b369217`
+   and its exact size is `7966` bytes. Replace `<40-character-commit>`,
+   `<source-archive-byte-size>`, and
+   `<64-character-source-archive-sha256>` with the locally recorded literal
+   values. All sizes and digests must remain literals in the task, never read
+   from the staging folder.
 
    ```bash
-   /usr/bin/install -o root -g root -m 700 -- \
-     /volume1/homes/murdawk/openstays-merchant-root-launcher.stage \
-     /usr/local/sbin/openstays-merchant-root
-   installed_sha256=$(/bin/sha256sum \
-     /usr/local/sbin/openstays-merchant-root)
-   case "${installed_sha256%% *}" in
-     7094a2cc8175f3800f138eb4683e95516f3bafa15efd43ca534ad0a4760f612b) ;;
+   set -euo pipefail
+   launcher_stage=/volume1/homes/murdawk/openstays-merchant-root-launcher.stage
+   launcher_size=7966
+   launcher_temp=$(/usr/bin/mktemp /usr/local/sbin/.openstays-merchant-root.new-XXXXXX)
+   trap '/bin/rm -f -- "$launcher_temp"' EXIT
+   copy_limit=$((launcher_size + 1))
+   /usr/bin/timeout 5 /usr/bin/head -c "$copy_limit" -- "$launcher_stage" > "$launcher_temp"
+   candidate_size=$(/usr/bin/wc -c < "$launcher_temp")
+   test "$candidate_size" = "$launcher_size"
+   candidate_sha256=$(/bin/sha256sum "$launcher_temp")
+   case "${candidate_sha256%% *}" in
+     8d5fdd6c887624aec4af6f4e61e4676e786e1a432f27fd001b1201ef2b369217) ;;
      *) exit 72 ;;
    esac
+   /bin/chown root:root -- "$launcher_temp"
+   /bin/chmod 700 -- "$launcher_temp"
+   /bin/mv -f -- "$launcher_temp" /usr/local/sbin/openstays-merchant-root
+   trap - EXIT
    /usr/bin/env -i \
      PATH=/usr/local/bin:/usr/bin:/bin \
      HOME=/nonexistent \
      /usr/local/sbin/openstays-merchant-root \
-     deploy <40-character-commit>
+     deploy <40-character-commit> <source-archive-byte-size> \
+       <64-character-source-archive-sha256>
    ```
 
 5. Run it once and inspect the result. Disable or remove the task immediately.
 
-The post-install hash is authoritative: changing the writable staging file
-before or during installation changes the installed digest and stops
-execution. The installed launcher is root-owned mode `0700` outside the
-checkout. It re-executes itself through `env -i`, accepts only `deploy` or
-`recovery` plus an exact commit, fetches that commit from the fixed public
-repository, verifies a clean tree, and atomically publishes it. A prior source
-tree is moved intact into root-owned quarantine and is never deleted.
+The candidate size and hash are authoritative. The task reads at most one byte
+beyond the literal expected size, under a timeout, into a unique root-owned
+temporary sibling. It requires the exact byte count and digest before setting
+the final mode and atomically renaming it over the trusted launcher. A symlink
+to an infinite source, an unwritten FIFO, an oversized or short file, or a hash
+mismatch removes only the exact temporary file, leaves any previous trusted
+launcher unchanged, and never executes either candidate.
+The installed launcher is root-owned mode `0700` outside the checkout. It
+re-executes itself through `env -i`, accepts only `deploy` or `recovery`, an
+exact commit, and an exact archive digest. It copies the staged archive to a
+unique root-owned temporary file, rehashes the copied bytes, rejects unsafe
+member paths and non-file/directory member types, extracts under a root-owned
+temporary directory, and records a root-owned commit-plus-digest attestation
+before atomic publication. A prior source tree is moved intact into root-owned
+quarantine and is never deleted.
 
 Absent directory leaves are built under already trusted, non-writable parents
 using unique temporary names and atomic rename. Existing leaves must already
@@ -120,23 +156,20 @@ remain disabled.
 
 ## Bootstrap exactly once
 
-Bootstrap is the only command that returns the 24 recovery words:
+Bootstrap is the only command that returns the 24 recovery words. Sign in to
+DSM with the approved administrator account, open **Container Manager**, select
+the attested `openstays-merchant` container, and open its authenticated terminal.
+Run `node /app/synology/operator.mjs bootstrap` inside that terminal.
 
-```bash
-docker exec -it openstays-merchant \
-  node /app/synology/operator.mjs bootstrap
-```
+Write the words offline. Do not redirect them, copy them into task output,
+logs, chat, or screenshots. They are returned only after the first encrypted
+generation is durably committed and reread. A second bootstrap must fail; its
+rejection is a required acceptance check.
 
-Write the words offline. Do not redirect them, copy them into chat, or take a
-screenshot. They are returned only after the first encrypted generation is
-durably committed and reread. A second bootstrap must fail.
-
-Force and verify another generation without exposing its bytes:
-
-```bash
-docker exec openstays-merchant node /app/synology/operator.mjs backup
-docker exec openstays-merchant node /app/synology/operator.mjs health
-```
+For an explicit backup or redacted health check, use the same authenticated
+DSM Container Manager terminal and run
+`node /app/synology/operator.mjs backup` or
+`node /app/synology/operator.mjs health`. Close the terminal afterwards.
 
 ## Required recovery drill
 
@@ -149,7 +182,8 @@ above. Change only the final action:
   PATH=/usr/local/bin:/usr/bin:/bin \
   HOME=/nonexistent \
   /usr/local/sbin/openstays-merchant-root \
-  recovery <40-character-commit>
+  recovery <40-character-commit> <source-archive-byte-size> \
+    <64-character-source-archive-sha256>
 ```
 
 Run once only after bootstrap and a verified backup exist, then disable or
@@ -159,7 +193,7 @@ remove the task. The drill:
    activity fields without printing them;
 2. stops only the attested merchant;
 3. atomically moves the live wallet under
-   `/volume1/docker/openstays-merchant/quarantine`;
+   `/volume1/openstays-merchant/quarantine`;
 4. starts only `merchant` and waits for verified `/volume2` restore;
 5. requires the identical redacted snapshot; and
 6. commits a fresh verified encrypted generation.

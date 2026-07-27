@@ -15,12 +15,18 @@ SHC is explicitly out of scope for this deployment.
 
 ## Host layout
 
+**Host discovery, 2026-07-27:** the originally proposed
+`/volume1/docker/openstays-merchant` root is superseded because
+`/volume1/docker` is mode `0777` with ACLs and cannot anchor privileged trust.
+The verified `/volume1` parent is root-owned mode `0755` without ACLs, so the
+binding application root is now `/volume1/openstays-merchant`.
+
 - Application root:
-  `/volume1/docker/openstays-merchant`
+  `/volume1/openstays-merchant`
 - Persistent Wavelength state:
-  `/volume1/docker/openstays-merchant/state/wavelength`
+  `/volume1/openstays-merchant/state/wavelength`
 - Deployment configuration:
-  `/volume1/docker/openstays-merchant/config`
+  `/volume1/openstays-merchant/config`
 - Encrypted backup generations:
   `/volume2/openstays-wallet-backups`
 - Container architecture:
@@ -67,8 +73,10 @@ authority is the newest verified encrypted generation on `/volume2`.
   loopback.
 - The merchant control endpoint binds only to the container network and is not
   published on Synology LAN, Tailscale, or the public internet.
-- Operator actions run through authenticated `docker exec` commands from the
-  approved G14-to-Synology administration path.
+- Interactive bootstrap, backup, and health actions run only through an
+  authenticated DSM Container Manager terminal. Recovery words are recorded
+  offline and never emitted into a task or command log; a second bootstrap is
+  required to reject.
 - CLI workers call the dedicated OpenStays Convex deployment over HTTPS using
   scoped bridge and heartbeat bearer tokens.
 - The public browser calls only Cloudflare/Convex surfaces. It never reaches

@@ -11,7 +11,7 @@ out of scope.
 - The approved merchant host is the Synology NAS. SHC is not used by this
   deployment.
 - Live application state is under
-  `/volume1/docker/openstays-merchant/state`.
+  `/volume1/openstays-merchant/state`.
 - Encrypted, verified wallet generations under
   `/volume2/openstays-wallet-backups` are the recovery authority.
 - The Cloudflare Worker is eligibility-only. It has no Container, Durable
@@ -139,7 +139,7 @@ Follow the repository runbook at `ops/synology/README.md`. The fixed layout
 is:
 
 ```text
-/volume1/docker/openstays-merchant/
+/volume1/openstays-merchant/
   config/merchant.env
   source/
   state/
@@ -155,48 +155,36 @@ WAVELENGTH_ENABLED=false
 WAVELENGTH_REWARDS_ENABLED=false
 ```
 
-From the exact source checkout:
-
-```bash
-cd /volume1/docker/openstays-merchant/source
-bash ops/synology/deploy.sh
-docker inspect openstays-merchant --format '{{json .NetworkSettings.Ports}}'
-```
-
-The ports result must be `{}`. The guarded script validates the fixed roots,
-Compose identity, mounts, environment permissions, disabled flags, and
-post-start health. It never prunes Docker or targets an unrelated container.
+Run the digest-, size-, archive-, and commit-pinned manual DSM root task
+documented in `ops/synology/README.md` with action `deploy`; never invoke the
+published checkout directly. The guarded launcher and deploy script validate
+the fixed roots, Compose identity, mounts, environment permissions, disabled
+flags, empty published-port bindings, and post-start health. They never prune
+Docker or target an unrelated container. Disable or remove the one-shot task
+after its successful result is recorded.
 
 ## 6. Bootstrap and prove recovery
 
 **REQUIRES FRESH OPERATOR APPROVAL**
 
-Bootstrap exactly once:
-
-```bash
-docker exec -it openstays-merchant \
-  node /app/synology/operator.mjs bootstrap
-```
+Bootstrap exactly once through an authenticated **DSM Container Manager**
+terminal opened inside the attested `openstays-merchant` container. Run
+`node /app/synology/operator.mjs bootstrap` there.
 
 Write the 24 words offline immediately. Do not redirect them, copy them into
-chat, capture them in screenshots, or place them in status notes. The
-supervisor returns them only after the initial encrypted generation is durably
-published and reread. A second bootstrap must fail.
+task output, command logs, chat, screenshots, or status notes. The supervisor
+returns them only after the initial encrypted generation is durably published
+and reread. A second bootstrap must fail.
 
-Create and inspect a redacted backup health result:
-
-```bash
-docker exec openstays-merchant node /app/synology/operator.mjs backup
-docker exec openstays-merchant node /app/synology/operator.mjs health
-```
+Create and inspect a redacted backup health result through the same
+authenticated DSM Container Manager terminal by running
+`node /app/synology/operator.mjs backup` and then
+`node /app/synology/operator.mjs health`.
 
 With all public rails still disabled, perform the forced recovery required
-before Wavelength enablement:
-
-```bash
-cd /volume1/docker/openstays-merchant/source
-bash ops/synology/recovery-drill.sh
-```
+before Wavelength enablement by rerunning the documented one-shot DSM root
+task with action `recovery` and the same literal commit, source-archive size,
+source-archive SHA-256, launcher size, and launcher SHA-256 values.
 
 The drill quarantines the live wallet, restores the newest verified
 `/volume2` generation, compares a redacted wallet identity/activity

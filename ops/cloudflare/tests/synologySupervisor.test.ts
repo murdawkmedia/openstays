@@ -1501,7 +1501,7 @@ describe('Synology operator and container binding contract', () => {
     );
     expect(compose).toContain('healthcheck:');
     expect(compose).toContain(
-      '/volume1/docker/openstays-merchant/state:/var/lib/openstays',
+      '/volume1/openstays-merchant/state:/var/lib/openstays',
     );
     expect(compose).toContain(
       '/volume2/openstays-wallet-backups:/var/backups/openstays',
