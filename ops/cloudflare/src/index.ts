@@ -3,14 +3,17 @@ import {
   type EligibilityAction,
   verifyTurnstile,
 } from './eligibility';
+import {
+  MerchantOperations,
+  type MerchantOperationsEnv,
+} from './merchantContainer';
 
-export interface Env {
+export interface Env extends MerchantOperationsEnv {
   PUBLIC_ORIGIN: string;
   RELEASE: string;
   TURNSTILE_SECRET: string;
   ELIGIBILITY_HMAC_SECRET: string;
   OPERATIONS_ADMIN_TOKEN: string;
-  WALLET_BACKUPS?: R2Bucket;
   MERCHANT_OPERATIONS?: DurableObjectNamespace;
 }
 
@@ -132,18 +135,7 @@ function authorized(request: Request, expected: string): boolean {
   return Boolean(expected && supplied === `Bearer ${expected}`);
 }
 
-export class MerchantOperations {
-  constructor(
-    readonly state: DurableObjectState,
-    readonly env: Env,
-  ) {}
-
-  fetch(): Response {
-    return new Response('Merchant operations are not initialized.', {
-      status: 503,
-    });
-  }
-}
+export { MerchantOperations };
 
 const worker = {
   async fetch(

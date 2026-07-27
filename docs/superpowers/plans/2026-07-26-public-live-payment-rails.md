@@ -753,7 +753,7 @@ Expected: package tests/typecheck/dry-run build pass.
 - Create: `ops/cloudflare/tests/backupManifest.test.ts`
 - Create: `ops/cloudflare/tests/merchantContainer.test.ts`
 
-- [ ] **Step 1: Write failing backup tests**
+- [x] **Step 1: Write failing backup tests**
 
 Assert:
 
@@ -766,7 +766,7 @@ Assert:
 - missing archive never creates a replacement wallet;
 - backup age beyond two minutes marks health unavailable.
 
-- [ ] **Step 2: Confirm red**
+- [x] **Step 2: Confirm red**
 
 ```powershell
 npm --prefix ops/cloudflare test -- backupManifest merchantContainer
@@ -774,7 +774,7 @@ npm --prefix ops/cloudflare test -- backupManifest merchantContainer
 
 Expected: FAIL because backup/container modules are absent.
 
-- [ ] **Step 3: Implement manifest contract**
+- [x] **Step 3: Implement manifest contract**
 
 Use:
 
@@ -792,11 +792,11 @@ export type BackupManifest = {
 
 `backupManifest.ts` validates the digest of the uploaded ciphertext, writes `wallet/<generation>-<sha256>.tar.gz.enc`, then commits the manifest in Durable Object storage. Prune only after pointer commit and never delete the current generation.
 
-- [ ] **Step 4: Implement encrypted archive helper**
+- [x] **Step 4: Implement encrypted archive helper**
 
 `backup.mjs` accepts the wallet directory, output path, and a 32-byte base64 key through environment. It creates a deterministic-file-order tar.gz, encrypts with a new 96-bit nonce using AES-256-GCM, writes a versioned binary envelope, and prints only JSON `{ sha256, byteLength }`.
 
-- [ ] **Step 5: Implement restore-before-start control**
+- [x] **Step 5: Implement restore-before-start control**
 
 `control.mjs` binds only to `127.0.0.1`. Its sequence is:
 
@@ -810,11 +810,11 @@ export type BackupManifest = {
 
 The control server has no route that returns files, passwords, seeds, or raw daemon responses.
 
-- [ ] **Step 6: Implement the Durable Object**
+- [x] **Step 6: Implement the Durable Object**
 
 `merchantContainer.ts` starts exactly one `basic` container, restores the newest verified archive, waits for ready health, requests a backup after wallet-changing activity and at least once per minute while dirty, uploads it to R2, advances the manifest, and publishes redacted health. Restore/backup failure keeps Wavelength unavailable.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ```powershell
 npm --prefix ops/cloudflare test
