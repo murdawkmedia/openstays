@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 # convex/_generated is committed to the repo, so no `convex codegen` step is
 # needed here — typecheck/test/build all run against the committed types.
 jobs:
@@ -12,9 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -34,3 +37,28 @@ jobs:
       - run: npm run build
 
       - run: npm run docs:build
+
+  merchant-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build pinned merchant operations image
+        run: >-
+          docker build
+          --pull
+          --tag openstays-merchant-operations:${{ github.sha }}
+          --file ops/cloudflare/container/Dockerfile
+          .
+
+      # SHA-pinned because tags in the upstream Trivy action were compromised
+      # in March 2026. This commit is the verified v0.36.0 release.
+      - name: Scan merchant image for high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: openstays-merchant-operations:${{ github.sha }}
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
