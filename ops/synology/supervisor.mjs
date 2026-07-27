@@ -264,10 +264,18 @@ export function createSupervisor({
     assertActive(generation);
     const preservedWallet = join(reservation, basename(liveWallet));
     await fs.rename(liveWallet, preservedWallet);
-    assertActive(generation);
-    await sync(reservation);
-    assertActive(generation);
-    await sync(dirname(liveWallet));
+    const parentSyncs = await Promise.allSettled([
+      Promise.resolve().then(() => sync(reservation)),
+      Promise.resolve().then(() => sync(dirname(liveWallet))),
+    ]);
+    const durabilityFailure = parentSyncs.find(
+      ({ status }) => status === 'rejected',
+    );
+    if (durabilityFailure) {
+      throw durabilityFailure.reason instanceof Error
+        ? durabilityFailure.reason
+        : new Error('QUARANTINE_DURABILITY_FAILED');
+    }
     assertActive(generation);
     return preservedWallet;
   }
