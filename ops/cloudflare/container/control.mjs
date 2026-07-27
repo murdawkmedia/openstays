@@ -113,7 +113,7 @@ export class MerchantControl {
     for (let attempt = 0; attempt < 100; attempt += 1) {
       try {
         const response = await fetchDaemon(
-          'http://127.0.0.1:10031/v1/wallet/status',
+          'http://127.0.0.1:10031/v1/daemon/get-info',
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

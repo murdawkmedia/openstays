@@ -32,7 +32,7 @@ describe('merchant wallet bootstrap control', () => {
     const words = Array.from({ length: 24 }, () => 'word');
     const fetchDaemon = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       requests.push({ url: String(url), body: String(init?.body ?? '') });
-      if (String(url).endsWith('/status')) {
+      if (String(url).endsWith('/v1/daemon/get-info')) {
         return new Response(JSON.stringify({ state: 'needs_wallet' }), {
           status: 200,
         });
@@ -59,6 +59,9 @@ describe('merchant wallet bootstrap control', () => {
     const created = await control.bootstrap();
     expect(created).toEqual({ mnemonic: words });
     expect(JSON.stringify(created)).not.toContain('merchant-test-password');
+    expect(requests[0]?.url).toBe(
+      'http://127.0.0.1:10031/v1/daemon/get-info',
+    );
     const createRequest = requests.find(({ url }) => url.endsWith('/create'));
     expect(createRequest?.body).not.toContain('merchant-test-password');
     expect(JSON.parse(createRequest?.body ?? '{}')).toEqual({
