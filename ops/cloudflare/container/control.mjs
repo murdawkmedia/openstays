@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -274,15 +274,34 @@ export function createControlServer(control, token) {
         return;
       }
       if (request.method === 'POST' && request.url === '/backup') {
-        const outputPath = resolve(
+        const configuredOutputPath = resolve(
           process.env.WALLET_BACKUP_OUTPUT_PATH
             ?? '/run/openstays/wallet.tar.gz.enc',
         );
-        const result = await control.backup(outputPath);
-        const ciphertext = result.bytes
-          ? Buffer.from(result.bytes)
-          : readFileSync(outputPath);
-        rmSync(outputPath, { force: true });
+        const requestDirectory = mkdtempSync(join(
+          dirname(configuredOutputPath),
+          `.${basename(configuredOutputPath)}-`,
+        ));
+        const outputPath = join(
+          requestDirectory,
+          basename(configuredOutputPath),
+        );
+        let result;
+        let ciphertext;
+        try {
+          result = await control.backup(outputPath);
+          ciphertext = result.bytes
+            ? Buffer.from(result.bytes)
+            : readFileSync(outputPath);
+          if (
+            result.sha256 !== sha256(ciphertext)
+            || result.byteLength !== ciphertext.byteLength
+          ) {
+            throw new Error('BACKUP_RESULT_MISMATCH');
+          }
+        } finally {
+          rmSync(requestDirectory, { recursive: true, force: true });
+        }
         response.writeHead(201, {
           'Content-Type': 'application/octet-stream',
           'Cache-Control': 'no-store',

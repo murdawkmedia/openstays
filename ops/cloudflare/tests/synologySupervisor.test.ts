@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -65,6 +65,14 @@ function noTimer() {
     schedule: vi.fn(() => ({ timer: true })),
     clearSchedule: vi.fn(),
   };
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 describe('Synology restore-first lifecycle', () => {
@@ -151,6 +159,153 @@ describe('Synology restore-first lifecycle', () => {
     expect(control.restore).not.toHaveBeenCalled();
     expect(control.start).not.toHaveBeenCalled();
     expect(timers.schedule).not.toHaveBeenCalled();
+  });
+
+  it('latches concurrent start calls and restores only once', async () => {
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    const loadCanFinish = deferred();
+    const loadLatest = vi.fn(async () => {
+      await loadCanFinish.promise;
+      return { bytes, manifest: manifest(bytes) };
+    });
+    const control = controlDouble();
+    const timers = noTimer();
+    const supervisor = createSupervisor({
+      control,
+      store: { loadLatest },
+      ...timers,
+    });
+
+    const first = supervisor.start();
+    const second = supervisor.start();
+
+    expect(second).toBe(first);
+    expect(loadLatest).toHaveBeenCalledOnce();
+    loadCanFinish.resolve();
+    await Promise.all([first, second]);
+    expect(control.restore).toHaveBeenCalledOnce();
+    expect(control.start).toHaveBeenCalledOnce();
+    expect(timers.schedule).toHaveBeenCalledOnce();
+  });
+
+  it.each(['load', 'restore', 'start'])(
+    'keeps the supervisor stopped when stop occurs during %s',
+    async (stage) => {
+      const bytes = Buffer.from('verified-encrypted-wallet');
+      const entered = deferred();
+      const canFinish = deferred();
+      const control = controlDouble({
+        restore: vi.fn(async () => {
+          if (stage !== 'restore') return;
+          entered.resolve();
+          await canFinish.promise;
+        }),
+        start: vi.fn(async () => {
+          if (stage !== 'start') return;
+          entered.resolve();
+          await canFinish.promise;
+        }),
+      });
+      const timers = noTimer();
+      const supervisor = createSupervisor({
+        control,
+        store: {
+          loadLatest: async () => {
+            if (stage === 'load') {
+              entered.resolve();
+              await canFinish.promise;
+            }
+            return { bytes, manifest: manifest(bytes) };
+          },
+        },
+        ...timers,
+      });
+
+      const starting = supervisor.start();
+      await entered.promise;
+      supervisor.stop();
+      canFinish.resolve();
+
+      await expect(starting).rejects.toThrow(
+        'SUPERVISOR_LIFECYCLE_ABORTED',
+      );
+      expect(supervisor.health()).toMatchObject({
+        status: 'failed',
+        failureCategory: 'stopped',
+      });
+      expect(timers.schedule).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the supervisor stopped when stop occurs during quarantine durability', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-stop-during-quarantine-')));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    await mkdir(walletDirectory);
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    const entered = deferred();
+    const canFinish = deferred();
+    const control = controlDouble();
+    const timers = noTimer();
+    const supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+      },
+      walletDirectory,
+      directorySync: async () => {
+        entered.resolve();
+        await canFinish.promise;
+      },
+      ...timers,
+    });
+
+    const starting = supervisor.start();
+    await entered.promise;
+    supervisor.stop();
+    canFinish.resolve();
+
+    await expect(starting).rejects.toThrow('SUPERVISOR_LIFECYCLE_ABORTED');
+    expect(supervisor.health()).toMatchObject({
+      status: 'failed',
+      failureCategory: 'stopped',
+    });
+    expect(control.restore).not.toHaveBeenCalled();
+    expect(timers.schedule).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when backup is missing but an uncommitted live wallet exists', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-uncommitted-wallet-')));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    await mkdir(walletDirectory);
+    await writeFile(join(walletDirectory, 'wallet.db'), 'uncommitted-wallet');
+    const control = controlDouble();
+    const timers = noTimer();
+    const supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => {
+          throw new Error('BACKUP_REQUIRED');
+        },
+      },
+      walletDirectory,
+      ...timers,
+    });
+
+    await expect(supervisor.start()).rejects.toThrow(
+      'UNCOMMITTED_WALLET_PRESENT',
+    );
+    expect(supervisor.health()).toMatchObject({
+      status: 'failed',
+      failureCategory: 'uncommitted_wallet_present',
+    });
+    await expect(supervisor.bootstrap()).rejects.toThrow(
+      'BOOTSTRAP_NOT_ALLOWED',
+    );
+    expect(control.bootstrap).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -277,10 +432,15 @@ describe('Synology bootstrap transaction', () => {
 
       expect(error).toBeInstanceOf(Error);
       expect(error.message).toBe('INITIAL_BACKUP_FAILED');
+      expect(error.cause).toBeUndefined();
       expect(error.message).not.toContain('secretword');
       expect(supervisor.health()).toMatchObject({
         status: 'failed',
-        failureCategory: 'initial_backup_failed',
+        failureCategory: failureStage === 'backup'
+          ? 'backup_failed'
+          : failureStage === 'commit'
+            ? 'commit_failed'
+            : 'backup_verification_failed',
       });
       expect(timers.schedule).not.toHaveBeenCalled();
     },
@@ -330,6 +490,77 @@ describe('Synology bootstrap transaction', () => {
     );
     expect(control.bootstrap).toHaveBeenCalledOnce();
   });
+
+  it.each(['bootstrap', 'backup', 'commit', 'verify'])(
+    'keeps the supervisor stopped when stop occurs during bootstrap %s',
+    async (stage) => {
+      const entered = deferred();
+      const canFinish = deferred();
+      const words = Array.from({ length: 24 }, () => 'word');
+      const bytes = Buffer.from('fresh-encrypted-wallet');
+      const committed = manifest(bytes);
+      let latest:
+        | { bytes: Buffer; manifest: ReturnType<typeof manifest> }
+        | undefined;
+      let loadCount = 0;
+      const control = controlDouble({
+        bootstrap: vi.fn(async () => {
+          if (stage === 'bootstrap') {
+            entered.resolve();
+            await canFinish.promise;
+          }
+          return { mnemonic: words };
+        }),
+        backup: vi.fn(async () => {
+          if (stage === 'backup') {
+            entered.resolve();
+            await canFinish.promise;
+          }
+          return bytes;
+        }),
+      });
+      const timers = noTimer();
+      const supervisor = createSupervisor({
+        control,
+        store: {
+          loadLatest: async () => {
+            loadCount += 1;
+            if (loadCount === 1) throw new Error('BACKUP_REQUIRED');
+            if (stage === 'verify') {
+              entered.resolve();
+              await canFinish.promise;
+            }
+            if (!latest) throw new Error('BACKUP_REQUIRED');
+            return latest;
+          },
+          commit: async () => {
+            if (stage === 'commit') {
+              entered.resolve();
+              await canFinish.promise;
+            }
+            latest = { bytes, manifest: committed };
+            return committed;
+          },
+        },
+        ...timers,
+      });
+      await supervisor.start();
+
+      const bootstrapping = supervisor.bootstrap();
+      await entered.promise;
+      supervisor.stop();
+      canFinish.resolve();
+
+      await expect(bootstrapping).rejects.toThrow(
+        'SUPERVISOR_LIFECYCLE_ABORTED',
+      );
+      expect(supervisor.health()).toMatchObject({
+        status: 'failed',
+        failureCategory: 'stopped',
+      });
+      expect(timers.schedule).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('Synology backup scheduling and health', () => {
@@ -457,6 +688,272 @@ describe('Synology backup scheduling and health', () => {
     expect(clearSchedule).toHaveBeenCalledWith(timer);
     expect(control.stop).toHaveBeenCalledOnce();
   });
+
+  it('clears the periodic timer when a scheduled backup fails', async () => {
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    let tick!: () => void;
+    const timer = { timer: true };
+    const schedule = vi.fn((callback: () => void) => {
+      tick = callback;
+      return timer;
+    });
+    const clearSchedule = vi.fn();
+    const control = controlDouble({
+      backup: vi.fn(async () => {
+        throw new Error('BACKUP_FAILED');
+      }),
+    });
+    const supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+      },
+      schedule,
+      clearSchedule,
+    });
+    await supervisor.start();
+
+    tick();
+
+    await vi.waitFor(() => {
+      expect(clearSchedule).toHaveBeenCalledWith(timer);
+    });
+    expect(supervisor.health()).toMatchObject({
+      status: 'failed',
+      failureCategory: 'backup_failed',
+    });
+  });
+
+  it('cannot leave a failed lifecycle ready when timer cancellation throws', async () => {
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    let tick!: () => void;
+    const control = controlDouble({
+      backup: vi.fn(async () => {
+        throw new Error('BACKUP_FAILED');
+      }),
+    });
+    const supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+      },
+      schedule: (callback: () => void) => {
+        tick = callback;
+        return { timer: true };
+      },
+      clearSchedule: () => {
+        throw new Error('TIMER_CANCEL_FAILED');
+      },
+    });
+    await supervisor.start();
+
+    tick();
+
+    await vi.waitFor(() => {
+      expect(supervisor.health()).toMatchObject({
+        status: 'failed',
+        failureCategory: 'backup_failed',
+      });
+    });
+    expect(control.stop).toHaveBeenCalledOnce();
+  });
+
+  it('cannot leave a stopped lifecycle ready when timer cancellation throws', async () => {
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    const control = controlDouble();
+    const supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+      },
+      schedule: () => ({ timer: true }),
+      clearSchedule: () => {
+        throw new Error('TIMER_CANCEL_FAILED');
+      },
+    });
+    await supervisor.start();
+
+    expect(() => supervisor.stop()).not.toThrow();
+    expect(supervisor.health()).toMatchObject({
+      status: 'failed',
+      failureCategory: 'stopped',
+    });
+    expect(control.stop).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Synology quarantine durability', () => {
+  it('rejects a quarantine root equal to or nested under the live wallet', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-invalid-quarantine-')));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    await mkdir(walletDirectory);
+    const bytes = Buffer.from('verified-encrypted-wallet');
+
+    for (const quarantineRoot of [
+      walletDirectory,
+      join(walletDirectory, 'quarantine'),
+    ]) {
+      const control = controlDouble();
+      const supervisor = createSupervisor({
+        control,
+        store: {
+          loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+        },
+        walletDirectory,
+        quarantineRoot,
+        ...noTimer(),
+      });
+
+      await expect(supervisor.start()).rejects.toThrow(
+        'QUARANTINE_ROOT_INVALID',
+      );
+      expect(control.restore).not.toHaveBeenCalled();
+    }
+  });
+
+  it('fsyncs quarantine metadata and both rename parents before restore', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-quarantine-sync-')));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    const quarantineRoot = join(root, 'quarantine');
+    await mkdir(walletDirectory);
+    await writeFile(join(walletDirectory, 'wallet.db'), 'preserved');
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    const events: string[] = [];
+    const synced: string[] = [];
+    const control = controlDouble({
+      restore: vi.fn(async () => {
+        events.push('restore');
+      }),
+      start: vi.fn(async () => {
+        events.push('start');
+      }),
+    });
+    const supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+      },
+      walletDirectory,
+      quarantineRoot,
+      fileSystem: {
+        access,
+        mkdir,
+        rename: async (from: string, to: string) => {
+          events.push('rename');
+          await rename(from, to);
+        },
+      },
+      directorySync: async (path: string) => {
+        synced.push(path);
+        events.push(`sync:${relative(root, path) || '.'}`);
+      },
+      ...noTimer(),
+    });
+
+    await supervisor.start();
+
+    const renameIndex = events.indexOf('rename');
+    const restoreIndex = events.indexOf('restore');
+    expect(renameIndex).toBeGreaterThan(0);
+    expect(restoreIndex).toBeGreaterThan(renameIndex);
+    expect(events.slice(renameIndex + 1, restoreIndex))
+      .toEqual(expect.arrayContaining([
+        'sync:.',
+        expect.stringMatching(/^sync:quarantine[/\\].+/u),
+      ]));
+    expect(synced.filter((path) => path === quarantineRoot).length)
+      .toBeGreaterThanOrEqual(2);
+    expect(
+      synced.some((path) => (
+        dirname(path) === quarantineRoot && path !== quarantineRoot
+      )),
+    ).toBe(true);
+  });
+
+  it('fails before restore when quarantine metadata cannot be fsynced', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-quarantine-sync-failure-')));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    const quarantineRoot = join(root, 'quarantine');
+    await mkdir(walletDirectory);
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    const control = controlDouble();
+    const supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+      },
+      walletDirectory,
+      quarantineRoot,
+      directorySync: vi.fn(async () => {
+        throw new Error('QUARANTINE_FSYNC_FAILED');
+      }),
+      ...noTimer(),
+    });
+
+    await expect(supervisor.start()).rejects.toThrow(
+      'QUARANTINE_FSYNC_FAILED',
+    );
+    expect(supervisor.health()).toMatchObject({
+      status: 'failed',
+      failureCategory: 'quarantine_fsync_failed',
+    });
+    expect(control.restore).not.toHaveBeenCalled();
+  });
+
+  it('fails closed and preserves the moved wallet when post-rename fsync fails', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-post-rename-sync-failure-')));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    const quarantineRoot = join(root, 'quarantine');
+    await mkdir(walletDirectory);
+    await writeFile(join(walletDirectory, 'wallet.db'), 'preserved');
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    let renamed = false;
+    const control = controlDouble();
+    const supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+      },
+      walletDirectory,
+      quarantineRoot,
+      fileSystem: {
+        access,
+        mkdir,
+        rename: async (from: string, to: string) => {
+          await rename(from, to);
+          renamed = true;
+        },
+      },
+      directorySync: async () => {
+        if (renamed) throw new Error('POST_RENAME_FSYNC_FAILED');
+      },
+      ...noTimer(),
+    });
+
+    await expect(supervisor.start()).rejects.toThrow(
+      'POST_RENAME_FSYNC_FAILED',
+    );
+    expect(control.restore).not.toHaveBeenCalled();
+    await expect(access(walletDirectory)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    const reservations = await readdir(quarantineRoot);
+    expect(reservations).toHaveLength(1);
+    expect(
+      await readFile(
+        join(quarantineRoot, reservations[0]!, 'wallet', 'wallet.db'),
+        'utf8',
+      ),
+    ).toBe('preserved');
+  });
 });
 
 describe('control server interface', () => {
@@ -502,4 +999,121 @@ describe('control server interface', () => {
         server.close((error) => error ? reject(error) : resolve()));
     }
   });
+
+  it('isolates concurrent asynchronous backups in unique temporary directories', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-concurrent-control-backup-')));
+    temporaryDirectories.push(root);
+    process.env.WALLET_BACKUP_OUTPUT_PATH = join(root, 'wallet.archive');
+    const bothStarted = deferred();
+    const outputPaths: string[] = [];
+    let calls = 0;
+    const api = {
+      restore: vi.fn(),
+      start: vi.fn(),
+      bootstrap: vi.fn(),
+      backup: vi.fn(async (path: string) => {
+        calls += 1;
+        const bytes = Buffer.from(`encrypted-wallet-${calls}`);
+        outputPaths.push(path);
+        if (calls === 2) bothStarted.resolve();
+        await bothStarted.promise;
+        await writeFile(path, bytes);
+        return { sha256: sha256(bytes), byteLength: bytes.byteLength };
+      }),
+      health: vi.fn(() => ({ status: 'ready', release: 'test-release' })),
+      stop: vi.fn(),
+    };
+    const server = createControlServer(api, 'test-token');
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('TEST_SERVER_ADDRESS_UNAVAILABLE');
+    }
+
+    try {
+      const responses = await Promise.all([1, 2].map(() => fetch(
+        `http://127.0.0.1:${address.port}/backup`,
+        {
+          method: 'POST',
+          headers: { Authorization: 'Bearer test-token' },
+        },
+      )));
+      expect(responses.map(({ status }) => status)).toEqual([201, 201]);
+      const bodies = await Promise.all(responses.map(async (response) =>
+        Buffer.from(await response.arrayBuffer()).toString('utf8')));
+      expect(bodies.sort()).toEqual([
+        'encrypted-wallet-1',
+        'encrypted-wallet-2',
+      ]);
+      expect(new Set(outputPaths).size).toBe(2);
+      for (const path of outputPaths) {
+        expect(dirname(path)).not.toBe(root);
+        await expect(access(dirname(path))).rejects.toMatchObject({
+          code: 'ENOENT',
+        });
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it.each(['digest', 'length'])(
+    'rejects a backup %s mismatch and always removes its unique temporary directory',
+    async (mismatch) => {
+      vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+        mkdtemp(join(tmpdir(), 'openstays-control-backup-mismatch-')));
+      temporaryDirectories.push(root);
+      process.env.WALLET_BACKUP_OUTPUT_PATH = join(root, 'wallet.archive');
+      const bytes = Buffer.from('encrypted-wallet');
+      let outputPath = '';
+      const api = {
+        restore: vi.fn(),
+        start: vi.fn(),
+        bootstrap: vi.fn(),
+        backup: vi.fn(async (path: string) => {
+          outputPath = path;
+          await writeFile(path, bytes);
+          return {
+            sha256: mismatch === 'digest'
+              ? '0'.repeat(64)
+              : sha256(bytes),
+            byteLength: mismatch === 'length'
+              ? bytes.byteLength + 1
+              : bytes.byteLength,
+          };
+        }),
+        health: vi.fn(() => ({ status: 'ready', release: 'test-release' })),
+        stop: vi.fn(),
+      };
+      const server = createControlServer(api, 'test-token');
+      await new Promise<void>((resolve) =>
+        server.listen(0, '127.0.0.1', resolve));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('TEST_SERVER_ADDRESS_UNAVAILABLE');
+      }
+
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:${address.port}/backup`,
+          {
+            method: 'POST',
+            headers: { Authorization: 'Bearer test-token' },
+          },
+        );
+        expect(response.status).toBe(503);
+        expect(outputPath).not.toBe('');
+        expect(dirname(outputPath)).not.toBe(root);
+        await expect(access(dirname(outputPath))).rejects.toMatchObject({
+          code: 'ENOENT',
+        });
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => error ? reject(error) : resolve()));
+      }
+    },
+  );
 });
