@@ -5,9 +5,6 @@ APP_ROOT=/volume1/docker/openstays-merchant
 BACKUP_ROOT=/volume2/openstays-wallet-backups
 ENV_FILE="$APP_ROOT/config/merchant.env"
 COMPOSE_FILE="$APP_ROOT/source/ops/synology/docker-compose.yml"
-PROJECT_NAME=openstays-merchant
-SERVICE_NAME=merchant
-CONTAINER_NAME=openstays-merchant
 
 fail() {
   printf '%s\n' "$1" >&2
@@ -17,15 +14,28 @@ fail() {
 test "$(id -un)" = "murdawk" \
   || fail DEPLOY_USER_MUST_BE_MURDAWK
 
-assert_existing_physical_directory() {
-  local path="$1"
-  local expected
+assert_safe_target() {
+  local target="$1"
+  local probe="$target"
+  local parent
   local actual
-  test -d "$path" || fail REQUIRED_PARENT_DIRECTORY_MISSING
-  test ! -L "$path" || fail SYMLINK_PATH_REJECTED
-  expected="$(cd "$path" && pwd -P)"
-  actual="$(readlink -f -- "$path")"
-  test "$actual" = "$expected" || fail PATH_CONTAINMENT_FAILED
+  case "$target" in
+    /*) ;;
+    *) fail PATH_MUST_BE_ABSOLUTE ;;
+  esac
+  while test ! -e "$probe" && test ! -L "$probe"; do
+    parent="$(dirname "$probe")"
+    test "$parent" != "$probe" || fail REQUIRED_PARENT_DIRECTORY_MISSING
+    probe="$parent"
+  done
+  test -d "$probe" || fail REQUIRED_PARENT_DIRECTORY_MISSING
+  test ! -L "$probe" || fail SYMLINK_PATH_REJECTED
+  actual="$(readlink -f -- "$probe")"
+  test "$actual" = "$probe" || fail PATH_CONTAINMENT_FAILED
+  case "$target" in
+    "$probe"|"$probe/"*) ;;
+    *) fail PATH_CONTAINMENT_FAILED ;;
+  esac
 }
 
 assert_managed_directory() {
@@ -64,15 +74,36 @@ require_disabled_flag() {
     || fail PUBLIC_RAIL_MUST_BEGIN_DISABLED
 }
 
-assert_existing_physical_directory "$(dirname "$APP_ROOT")"
-assert_existing_physical_directory "$(dirname "$BACKUP_ROOT")"
+container_identity() {
+  docker inspect --format \
+    '{{ index .Config.Labels "com.docker.compose.project" }}
+{{ index .Config.Labels "com.docker.compose.service" }}
+{{ len .Mounts }}
+{{ range .Mounts }}{{ .Source }}>{{ .Destination }}>{{ .Type }}>{{ .RW }}
+{{ end }}{{ len .HostConfig.PortBindings }}' \
+    openstays-merchant
+}
 
-if test -e "$APP_ROOT"; then
-  test ! -L "$APP_ROOT" || fail SYMLINK_PATH_REJECTED
-fi
-if test -e "$BACKUP_ROOT"; then
-  test ! -L "$BACKUP_ROOT" || fail SYMLINK_PATH_REJECTED
-fi
+container_identity_matches() {
+  local observed
+  local expected
+  observed="$(container_identity 2>/dev/null)" || return 1
+  expected="$(printf '%s\n' \
+    'openstays-merchant' \
+    'merchant' \
+    '2' \
+    '/volume1/docker/openstays-merchant/state>/var/lib/openstays>bind>true' \
+    '/volume2/openstays-wallet-backups>/var/backups/openstays>bind>true' \
+    '0')"
+  test "$observed" = "$expected"
+}
+
+verify_container_identity() {
+  container_identity_matches || fail CONTAINER_IDENTITY_INVALID
+}
+
+assert_safe_target "$APP_ROOT"
+assert_safe_target "$BACKUP_ROOT"
 
 install -d -m 700 \
   "$APP_ROOT" \
@@ -130,11 +161,16 @@ docker compose --project-name openstays-merchant \
   -f "$COMPOSE_FILE" \
   config --quiet
 
+if docker container inspect openstays-merchant >/dev/null 2>&1; then
+  verify_container_identity
+fi
+
 docker compose --project-name openstays-merchant \
   --env-file "$ENV_FILE" \
   -f "$COMPOSE_FILE" \
   up -d --build merchant
 
+verify_container_identity
 docker exec openstays-merchant \
   node /app/synology/operator.mjs health >/dev/null
 

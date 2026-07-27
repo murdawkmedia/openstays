@@ -7,9 +7,6 @@ ENV_FILE="$APP_ROOT/config/merchant.env"
 COMPOSE_FILE="$APP_ROOT/source/ops/synology/docker-compose.yml"
 LIVE_WALLET="$APP_ROOT/state/wavelength"
 QUARANTINE_ROOT="$APP_ROOT/state/quarantine"
-PROJECT_NAME=openstays-merchant
-SERVICE_NAME=merchant
-CONTAINER_NAME=openstays-merchant
 
 fail() {
   printf '%s\n' "$1" >&2
@@ -33,6 +30,50 @@ assert_exact_directory() {
   test "$actual" = "$expected" || fail PATH_CONTAINMENT_FAILED
 }
 
+env_value() {
+  local name="$1"
+  local count
+  local line
+  count="$(grep -Ec "^${name}=" "$ENV_FILE" || true)"
+  test "$count" = "1" || fail ENV_KEY_MISSING_OR_DUPLICATE
+  line="$(grep -E "^${name}=" "$ENV_FILE")"
+  printf '%s' "${line#*=}"
+}
+
+require_disabled_flag() {
+  local name="$1"
+  test "$(env_value "$name")" = "false" \
+    || fail PUBLIC_RAIL_MUST_BEGIN_DISABLED
+}
+
+container_identity() {
+  docker inspect --format \
+    '{{ index .Config.Labels "com.docker.compose.project" }}
+{{ index .Config.Labels "com.docker.compose.service" }}
+{{ len .Mounts }}
+{{ range .Mounts }}{{ .Source }}>{{ .Destination }}>{{ .Type }}>{{ .RW }}
+{{ end }}{{ len .HostConfig.PortBindings }}' \
+    openstays-merchant
+}
+
+container_identity_matches() {
+  local observed
+  local expected
+  observed="$(container_identity 2>/dev/null)" || return 1
+  expected="$(printf '%s\n' \
+    'openstays-merchant' \
+    'merchant' \
+    '2' \
+    '/volume1/docker/openstays-merchant/state>/var/lib/openstays>bind>true' \
+    '/volume2/openstays-wallet-backups>/var/backups/openstays>bind>true' \
+    '0')"
+  test "$observed" = "$expected"
+}
+
+verify_container_identity() {
+  container_identity_matches || fail CONTAINER_IDENTITY_INVALID
+}
+
 assert_exact_directory "$APP_ROOT" "$APP_ROOT"
 assert_exact_directory "$BACKUP_ROOT" "$BACKUP_ROOT"
 test -f "$ENV_FILE" && test ! -L "$ENV_FILE" \
@@ -41,6 +82,11 @@ test -f "$COMPOSE_FILE" && test ! -L "$COMPOSE_FILE" \
   || fail COMPOSE_FILE_REQUIRED
 test -d "$LIVE_WALLET" && test ! -L "$LIVE_WALLET" \
   || fail LIVE_WALLET_REQUIRED
+
+require_disabled_flag ZAPRITE_ENABLED
+require_disabled_flag WAVELENGTH_ENABLED
+require_disabled_flag WAVELENGTH_REWARDS_ENABLED
+verify_container_identity
 
 install -d -m 700 "$QUARANTINE_ROOT"
 assert_exact_directory "$QUARANTINE_ROOT" "$QUARANTINE_ROOT"
@@ -52,6 +98,8 @@ case "$LIVE_WALLET/" in
 esac
 
 wallet_snapshot() {
+  # The single-quoted program is intentionally expanded by Node, not Bash.
+  # shellcheck disable=SC2016
   docker exec openstays-merchant node --input-type=module --eval '
     const { createHash } = await import("node:crypto");
     async function post(path, body = {}) {
@@ -136,6 +184,19 @@ wait_for_verified_restore() {
   fail VERIFIED_RESTORE_DID_NOT_BECOME_READY
 }
 
+recovery_container_started=false
+stop_failed_recovery() {
+  exit_status=$?
+  trap - EXIT
+  if test "$exit_status" -ne 0 \
+    && test "$recovery_container_started" = "true" \
+    && container_identity_matches
+  then
+    docker stop openstays-merchant >/dev/null || true
+  fi
+  exit "$exit_status"
+}
+
 before_snapshot="$(wallet_snapshot)"
 test "$before_snapshot" != "" || fail PRE_RECOVERY_SNAPSHOT_FAILED
 
@@ -155,10 +216,13 @@ sync
 test -d "$QUARANTINE_PATH" && test ! -e "$LIVE_WALLET" \
   || fail WALLET_QUARANTINE_FAILED
 
+recovery_container_started=true
+trap stop_failed_recovery EXIT
 docker compose --project-name openstays-merchant \
   --env-file "$ENV_FILE" \
   -f "$COMPOSE_FILE" \
   up -d merchant
+verify_container_identity
 wait_for_verified_restore
 
 after_snapshot="$(wallet_snapshot)"
@@ -171,5 +235,6 @@ docker exec openstays-merchant \
 docker exec openstays-merchant \
   node /app/synology/operator.mjs health >/dev/null
 
+trap - EXIT
 printf 'Verified recovery drill complete; quarantine preserved at %s\n' \
   "$QUARANTINE_PATH"

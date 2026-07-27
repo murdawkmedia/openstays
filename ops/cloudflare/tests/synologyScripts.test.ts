@@ -7,6 +7,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,7 +22,9 @@ const recoveryPath = join(
   'synology',
   'recovery-drill.sh',
 );
-const bash = 'C:\\Program Files\\Git\\bin\\bash.exe';
+const bash = process.platform === 'win32'
+  ? 'C:\\Program Files\\Git\\bin\\bash.exe'
+  : 'bash';
 const temporaryRoots: string[] = [];
 
 afterEach(() => {
@@ -94,6 +97,22 @@ describe('Synology script contracts', () => {
     );
   });
 
+  it('attests the exact Compose identity, mounts, and absence of published ports', () => {
+    for (const body of [script(deployPath), script(recoveryPath)]) {
+      expect(body).toContain('com.docker.compose.project');
+      expect(body).toContain('com.docker.compose.service');
+      expect(body).toContain(
+        '/volume1/docker/openstays-merchant/state>/var/lib/openstays',
+      );
+      expect(body).toContain(
+        '/volume2/openstays-wallet-backups>/var/backups/openstays',
+      );
+      expect(body).toContain('.HostConfig.PortBindings');
+      expect(body).toContain('{{ .Type }}>{{ .RW }}');
+      expect(body).toContain('CONTAINER_IDENTITY_INVALID');
+    }
+  });
+
   it('never prunes Docker, deletes protected state, or targets other containers', () => {
     for (const body of [script(deployPath), script(recoveryPath)]) {
       expect(body).not.toMatch(/docker\s+system\s+prune/u);
@@ -114,11 +133,12 @@ describe('Synology script contracts', () => {
   });
 
   it('fails closed unless all public rails begin disabled', () => {
-    const body = script(deployPath);
-    expect(body).toContain('ZAPRITE_ENABLED');
-    expect(body).toContain('WAVELENGTH_ENABLED');
-    expect(body).toContain('WAVELENGTH_REWARDS_ENABLED');
-    expect(body.match(/^require_disabled_flag /gmu)).toHaveLength(3);
+    for (const body of [script(deployPath), script(recoveryPath)]) {
+      expect(body).toContain('ZAPRITE_ENABLED');
+      expect(body).toContain('WAVELENGTH_ENABLED');
+      expect(body).toContain('WAVELENGTH_REWARDS_ENABLED');
+      expect(body.match(/^require_disabled_flag /gmu)).toHaveLength(3);
+    }
   });
 
   it('quarantines atomically, syncs metadata, verifies restore, and removes nothing', () => {
@@ -128,6 +148,8 @@ describe('Synology script contracts', () => {
     expect(body).toContain('sync');
     expect(body).toContain('wallet_snapshot');
     expect(body).toContain('RESTORE_IDENTITY_ACTIVITY_MISMATCH');
+    expect(body).toContain('trap stop_failed_recovery EXIT');
+    expect(body).toContain('trap - EXIT');
     expect(body).not.toMatch(/\brm\b/u);
   });
 
@@ -160,6 +182,58 @@ describe('Synology script behavior with fake host commands', () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('DEPLOY_USER_MUST_BE_MURDAWK');
     expect(() => readFileSync(join(root, 'docker-called'))).toThrow();
+  });
+
+  it('deploy rejects an ancestor symlink before any managed-directory write', () => {
+    const root = temporaryRoot();
+    const bin = join(root, 'bin');
+    const outside = join(root, 'outside');
+    const volume1 = join(root, 'volume1');
+    const volume2 = join(root, 'volume2');
+    const installCalled = join(root, 'install-called');
+    mkdirSync(bin);
+    mkdirSync(outside);
+    mkdirSync(volume1);
+    mkdirSync(volume2);
+    symlinkSync(
+      outside,
+      join(volume1, 'docker'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    const { destination } = sandboxedScript(deployPath, root);
+    writeFileSync(
+      destination,
+      readFileSync(destination, 'utf8').replaceAll(
+        'id -un',
+        'printf murdawk',
+      ),
+      { mode: 0o755 },
+    );
+    executable(
+      join(bin, 'install'),
+      `#!/usr/bin/env bash
+printf called > "${installCalled.replaceAll('\\', '/')}"
+exit 90
+`,
+    );
+    writeFileSync(
+      destination,
+      readFileSync(destination, 'utf8').replaceAll(
+        'install ',
+        `${gitBashPath(join(bin, 'install'))} `,
+      ),
+      { mode: 0o755 },
+    );
+
+    const result = run(destination, {
+      ...process.env,
+      PATH: `${gitBashPath(bin)}:/usr/bin:/bin`,
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('SYMLINK_PATH_REJECTED');
+    expect(() => readFileSync(installCalled)).toThrow();
+    expect(readdirSync(outside)).toEqual([]);
   });
 
   it('deploy renders then starts only the named project with disabled flags', () => {
@@ -225,7 +299,11 @@ esac
       join(bin, 'docker'),
       `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
-if [[ "$*" == *"exec openstays-merchant"* ]]; then
+if [[ "$1 $2" == "container inspect" ]]; then
+  exit 1
+elif [[ "$1" == "inspect" ]]; then
+  printf '%s\\n' 'openstays-merchant' 'merchant' '2' '${gitBashPath(appRoot)}/state>/var/lib/openstays>bind>true' '${gitBashPath(backupRoot)}>/var/backups/openstays>bind>true' '0'
+elif [[ "$*" == *"exec openstays-merchant"* ]]; then
   printf '{"status":"awaiting_bootstrap"}\\n'
 fi
 `,
@@ -266,16 +344,16 @@ done
     });
     expect(result.status, result.stderr).toBe(0);
     const recorded = readFileSync(calls, 'utf8').trim().split('\n');
+    const recordedText = recorded.join('\n');
 
-    expect(recorded[0]).toContain(
+    expect(recordedText).toContain(
       'compose --project-name openstays-merchant',
     );
-    expect(recorded[0]).toContain('config --quiet');
-    expect(recorded[1]).toContain(
-      'compose --project-name openstays-merchant',
-    );
-    expect(recorded[1]).toMatch(/up -d --build merchant$/u);
-    expect(recorded).toHaveLength(3);
+    expect(recordedText).toContain('config --quiet');
+    expect(recordedText).toContain('container inspect openstays-merchant');
+    expect(recordedText).toMatch(/up -d --build merchant/u);
+    expect(recordedText).toContain('inspect --format');
+    expect(recordedText).toContain('exec openstays-merchant');
   });
 
   it('recovery stops only the merchant, preserves quarantine, and verifies snapshots', () => {
@@ -292,7 +370,14 @@ done
     mkdirSync(`${appRoot}/config`, { recursive: true });
     mkdirSync(`${appRoot}/state/wavelength`, { recursive: true });
     mkdirSync(backupRoot, { recursive: true });
-    writeFileSync(`${appRoot}/config/merchant.env`, 'disabled=true\n');
+    writeFileSync(
+      `${appRoot}/config/merchant.env`,
+      [
+        'ZAPRITE_ENABLED=false',
+        'WAVELENGTH_ENABLED=false',
+        'WAVELENGTH_REWARDS_ENABLED=false',
+      ].join('\n'),
+    );
     copyFileSync(
       join(repositoryRoot, 'ops', 'synology', 'docker-compose.yml'),
       `${appRoot}/source/ops/synology/docker-compose.yml`,
@@ -302,6 +387,9 @@ done
       `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
 case "$*" in
+  inspect*)
+    printf '%s\\n' 'openstays-merchant' 'merchant' '2' '${gitBashPath(appRoot)}/state>/var/lib/openstays>bind>true' '${gitBashPath(backupRoot)}>/var/backups/openstays>bind>true' '0'
+    ;;
   *"node --input-type=module --eval"*)
     printf '%064d' 0
     ;;
@@ -366,5 +454,136 @@ printf 'mv %s %s\\n' "\${2:-}" "\${3:-}" >> "${calls.replaceAll('\\', '/')}"
       readFileSync(`${appRoot}/state/wavelength`)).toThrow();
     expect(readdirSync(`${appRoot}/state/quarantine`)).toHaveLength(1);
     expect(result.stdout).toContain('quarantine preserved');
+  });
+
+  it('recovery refuses a same-name container with the wrong Compose identity', () => {
+    const root = temporaryRoot();
+    const bin = join(root, 'bin');
+    const calls = join(root, 'calls');
+    mkdirSync(bin);
+    const { destination, appRoot, backupRoot } = sandboxedScript(
+      recoveryPath,
+      root,
+    );
+    mkdirSync(`${appRoot}/source/ops/synology`, { recursive: true });
+    mkdirSync(`${appRoot}/config`, { recursive: true });
+    mkdirSync(`${appRoot}/state/wavelength`, { recursive: true });
+    mkdirSync(backupRoot, { recursive: true });
+    writeFileSync(
+      `${appRoot}/config/merchant.env`,
+      [
+        'ZAPRITE_ENABLED=false',
+        'WAVELENGTH_ENABLED=false',
+        'WAVELENGTH_REWARDS_ENABLED=false',
+      ].join('\n'),
+    );
+    copyFileSync(
+      join(repositoryRoot, 'ops', 'synology', 'docker-compose.yml'),
+      `${appRoot}/source/ops/synology/docker-compose.yml`,
+    );
+    executable(
+      join(bin, 'docker'),
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
+printf '%s\\n' 'wrong-project' 'merchant' '2' '${gitBashPath(appRoot)}/state>/var/lib/openstays>bind>true' '${gitBashPath(backupRoot)}>/var/backups/openstays>bind>true' '0'
+`,
+    );
+    writeFileSync(
+      destination,
+      readFileSync(destination, 'utf8')
+        .replaceAll('id -un', 'printf murdawk')
+        .replaceAll('docker ', `${gitBashPath(join(bin, 'docker'))} `),
+      { mode: 0o755 },
+    );
+
+    const result = run(destination, {
+      ...process.env,
+      PATH: `${gitBashPath(bin)}:/usr/bin:/bin`,
+    });
+    const recorded = readFileSync(calls, 'utf8');
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('CONTAINER_IDENTITY_INVALID');
+    expect(recorded).toContain('inspect --format');
+    expect(recorded).not.toMatch(/\b(?:stop|exec|up)\b/u);
+  });
+
+  it('stops the attested merchant when a post-start snapshot mismatches', () => {
+    const root = temporaryRoot();
+    const bin = join(root, 'bin');
+    const calls = join(root, 'calls');
+    const snapshotCount = join(root, 'snapshot-count');
+    mkdirSync(bin);
+    const { destination, appRoot, backupRoot } = sandboxedScript(
+      recoveryPath,
+      root,
+    );
+    mkdirSync(`${appRoot}/source/ops/synology`, { recursive: true });
+    mkdirSync(`${appRoot}/config`, { recursive: true });
+    mkdirSync(`${appRoot}/state/wavelength`, { recursive: true });
+    mkdirSync(backupRoot, { recursive: true });
+    writeFileSync(
+      `${appRoot}/config/merchant.env`,
+      [
+        'ZAPRITE_ENABLED=false',
+        'WAVELENGTH_ENABLED=false',
+        'WAVELENGTH_REWARDS_ENABLED=false',
+      ].join('\n'),
+    );
+    copyFileSync(
+      join(repositoryRoot, 'ops', 'synology', 'docker-compose.yml'),
+      `${appRoot}/source/ops/synology/docker-compose.yml`,
+    );
+    executable(
+      join(bin, 'docker'),
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
+case "$*" in
+  inspect*)
+    printf '%s\\n' 'openstays-merchant' 'merchant' '2' '${gitBashPath(appRoot)}/state>/var/lib/openstays>bind>true' '${gitBashPath(backupRoot)}>/var/backups/openstays>bind>true' '0'
+    ;;
+  *"node --input-type=module --eval"*)
+    count=0
+    [[ -f "${snapshotCount.replaceAll('\\', '/')}" ]] && count="$(cat "${snapshotCount.replaceAll('\\', '/')}")"
+    count=$((count + 1))
+    printf '%s' "$count" > "${snapshotCount.replaceAll('\\', '/')}"
+    if [[ "$count" -eq 1 ]]; then printf '%064d' 0; else printf '%064d' 1; fi
+    ;;
+  *"operator.mjs health"*)
+    printf '{"status":"ready"}\\n'
+    ;;
+esac
+`,
+    );
+    executable(
+      join(bin, 'install'),
+      '#!/usr/bin/env bash\nmkdir -p -- "${@: -1}"\n',
+    );
+    executable(join(bin, 'sync'), '#!/usr/bin/env bash\nexit 0\n');
+    executable(join(bin, 'mv'), '#!/usr/bin/env bash\n/usr/bin/mv "$@"\n');
+    writeFileSync(
+      destination,
+      readFileSync(destination, 'utf8')
+        .replaceAll('id -un', 'printf murdawk')
+        .replaceAll('docker ', `${gitBashPath(join(bin, 'docker'))} `)
+        .replaceAll('install ', `${gitBashPath(join(bin, 'install'))} `)
+        .replaceAll('\nsync\n', `\n${gitBashPath(join(bin, 'sync'))}\n`)
+        .replaceAll('mv --', `${gitBashPath(join(bin, 'mv'))} --`),
+      { mode: 0o755 },
+    );
+
+    const result = run(destination, {
+      ...process.env,
+      PATH: `${gitBashPath(bin)}:/usr/bin:/bin`,
+    });
+    const recorded = readFileSync(calls, 'utf8').trim().split('\n');
+    const stops = recorded.filter((line) =>
+      line === 'stop openstays-merchant');
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('RESTORE_IDENTITY_ACTIVITY_MISMATCH');
+    expect(stops).toHaveLength(2);
+    expect(recorded.some((line) =>
+      line.includes('operator.mjs backup'))).toBe(false);
   });
 });
