@@ -98,12 +98,20 @@ export const publishProof = internalMutation({
       status: 'submitted', proofBase64: args.proofBase64, calendarCount: args.calendarCount,
       submittedAt: now, updatedAt: now, leaseToken: undefined, leaseExpiresAt: undefined, failureReason: undefined,
     });
-    const existingReward = await ctx.db.query('wavelengthRewards')
-      .withIndex('by_receipt', (q) => q.eq('receiptId', receipt._id)).unique();
-    if (!existingReward) await ctx.db.insert('wavelengthRewards', {
-      propertyId: receipt.propertyId, bookingId: receipt.bookingId, receiptId: receipt._id,
-      network: 'signet', satsAmount: CONSENSUS_REWARD_SATS, status: 'eligible', attemptCount: 0, createdAt: now, updatedAt: now,
-    });
+    const settledPayments = await ctx.db.query('payments')
+      .withIndex('by_booking', (q) => q.eq('bookingId', receipt.bookingId))
+      .collect();
+    const rewardEligible = settledPayments.some((payment) =>
+      (payment.provider === 'zaprite' || payment.provider === 'wavelength')
+      && ['paid', 'partially_refunded', 'refunded'].includes(payment.status));
+    if (rewardEligible) {
+      const existingReward = await ctx.db.query('wavelengthRewards')
+        .withIndex('by_receipt', (q) => q.eq('receiptId', receipt._id)).unique();
+      if (!existingReward) await ctx.db.insert('wavelengthRewards', {
+        propertyId: receipt.propertyId, bookingId: receipt.bookingId, receiptId: receipt._id,
+        network: 'signet', satsAmount: CONSENSUS_REWARD_SATS, status: 'eligible', attemptCount: 0, createdAt: now, updatedAt: now,
+      });
+    }
     await ctx.scheduler.runAfter(0, (internal as any).email.sendBookingEmail, {
       bookingId: receipt.bookingId, kind: 'consensus_receipt', receiptId: receipt.publicId, receiptSha256: receipt.sha256,
     });

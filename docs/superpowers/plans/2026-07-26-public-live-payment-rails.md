@@ -468,7 +468,7 @@ git commit -m "feat: add payment-safe fourteen day retention"
 - Test: `convex/wavelengthRewards.test.ts`
 - Test: `tests/consensusReward.test.ts`
 
-- [ ] **Step 1: Write failing eligibility tests**
+- [x] **Step 1: Write failing eligibility tests**
 
 Assert:
 
@@ -481,7 +481,7 @@ Assert:
 - stale bridge health or insufficient balance rejects claim without changing paid state;
 - duplicate token ID and duplicate settlement are no-ops.
 
-- [ ] **Step 2: Confirm red**
+- [x] **Step 2: Confirm red**
 
 ```powershell
 npx vitest run convex/consensusReceipts.test.ts convex/wavelengthRewards.test.ts tests/consensusReward.test.ts
@@ -489,11 +489,11 @@ npx vitest run convex/consensusReceipts.test.ts convex/wavelengthRewards.test.ts
 
 Expected: FAIL because simulated receipts currently create reward rows and eligibility limits are absent.
 
-- [ ] **Step 3: Restrict reward creation**
+- [x] **Step 3: Restrict reward creation**
 
 In `consensusReceipts.ts`, find the authoritative settled payment used in the canonical receipt. Insert `wavelengthRewards` only when provider is `zaprite` or `wavelength`. Keep the receipt available for other confirmed booking types without a reward.
 
-- [ ] **Step 4: Add claim verification and atomic limits**
+- [x] **Step 4: Add claim verification and atomic limits**
 
 In `wavelengthRewards.submitInvoice`:
 
@@ -508,7 +508,7 @@ In `wavelengthRewards.submitInvoice`:
 
 All checks and state changes occur in one Convex mutation.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```powershell
 npx vitest run convex/consensusReceipts.test.ts convex/wavelengthRewards.test.ts tests/consensusReward.test.ts
@@ -517,7 +517,7 @@ npm run typecheck
 
 Expected: all focused tests pass and typecheck exits 0.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add convex/consensusReceipts.ts convex/wavelengthRewards.ts convex/rewardPolicy.ts convex/schema.ts convex/consensusReceipts.test.ts convex/wavelengthRewards.test.ts tests/consensusReward.test.ts

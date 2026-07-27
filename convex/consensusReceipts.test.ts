@@ -131,4 +131,25 @@ describe('consensus receipts', () => {
     expect(anchored).toMatchObject({ status: 'bitcoin_anchored', canonicalJson: original.canonicalJson,
       sha256: original.sha256, bitcoinBlockHeight: 900_000 });
   });
+
+  it('does not reward a simulated confirmation', async () => {
+    const { t, bookingId } = await confirmedBooking();
+    await t.run(async (ctx) => {
+      const [payment] = await ctx.db.query('payments')
+        .withIndex('by_booking', (q) => q.eq('bookingId', bookingId))
+        .collect();
+      await ctx.db.patch(payment._id, { provider: 'simulated' });
+    });
+    await t.mutation((internal as any).consensusReceipts.ensureForBooking, { bookingId });
+    const [claimed] = await t.mutation((internal as any).consensusReceipts.claimPending, { limit: 1 });
+    await t.mutation((internal as any).consensusReceipts.publishProof, {
+      receiptId: claimed._id,
+      leaseToken: claimed.leaseToken,
+      sha256: claimed.sha256,
+      proofBase64: btoa('simulated-proof'),
+      calendarCount: 1,
+    });
+    expect(await t.run((ctx) => ctx.db.query('wavelengthRewards').collect()))
+      .toHaveLength(0);
+  });
 });

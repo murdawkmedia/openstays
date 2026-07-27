@@ -2,8 +2,15 @@ import { ConvexError, v } from 'convex/values';
 import { internalMutation, mutation, query } from './_generated/server';
 import { sha256HexOf } from './apiKeys';
 import { CONSENSUS_REWARD_SATS, LEGACY_CONSENSUS_REWARD_SATS } from './rewardPolicy';
+import {
+  eligibilityEmailDigest,
+  readPublicPolicy,
+  verifyEligibilityToken,
+} from './publicPolicy';
 
 const LEASE_MS = 60_000;
+const REWARD_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1_000;
+const HEALTH_FRESH_MS = 60_000;
 
 async function authenticatedBooking(ctx: any, confirmationCode: string, email: string) {
   const booking = await ctx.db.query('bookings')
@@ -15,7 +22,14 @@ async function authenticatedBooking(ctx: any, confirmationCode: string, email: s
 }
 
 export const submitInvoice = mutation({
-  args: { confirmationCode: v.string(), email: v.string(), satsAmount: v.number(), bolt11: v.string(), expiresAt: v.number() },
+  args: {
+    confirmationCode: v.string(),
+    email: v.string(),
+    satsAmount: v.number(),
+    bolt11: v.string(),
+    expiresAt: v.number(),
+    eligibilityToken: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const booking = await authenticatedBooking(ctx, args.confirmationCode, args.email);
     const reward = await ctx.db.query('wavelengthRewards')
@@ -28,6 +42,105 @@ export const submitInvoice = mutation({
       !bolt11.toLowerCase().startsWith('lntbs') || bolt11.length > 10_000 ||
       args.expiresAt <= now + 30_000 || args.expiresAt > now + 3_600_000) {
       throw new ConvexError('INVALID_SIGNET_REWARD_INVOICE');
+    }
+
+    const policy = readPublicPolicy(process.env);
+    if (policy.liveMode) {
+      if (!policy.rewardsEnabled) throw new ConvexError('WAVELENGTH_REWARDS_DISABLED');
+      const signingKey = process.env.ELIGIBILITY_HMAC_SECRET ?? '';
+      if (!args.eligibilityToken || !signingKey) {
+        throw new ConvexError('REWARD_ELIGIBILITY_REQUIRED');
+      }
+      let eligibility;
+      try {
+        eligibility = await verifyEligibilityToken(
+          args.eligibilityToken,
+          { action: 'reward_claim', bookingId: String(booking._id) },
+          signingKey,
+          now,
+        );
+      } catch {
+        throw new ConvexError('REWARD_ELIGIBILITY_INVALID');
+      }
+      if (
+        eligibility.emailDigest
+        !== await eligibilityEmailDigest(args.email.trim().toLowerCase(), signingKey)
+      ) {
+        throw new ConvexError('REWARD_ELIGIBILITY_INVALID');
+      }
+
+      const existingToken = await ctx.db.query('publicRewardClaims')
+        .withIndex('by_tokenId', (q) => q.eq('tokenId', eligibility.jti))
+        .unique();
+      if (existingToken && existingToken.rewardId !== reward._id) {
+        throw new ConvexError('REWARD_ELIGIBILITY_REPLAYED');
+      }
+      if (!existingToken) {
+        const since = now - REWARD_LIMIT_WINDOW_MS;
+        const [emailClaims, deviceClaims, networkClaims, accepted, paid, health] = await Promise.all([
+          ctx.db.query('publicRewardClaims')
+            .withIndex('by_email_claimedAt', (q) =>
+              q.eq('emailDigest', eligibility.emailDigest).gte('claimedAt', since))
+            .collect(),
+          ctx.db.query('publicRewardClaims')
+            .withIndex('by_device_claimedAt', (q) =>
+              q.eq('deviceDigest', eligibility.deviceDigest).gte('claimedAt', since))
+            .collect(),
+          ctx.db.query('publicRewardClaims')
+            .withIndex('by_network_claimedAt', (q) =>
+              q.eq('networkDigest', eligibility.networkDigest).gte('claimedAt', since))
+            .collect(),
+          ctx.db.query('publicRewardClaims')
+            .withIndex('by_status_claimedAt', (q) =>
+              q.eq('status', 'accepted').gte('claimedAt', since))
+            .collect(),
+          ctx.db.query('publicRewardClaims')
+            .withIndex('by_status_claimedAt', (q) =>
+              q.eq('status', 'paid').gte('claimedAt', since))
+            .collect(),
+          ctx.db.query('bridgeHealth')
+            .withIndex('by_service', (q) => q.eq('service', 'wavelength'))
+            .unique(),
+        ]);
+        const active = (claims: typeof emailClaims) =>
+          claims.some((claim) => claim.status === 'accepted' || claim.status === 'paid');
+        if (active(emailClaims) || active(deviceClaims) || active(networkClaims)) {
+          throw new ConvexError('REWARD_LIMIT_REACHED');
+        }
+        const reservedSats = [...accepted, ...paid]
+          .reduce((sum, claim) => sum + claim.satsAmount, 0);
+        if (
+          policy.rewardDailyBudgetSats < CONSENSUS_REWARD_SATS
+          || reservedSats + CONSENSUS_REWARD_SATS > policy.rewardDailyBudgetSats
+        ) {
+          throw new ConvexError('REWARD_DAILY_BUDGET_EXHAUSTED');
+        }
+        if (
+          !health
+          || health.status !== 'ready'
+          || health.lastHeartbeatAt < now - HEALTH_FRESH_MS
+          || (health.spendableSats ?? 0)
+            < CONSENSUS_REWARD_SATS + policy.rewardMaxFeeSats
+        ) {
+          throw new ConvexError('WAVELENGTH_REWARD_UNAVAILABLE');
+        }
+        await ctx.db.insert('publicRewardClaims', {
+          propertyId: reward.propertyId,
+          bookingId: booking._id,
+          rewardId: reward._id,
+          receiptId: reward.receiptId,
+          tokenId: eligibility.jti,
+          emailDigest: eligibility.emailDigest,
+          deviceDigest: eligibility.deviceDigest,
+          networkDigest: eligibility.networkDigest,
+          network: 'signet',
+          satsAmount: CONSENSUS_REWARD_SATS,
+          status: 'accepted',
+          claimedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
     }
     if (reward.status === 'invoice_ready' || reward.status === 'paying') {
       if (reward.bolt11 === bolt11) return reward;
@@ -84,6 +197,18 @@ export const markPaid = internalMutation({
     await ctx.db.patch(reward._id, { status: 'paid', merchantActivityId: args.merchantActivityId.trim(),
       paymentHash: args.paymentHash.trim(), paidAt: now, updatedAt: now, leaseToken: undefined, leaseExpiresAt: undefined,
       failureReason: undefined });
+    const claims = await ctx.db.query('publicRewardClaims')
+      .withIndex('by_booking', (q) => q.eq('bookingId', reward.bookingId))
+      .collect();
+    for (const claim of claims) {
+      if (claim.rewardId === reward._id && claim.status === 'accepted') {
+        await ctx.db.patch(claim._id, {
+          status: 'paid',
+          paidAt: now,
+          updatedAt: now,
+        });
+      }
+    }
     return { paid: true };
   },
 });
@@ -109,6 +234,19 @@ export const markFailed = internalMutation({
     if (reward.status !== 'paying' || reward.leaseToken !== args.leaseToken) throw new ConvexError('STALE_REWARD_LEASE');
     await ctx.db.patch(reward._id, { status: args.retryable ? 'invoice_ready' : 'failed', failureReason: args.reason.slice(0, 500),
       leaseToken: undefined, leaseExpiresAt: undefined, updatedAt: Date.now() });
+    if (!args.retryable) {
+      const claims = await ctx.db.query('publicRewardClaims')
+        .withIndex('by_booking', (q) => q.eq('bookingId', reward.bookingId))
+        .collect();
+      for (const claim of claims) {
+        if (claim.rewardId === reward._id && claim.status === 'accepted') {
+          await ctx.db.patch(claim._id, {
+            status: 'failed',
+            updatedAt: Date.now(),
+          });
+        }
+      }
+    }
     return { failed: true };
   },
 });
