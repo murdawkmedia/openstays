@@ -127,6 +127,8 @@ run_container "$second_container"
 wait_for_control "$second_container"
 docker cp "$backup_path" \
   "$second_container:/tmp/openstays-recovery-drill.enc" >/dev/null
+docker exec --user 0 "$second_container" \
+  chown node:node /tmp/openstays-recovery-drill.enc
 
 docker exec \
   --env "CONTROL_TOKEN=$control_token" \
