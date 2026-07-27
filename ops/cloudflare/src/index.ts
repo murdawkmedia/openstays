@@ -11,6 +11,7 @@ import {
 export interface Env extends MerchantOperationsEnv {
   PUBLIC_ORIGIN: string;
   RELEASE: string;
+  OPERATIONS_MODE?: 'cloudflare_container' | 'synology_external';
   TURNSTILE_SECRET: string;
   ELIGIBILITY_HMAC_SECRET: string;
   OPERATIONS_ADMIN_TOKEN: string;
@@ -136,6 +137,7 @@ function authorized(request: Request, expected: string): boolean {
 }
 
 function merchantOperations(env: Env) {
+  if (env.OPERATIONS_MODE === 'synology_external') return undefined;
   return env.MERCHANT_OPERATIONS?.getByName('merchant');
 }
 
@@ -185,6 +187,12 @@ const worker = {
       return eligibility(request, env, fetcher);
     }
     if (request.method === 'GET' && url.pathname === '/healthz') {
+      if (env.OPERATIONS_MODE === 'synology_external') {
+        return json(request, env, 200, {
+          release: env.RELEASE,
+          status: 'eligibility_ready',
+        });
+      }
       const operations = merchantOperations(env);
       const health = operations
         ? await operations.redactedHealth()
@@ -197,6 +205,9 @@ const worker = {
     if (url.pathname === '/v1/operator/diagnostics') {
       if (!authorized(request, env.OPERATIONS_ADMIN_TOKEN)) {
         return json(request, env, 401, { error: 'UNAUTHORIZED' });
+      }
+      if (env.OPERATIONS_MODE === 'synology_external') {
+        return json(request, env, 503, { error: 'OPERATIONS_UNAVAILABLE' });
       }
       const health = merchantOperations(env)
         ? await merchantOperations(env)!.redactedHealth()
@@ -216,7 +227,7 @@ const worker = {
       if (!authorized(request, env.OPERATIONS_ADMIN_TOKEN)) {
         return json(request, env, 401, { error: 'UNAUTHORIZED' });
       }
-      if (!env.MERCHANT_OPERATIONS) {
+      if (!merchantOperations(env)) {
         return json(request, env, 503, { error: 'OPERATIONS_UNAVAILABLE' });
       }
       try {
