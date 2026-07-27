@@ -4,6 +4,11 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import {
+  runOperationsHeartbeat,
+  waitForAbortableDelay,
+  type OperationsHeartbeatSnapshot,
+} from './operationsHeartbeat.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -34,7 +39,15 @@ export function resolveOtsInvocation(args: string[], env: OtsEnvironment = proce
   };
 }
 
-export type OtsBridgeConfig = { openStaysUrl: string; bridgeToken: string; pollMs?: number };
+export type OtsBridgeConfig = {
+  openStaysUrl: string;
+  bridgeToken: string;
+  pollMs?: number;
+  once?: boolean;
+  signal?: AbortSignal;
+  heartbeatToken?: string;
+  release?: string;
+};
 type Work = { _id: string; work?: 'stamp' | 'upgrade'; leaseToken?: string; canonicalJson: string; sha256: string;
   proofBase64?: string };
 
@@ -131,11 +144,38 @@ export async function runOtsBridgeOnce(config: OtsBridgeConfig, runner: OtsRunne
 
 export async function runOtsBridge(config: OtsBridgeConfig): Promise<void> {
   const pollMs = config.pollMs ?? 15_000;
-  for (;;) {
+  const ownController = new AbortController();
+  if (config.signal?.aborted) ownController.abort();
+  else config.signal?.addEventListener('abort', () => ownController.abort(), { once: true });
+  const signal = ownController.signal;
+  let heartbeatStatus: OperationsHeartbeatSnapshot = { status: 'starting' };
+  const heartbeat = config.heartbeatToken
+    ? runOperationsHeartbeat({
+        openStaysUrl: config.openStaysUrl,
+        heartbeatToken: config.heartbeatToken,
+        service: 'ots',
+        release: config.release ?? 'openstays-cli-0.1.0',
+        signal,
+        snapshot: async () => heartbeatStatus,
+      })
+    : Promise.resolve();
+  while (!signal.aborted) {
     try {
       const result = await runOtsBridgeOnce(config);
+      heartbeatStatus = { status: 'ready' };
       if (result.stamped || result.anchored || result.failed) process.stdout.write(`${new Date().toISOString()} ots ${JSON.stringify(result)}\n`);
-    } catch (error) { process.stderr.write(`${new Date().toISOString()} ots-bridge: ${error instanceof Error ? error.message : String(error)}\n`); }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    } catch (error) {
+      heartbeatStatus = { status: 'degraded', failureCategory: 'processing' };
+      process.stderr.write(`${new Date().toISOString()} ots-bridge: processing_failed\n`);
+      if (config.once) {
+        ownController.abort();
+        await heartbeat;
+        throw error;
+      }
+    }
+    if (config.once) break;
+    await waitForAbortableDelay(pollMs, signal);
   }
+  ownController.abort();
+  await heartbeat;
 }

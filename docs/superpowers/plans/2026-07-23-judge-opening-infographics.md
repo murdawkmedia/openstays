@@ -214,7 +214,7 @@ git commit -m "build alternate judge opening infographics"
 Run each command from the repository root:
 
 ```powershell
-$renderer = 'D:\Users\Murphy\Documents\MurphyOS\AIOS\Skills\tools\codex\stakeholder-one-pager-infographic\scripts\render-html-to-png.ps1'
+$renderer = '<local-renderer-script>'
 powershell -ExecutionPolicy Bypass -File $renderer -InputHtml 'docs/demo/judge-opening/variation-a-consensus-convergence.html' -OutputPng 'docs/demo/judge-opening/variation-a-consensus-convergence.png' -WindowWidth 1600 -WindowHeight 900 -ScaleFactor 1
 powershell -ExecutionPolicy Bypass -File $renderer -InputHtml 'docs/demo/judge-opening/variation-b-consensus-table.html' -OutputPng 'docs/demo/judge-opening/variation-b-consensus-table.png' -WindowWidth 1600 -WindowHeight 900 -ScaleFactor 1
 powershell -ExecutionPolicy Bypass -File $renderer -InputHtml 'docs/demo/judge-opening/variation-c-claim-to-proof.html' -OutputPng 'docs/demo/judge-opening/variation-c-claim-to-proof.png' -WindowWidth 1600 -WindowHeight 900 -ScaleFactor 1

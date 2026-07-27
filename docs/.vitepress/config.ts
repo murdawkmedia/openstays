@@ -23,6 +23,7 @@ export default defineConfig({
           { text: 'Configuration', link: '/configuration' },
           { text: 'Self-hosting & deployment', link: '/self-hosting' },
           { text: 'Automation (API / CLI / MCP)', link: '/automation' },
+          { text: 'Public live payments', link: '/public-live-payments' },
           { text: 'Channel manager (Channex)', link: '/channels' },
         ],
       },

@@ -435,11 +435,11 @@ If verification required a correction, stage only its exact files and create one
 
 - [ ] **Step 1: Obtain the external-action gate**
 
-Before deploying functions or invoking the maintenance mutation, obtain Murphy's fresh approval to update only the isolated Convex development deployment `affable-wildcat-206`. Do not touch CBAP, production, credentials, push, merge, or main.
+Before deploying functions or invoking the maintenance mutation, obtain the operator's fresh approval to update only the isolated Convex development deployment. Do not touch unrelated deployments, production, credentials, push, merge, or main.
 
 - [ ] **Step 2: Deploy the verified branch to isolated development**
 
-Run the existing isolated-development Convex command from the already configured worktree. Confirm the output names `affable-wildcat-206` before allowing it to complete.
+Run the existing isolated-development Convex command from the already configured worktree. Confirm the output names only the intended isolated deployment before allowing it to complete.
 
 Expected: schema accepts legacy 210 rows and active 1,000 rows; functions deploy successfully.
 

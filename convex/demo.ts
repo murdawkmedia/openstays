@@ -1,4 +1,5 @@
 import { internalMutation } from './_generated/server';
+import { ConvexError } from 'convex/values';
 import { seedConsensusCommons, seedPinewoodFlats } from './seed';
 
 /**
@@ -9,6 +10,12 @@ import { seedConsensusCommons, seedPinewoodFlats } from './seed';
 export const reset = internalMutation({
   args: {},
   handler: async (ctx) => {
+    if (process.env.PUBLIC_LIVE_PAYMENTS === 'true') {
+      throw new ConvexError({
+        code: 'LIVE_RESET_PROHIBITED',
+        message: 'Destructive demo reset is disabled while public live payments are configured.',
+      });
+    }
     if (process.env.DEMO_MODE !== 'true') {
       return { reset: false, reason: 'DEMO_MODE is not enabled on this deployment.' };
     }

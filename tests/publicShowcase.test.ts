@@ -8,14 +8,18 @@ describe('publicShowcasePolicy', () => {
     expect(publicShowcasePolicy(undefined)).toEqual({
       enabled: false,
       allowLiveWavelength: true,
+      allowLiveZaprite: true,
+      allowSimulated: true,
       allowStaffRoutes: true,
     });
   });
 
-  it('blocks live wallet and staff routes in the public build', () => {
-    expect(publicShowcasePolicy('true')).toEqual({
+  it('keeps staff closed while independently enabling public rails', () => {
+    expect(publicShowcasePolicy('true', 'true', 'false', 'true')).toEqual({
       enabled: true,
-      allowLiveWavelength: false,
+      allowLiveWavelength: true,
+      allowLiveZaprite: false,
+      allowSimulated: true,
       allowStaffRoutes: false,
     });
   });
@@ -36,7 +40,7 @@ describe('public showcase copy and routing', () => {
     expect(source).toContain('adapter ready, not connected');
   });
 
-  it('blocks unavailable public wallet and staff surfaces', () => {
+  it('includes only explicitly enabled public wallet surfaces while staff stays blocked', () => {
     const main = fs.readFileSync('src/main.tsx', 'utf8');
     expect(main).toContain('PublicShowcaseBoundaryPage');
     expect(main).toContain('PUBLIC_SHOWCASE.allowLiveWavelength');
@@ -45,13 +49,21 @@ describe('public showcase copy and routing', () => {
       "const IS_PUBLIC_SHOWCASE_BUILD = import.meta.env.VITE_PUBLIC_SHOWCASE === 'true'",
     );
     expect(main).toContain(
-      "IS_PUBLIC_SHOWCASE_BUILD ? null : lazy(() => import('./pages/WavelengthWalletPage'))",
+      "const INCLUDE_WAVELENGTH_WALLET = !IS_PUBLIC_SHOWCASE_BUILD",
     );
+    expect(main).toContain("import.meta.env.VITE_PUBLIC_WAVELENGTH === 'true'");
+    expect(main).toContain(
+      "INCLUDE_WAVELENGTH_WALLET ? lazy(() => import('./pages/WavelengthWalletPage')) : null",
+    );
+    expect(main).toContain('path="/wallet/pay/:bookingId"');
+    expect(main).toContain('path="/wallet/reward/:code"');
   });
 
-  it('suppresses Wavelength checkout in showcase builds', () => {
+  it('requires a scoped eligibility handoff before public Wavelength checkout', () => {
     const checkout = fs.readFileSync('src/pages/CheckoutPage.tsx', 'utf8');
     expect(checkout).toContain('PUBLIC_SHOWCASE.allowLiveWavelength');
-    expect(checkout).toContain('Live signet settlement is shown in the public tour');
+    expect(checkout).toContain("action: 'wavelength_payment'");
+    expect(checkout).toContain('storeEligibilityToken');
+    expect(checkout).toContain('navigate(walletPath');
   });
 });

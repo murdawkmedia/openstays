@@ -163,9 +163,9 @@ Commands:
   promo-preview --code <c> --property <slug> --unit-type <slug>
                                              Preview a promo code
   mcp                                       Run as an MCP stdio server
-  wave-bridge                               Run the local Wavelength signet merchant bridge
+  wave-bridge [--once]                      Run the local Wavelength signet merchant bridge
   mail-bridge [--once]                      Deliver queued OpenStays mail through SMTP
-  ots-bridge                                Stamp and upgrade Consensus Receipts
+  ots-bridge [--once]                       Stamp and upgrade Consensus Receipts
 
 Global flags:
   --json          Print raw JSON instead of a human summary
@@ -181,6 +181,10 @@ Env vars:
   WAVELENGTH_DAEMON_URL    waved REST gateway (default http://127.0.0.1:10031)
   MAIL_BRIDGE_TOKEN        Shared secret for authenticated mail bridge endpoints
   OTS_BRIDGE_TOKEN         Separate shared secret for OpenTimestamps bridge endpoints
+  WAVELENGTH_HEARTBEAT_TOKEN  Service-scoped operations heartbeat secret
+  OTS_HEARTBEAT_TOKEN         Service-scoped operations heartbeat secret
+  MAIL_HEARTBEAT_TOKEN        Service-scoped operations heartbeat secret
+  OPENSTAYS_RELEASE           Public release identifier included in heartbeats
   OTS_COMMAND              Native OpenTimestamps executable (default ots)
   OTS_WSL                  Set true on Windows to invoke the official client through WSL
   OTS_WSL_PYTHONPATH       WSL package directory (default /root/.local/share/openstays/ots-bridge-python)
@@ -378,6 +382,14 @@ function warnIfKeyOnArgv(parsed: ParsedArgs): void {
   }
 }
 
+function processSignalController(): AbortController {
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  process.once('SIGTERM', stop);
+  process.once('SIGINT', stop);
+  return controller;
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const parsed = parseArgs(argv);
@@ -425,6 +437,7 @@ async function main(): Promise<void> {
     const daemonMacaroonHex = macaroonPath
       ? readFileSync(macaroonPath).toString('hex')
       : undefined;
+    const controller = processSignalController();
     await runWaveBridge({
       openStaysUrl,
       bridgeToken,
@@ -433,6 +446,10 @@ async function main(): Promise<void> {
       daemonMacaroonHex,
       maxRewardFeeSats: process.env.WAVELENGTH_REWARD_MAX_FEE_SATS ? Number(process.env.WAVELENGTH_REWARD_MAX_FEE_SATS) : 210,
       pollMs: process.env.WAVELENGTH_BRIDGE_POLL_MS ? Number(process.env.WAVELENGTH_BRIDGE_POLL_MS) : undefined,
+      once: parsed.flags.once === 'true',
+      signal: controller.signal,
+      heartbeatToken: process.env.WAVELENGTH_HEARTBEAT_TOKEN,
+      release: process.env.OPENSTAYS_RELEASE,
     });
     return;
   }
@@ -445,8 +462,13 @@ async function main(): Promise<void> {
       process.exit(1);
       return;
     }
+    const controller = processSignalController();
     await runOtsBridge({ openStaysUrl, bridgeToken,
-      pollMs: process.env.OTS_BRIDGE_POLL_MS ? Number(process.env.OTS_BRIDGE_POLL_MS) : undefined });
+      pollMs: process.env.OTS_BRIDGE_POLL_MS ? Number(process.env.OTS_BRIDGE_POLL_MS) : undefined,
+      once: parsed.flags.once === 'true',
+      signal: controller.signal,
+      heartbeatToken: process.env.OTS_HEARTBEAT_TOKEN,
+      release: process.env.OPENSTAYS_RELEASE });
     return;
   }
 
@@ -458,6 +480,7 @@ async function main(): Promise<void> {
       process.exit(1);
       return;
     }
+    const controller = processSignalController();
     await runMailBridge({
       openStaysUrl,
       bridgeToken,
@@ -468,6 +491,9 @@ async function main(): Promise<void> {
       smtpPassword: process.env.SMTP_PASSWORD,
       pollMs: process.env.MAIL_BRIDGE_POLL_MS ? Number(process.env.MAIL_BRIDGE_POLL_MS) : undefined,
       once: parsed.flags.once === 'true',
+      signal: controller.signal,
+      heartbeatToken: process.env.MAIL_HEARTBEAT_TOKEN,
+      release: process.env.OPENSTAYS_RELEASE,
     });
     return;
   }
@@ -502,5 +528,8 @@ async function main(): Promise<void> {
 
 const isMainModule = process.argv[1] && import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
 if (isMainModule || process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js')) {
-  main();
+  void main().catch(() => {
+    process.stderr.write('openstays: command_failed\n');
+    process.exitCode = 1;
+  });
 }

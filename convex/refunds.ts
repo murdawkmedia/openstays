@@ -1,7 +1,104 @@
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
+import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internal } from './_generated/api';
 import { requireStaff, writeAudit } from './staff';
+
+const GUEST_PUBLIC_REFUND_REASON = 'guest_requested_public_contribution_refund';
+
+async function authenticateGuest(
+  ctx: QueryCtx | MutationCtx,
+  confirmationCode: string,
+  email: string,
+) {
+  const booking = await ctx.db
+    .query('bookings')
+    .withIndex('by_confirmationCode', (q) =>
+      q.eq('confirmationCode', confirmationCode.trim().toUpperCase()))
+    .first();
+  const guest = booking?.guestId ? await ctx.db.get(booking.guestId) : null;
+  if (!booking || !guest || guest.normalizedEmail !== email.trim().toLowerCase()) {
+    throw new ConvexError({ code: 'NOT_FOUND', message: 'Booking not found.' });
+  }
+  return booking;
+}
+
+export const forGuest = query({
+  args: { confirmationCode: v.string(), email: v.string() },
+  handler: async (ctx, args) => {
+    const booking = await authenticateGuest(ctx, args.confirmationCode, args.email);
+    const [payments, cases] = await Promise.all([
+      ctx.db.query('payments').withIndex('by_booking', (q) => q.eq('bookingId', booking._id)).collect(),
+      ctx.db.query('refundCases').withIndex('by_booking', (q) => q.eq('bookingId', booking._id)).collect(),
+    ]);
+    const refundable = payments.filter((payment) =>
+      (payment.provider === 'zaprite' || payment.provider === 'wavelength')
+      && payment.status === 'paid');
+    const publicCases = cases.filter((refundCase) =>
+      refundable.some((payment) => payment._id === refundCase.paymentId)
+      && refundCase.reason === GUEST_PUBLIC_REFUND_REASON);
+    return {
+      refundablePaymentCount: refundable.length,
+      requestedCaseCount: publicCases.filter((refundCase) => refundCase.status === 'open').length,
+      completedCaseCount: publicCases.filter((refundCase) => refundCase.status === 'completed').length,
+      refundableAmountCents: refundable.reduce((sum, payment) => sum + payment.amountCents, 0),
+    };
+  },
+});
+
+export const requestForGuest = mutation({
+  args: { confirmationCode: v.string(), email: v.string() },
+  handler: async (ctx, args) => {
+    const booking = await authenticateGuest(ctx, args.confirmationCode, args.email);
+    const payments = await ctx.db.query('payments')
+      .withIndex('by_booking', (q) => q.eq('bookingId', booking._id))
+      .collect();
+    const refundable = payments.filter((payment) =>
+      (payment.provider === 'zaprite' || payment.provider === 'wavelength')
+      && payment.status === 'paid');
+    if (refundable.length === 0) {
+      throw new ConvexError({
+        code: 'NO_REFUNDABLE_PUBLIC_PAYMENT',
+        message: 'No paid Zaprite or Wavelength contribution is eligible for a manual refund request.',
+      });
+    }
+    const existingCases = await ctx.db.query('refundCases')
+      .withIndex('by_booking', (q) => q.eq('bookingId', booking._id))
+      .collect();
+    let requested = false;
+    let caseCount = 0;
+    let amountCents = 0;
+    const now = Date.now();
+    for (const payment of refundable) {
+      amountCents += payment.amountCents;
+      // Never allow a second manual disposition for the same payment, even if
+      // the first case was opened by cancellation or reconciliation.
+      const existing = existingCases.find((refundCase) => refundCase.paymentId === payment._id);
+      if (existing) {
+        caseCount += 1;
+        continue;
+      }
+      const refundCaseId = await ctx.db.insert('refundCases', {
+        propertyId: payment.propertyId,
+        paymentId: payment._id,
+        bookingId: booking._id,
+        amountCents: payment.amountCents,
+        currency: payment.currency,
+        reason: GUEST_PUBLIC_REFUND_REASON,
+        status: 'open',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAfter(0, (internal as any).email.sendRefundCaseNotice, {
+        refundCaseId,
+        kind: 'required',
+      });
+      requested = true;
+      caseCount += 1;
+    }
+    return { requested, caseCount, amountCents };
+  },
+});
 
 export const listOpen = query({
   args: {},

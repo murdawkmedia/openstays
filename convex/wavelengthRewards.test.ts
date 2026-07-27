@@ -1,9 +1,13 @@
 /// <reference types="vite/client" />
 import { convexTest } from 'convex-test';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
 import { CONSENSUS_REWARD_SATS, LEGACY_CONSENSUS_REWARD_SATS } from './rewardPolicy';
 import schema from './schema';
+import {
+  eligibilityEmailDigest,
+  signEligibilityToken,
+} from './publicPolicy';
 
 const modules = import.meta.glob('./**/!(*.*.*)*.*s');
 
@@ -24,6 +28,7 @@ async function drainScheduled(t: ReturnType<typeof convexTest>) {
 afterEach(async () => {
   for (const t of created) await drainScheduled(t);
   created.length = 0;
+  vi.unstubAllEnvs();
 });
 
 async function eligibleReward() {
@@ -157,6 +162,52 @@ describe('Wavelength consensus rewards', () => {
     await expect(t.mutation((api as any).wavelengthRewards.submitInvoice, { confirmationCode: 'OS-REWARD',
       email: 'guest@example.test', satsAmount: 1_000, bolt11: 'lntbs10u1expired', expiresAt: Date.now() + 1_000 }))
       .rejects.toThrow('INVALID_SIGNET_REWARD_INVOICE');
+  });
+
+  it('requires a fresh bounded eligibility claim in public live mode', async () => {
+    const signingKey = 'test-only-signing-key-with-at-least-32-bytes';
+    vi.stubEnv('PUBLIC_LIVE_PAYMENTS', 'true');
+    vi.stubEnv('WAVELENGTH_REWARDS_ENABLED', 'true');
+    vi.stubEnv('WAVELENGTH_REWARD_DAILY_BUDGET_SATS', '1000');
+    vi.stubEnv('ELIGIBILITY_HMAC_SECRET', signingKey);
+    const { t, bookingId } = await eligibleReward();
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert('bridgeHealth', {
+        service: 'wavelength', status: 'ready', release: 'test',
+        lastHeartbeatAt: now, spendableSats: 2_000,
+        createdAt: now, updatedAt: now,
+      });
+    });
+    await expect(t.mutation((api as any).wavelengthRewards.submitInvoice, {
+      confirmationCode: 'OS-REWARD',
+      email: 'guest@example.test',
+      satsAmount: 1_000,
+      bolt11: 'lntbs10u1guest',
+      expiresAt: now + 600_000,
+    })).rejects.toThrow('REWARD_ELIGIBILITY_REQUIRED');
+
+    const eligibilityToken = await signEligibilityToken({
+      v: 1,
+      jti: 'reward-eligibility-1',
+      action: 'reward_claim',
+      bookingId: String(bookingId),
+      emailDigest: await eligibilityEmailDigest('guest@example.test', signingKey),
+      deviceDigest: 'device-digest-1',
+      networkDigest: 'network-digest-1',
+      iat: now,
+      exp: now + 300_000,
+    }, signingKey);
+    await expect(t.mutation((api as any).wavelengthRewards.submitInvoice, {
+      confirmationCode: 'OS-REWARD',
+      email: 'guest@example.test',
+      satsAmount: 1_000,
+      bolt11: 'lntbs10u1guest',
+      expiresAt: now + 600_000,
+      eligibilityToken,
+    })).resolves.toMatchObject({ status: 'invoice_ready' });
+    expect(await t.run((ctx) => ctx.db.query('publicRewardClaims').collect()))
+      .toHaveLength(1);
   });
 
   it('upgrades only inactive unpaid legacy rewards and is idempotent', async () => {

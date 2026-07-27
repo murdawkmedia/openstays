@@ -7,6 +7,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from './_generated/api';
 import schema from './schema';
 import { addDays } from '../shared/pricing';
+import {
+  PUBLIC_CONSENT_VERSION,
+  eligibilityEmailDigest,
+  signEligibilityToken,
+} from './publicPolicy';
 
 const modules = import.meta.glob('./**/!(*.*.*)*.*s');
 
@@ -134,5 +139,72 @@ describe('createCheckoutSession ownership check', () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].providerCheckoutId).toBe('cs_new');
+  });
+
+  it('creates an exact consented CA$1 public Zaprite contribution', async () => {
+    const signingKey = 'test-only-signing-key-with-at-least-32-bytes';
+    vi.stubEnv('PUBLIC_LIVE_PAYMENTS', 'true');
+    vi.stubEnv('ZAPRITE_ENABLED', 'true');
+    vi.stubEnv('ZAPRITE_API_KEY', 'zap_test');
+    vi.stubEnv('ZAPRITE_CUSTOM_CHECKOUT_ID', 'checkout_openstays');
+    vi.stubEnv('ZAPRITE_WEBHOOK_SECRET', 'webhook_test');
+    vi.stubEnv('ELIGIBILITY_HMAC_SECRET', signingKey);
+    vi.stubEnv('SITE_URL', 'https://x.example');
+    let orderBody: Record<string, unknown> | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      orderBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({
+        id: 'order_public_1',
+        checkoutUrl: 'https://pay.zaprite.test/order_public_1',
+      }), { status: 200 });
+    }));
+    const t = convexTest(schema, modules);
+    const hold = await seedHold(t);
+    const now = Date.now();
+    const eligibilityToken = await signEligibilityToken({
+      v: 1,
+      jti: 'zaprite-eligibility-1',
+      action: 'zaprite_payment',
+      bookingId: String(hold.bookingId),
+      emailDigest: await eligibilityEmailDigest('guest@example.com', signingKey),
+      deviceDigest: 'device-digest',
+      networkDigest: 'network-digest',
+      iat: now,
+      exp: now + 300_000,
+    }, signingKey);
+
+    await expect(t.action(api.payments.checkout.createCheckoutSession, {
+      bookingId: hold.bookingId,
+      provider: 'zaprite',
+      code: hold.confirmationCode,
+      consent: { version: PUBLIC_CONSENT_VERSION, accepted: true },
+      eligibilityToken,
+    })).resolves.toEqual({
+      checkoutUrl: 'https://pay.zaprite.test/order_public_1',
+    });
+
+    expect(orderBody).toMatchObject({
+      amount: 100,
+      currency: 'CAD',
+      customCheckoutId: 'checkout_openstays',
+      metadata: { consentVersion: PUBLIC_CONSENT_VERSION },
+    });
+    const state = await t.run(async (ctx) => ({
+      booking: await ctx.db.get(hold.bookingId),
+      payments: await ctx.db.query('payments')
+        .withIndex('by_booking', (q) => q.eq('bookingId', hold.bookingId))
+        .collect(),
+    }));
+    expect(state.booking?.publicPaymentConsent).toMatchObject({
+      version: PUBLIC_CONSENT_VERSION,
+      rail: 'zaprite',
+    });
+    expect(state.payments).toHaveLength(1);
+    expect(state.payments[0]).toMatchObject({
+      provider: 'zaprite',
+      amountCents: 100,
+      currency: 'CAD',
+      consentVersion: PUBLIC_CONSENT_VERSION,
+    });
   });
 });

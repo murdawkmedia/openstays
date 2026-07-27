@@ -10,7 +10,7 @@ describe('resolveOtsInvocation', () => {
 
   it('runs the official client through WSL and translates Windows receipt paths', () => {
     expect(resolveOtsInvocation(
-      ['stamp', 'C:\\Users\\Murphy\\AppData\\Local\\Temp\\openstays-ots-1\\receipt.json'],
+      ['stamp', 'C:\\Temp\\openstays-ots-1\\receipt.json'],
       { OTS_WSL: 'true', OTS_WSL_PYTHONPATH: '/root/.local/share/openstays/ots-bridge-python' },
       'win32',
     )).toEqual({
@@ -19,7 +19,7 @@ describe('resolveOtsInvocation', () => {
         '--exec', 'env',
         'PYTHONPATH=/root/.local/share/openstays/ots-bridge-python',
         'python3', '/root/.local/share/openstays/ots-bridge-python/bin/ots',
-        'stamp', '/mnt/c/Users/Murphy/AppData/Local/Temp/openstays-ots-1/receipt.json',
+        'stamp', '/mnt/c/Temp/openstays-ots-1/receipt.json',
       ],
     });
   });
