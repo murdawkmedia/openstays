@@ -3,6 +3,12 @@ import { action, query } from '../_generated/server';
 import { internal } from '../_generated/api';
 import { configuredProviders, getProvider } from './index';
 import { checkoutPath } from '../../shared/bookingLinks';
+import {
+  PUBLIC_CONSENT_VERSION,
+  eligibilityEmailDigest,
+  readPublicPolicy,
+  verifyEligibilityToken,
+} from '../publicPolicy';
 
 /**
  * What can this deployment charge with? The checkout UI renders one button
@@ -53,6 +59,11 @@ export const createCheckoutSession = action({
     // attacker mint provider sessions against anyone else's hold — real
     // provider-cost abuse plus the victim's email prefilled on the hosted page.
     code: v.string(),
+    consent: v.optional(v.object({
+      version: v.string(),
+      accepted: v.boolean(),
+    })),
+    eligibilityToken: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ checkoutUrl: string }> => {
     // 0. Provider must be configured for this deployment.
@@ -82,6 +93,57 @@ export const createCheckoutSession = action({
       throw new ConvexError({ code: 'NOT_A_HOLD', message: 'This booking is not a payable hold.' });
     }
 
+    const policy = readPublicPolicy(process.env);
+    let publicZaprite = false;
+    if (args.provider === 'zaprite' && policy.liveMode) {
+      if (!policy.zapriteEnabled) {
+        throw new ConvexError({
+          code: 'PROVIDER_NOT_CONFIGURED',
+          message: 'Zaprite is not enabled for public contributions.',
+        });
+      }
+      if (
+        args.consent?.accepted !== true
+        || args.consent.version !== PUBLIC_CONSENT_VERSION
+      ) {
+        throw new ConvexError({
+          code: 'PUBLIC_PAYMENT_CONSENT_REQUIRED',
+          message: 'Accept the fictional-booking disclosure before continuing.',
+        });
+      }
+      const signingKey = process.env.ELIGIBILITY_HMAC_SECRET ?? '';
+      if (!args.eligibilityToken || !signingKey || !data.guestNormalizedEmail) {
+        throw new ConvexError({
+          code: 'ELIGIBILITY_REQUIRED',
+          message: 'Complete the payment eligibility check before continuing.',
+        });
+      }
+      let eligibility;
+      try {
+        eligibility = await verifyEligibilityToken(
+          args.eligibilityToken,
+          { action: 'zaprite_payment', bookingId: String(booking._id) },
+          signingKey,
+          Date.now(),
+        );
+      } catch {
+        throw new ConvexError({
+          code: 'ELIGIBILITY_INVALID',
+          message: 'The payment eligibility check expired or was invalid.',
+        });
+      }
+      if (
+        eligibility.emailDigest
+        !== await eligibilityEmailDigest(data.guestNormalizedEmail, signingKey)
+      ) {
+        throw new ConvexError({
+          code: 'ELIGIBILITY_INVALID',
+          message: 'The payment eligibility check does not match this booking.',
+        });
+      }
+      publicZaprite = true;
+    }
+
     // 2. Refuse stale holds (binding rule #5: Stripe's min expires_at is 30 min).
     const expiresAtMs = booking.holdExpiresAt ?? 0;
     if (expiresAtMs - Date.now() < MIN_REMAINING_MS) {
@@ -96,8 +158,12 @@ export const createCheckoutSession = action({
     if (!pb) {
       throw new ConvexError({ code: 'BOOKING_NOT_FOUND', message: 'Booking has no price.' });
     }
-    const amountCents =
-      pb.depositDueCents > 0 ? pb.depositDueCents : pb.totalCents - pb.giftCertAppliedCents;
+    const amountCents = publicZaprite
+      ? policy.zapriteContributionCents
+      : pb.depositDueCents > 0
+        ? pb.depositDueCents
+        : pb.totalCents - pb.giftCertAppliedCents;
+    const currency = publicZaprite ? 'CAD' : property.currency;
 
     // 4. Build success/cancel URLs from SITE_URL. The cancel URL carries the
     //    confirmation code because the public CheckoutPage can only rehydrate a
@@ -140,13 +206,16 @@ export const createCheckoutSession = action({
       bookingId: booking._id,
       confirmationCode: booking.confirmationCode,
       propertyName: property.name,
-      description: `${property.name} — booking ${booking.confirmationCode}`,
+      description: publicZaprite
+        ? `OpenStays project contribution — ${booking.confirmationCode}`
+        : `${property.name} — booking ${booking.confirmationCode}`,
       amountCents,
-      currency: property.currency,
+      currency,
       customerEmail: guestEmail,
       successUrl,
       cancelUrl,
       expiresAtMs,
+      consentVersion: publicZaprite ? PUBLIC_CONSENT_VERSION : undefined,
     });
 
     // 5. Record the pending payments row BEFORE returning, so the webhook always
@@ -156,7 +225,22 @@ export const createCheckoutSession = action({
       provider: args.provider,
       providerCheckoutId: session.checkoutId,
       amountCents,
-      currency: property.currency,
+      currency,
+      providerReconciliationId: publicZaprite
+        ? `openstays:${booking._id}:${expiresAtMs}`
+        : undefined,
+      providerCheckoutConfigId: publicZaprite
+        ? process.env.ZAPRITE_CUSTOM_CHECKOUT_ID
+        : undefined,
+      providerExpiresAt: publicZaprite ? expiresAtMs : undefined,
+      consentVersion: publicZaprite ? PUBLIC_CONSENT_VERSION : undefined,
+      publicPaymentConsent: publicZaprite
+        ? {
+            version: PUBLIC_CONSENT_VERSION,
+            acceptedAt: Date.now(),
+            rail: 'zaprite' as const,
+          }
+        : undefined,
     });
 
     return { checkoutUrl: session.checkoutUrl };

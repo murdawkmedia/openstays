@@ -296,7 +296,7 @@ git commit -m "feat: define public live payment policy"
 - Test: `convex/payments/zaprite.test.ts`
 - Create: `tests/livePaymentDisclosure.test.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Assert:
 
@@ -308,7 +308,7 @@ Assert:
 - reconciliation rejects wrong `externalUniqId`, checkout ID, currency, amount, metadata, or expired order;
 - `PAID` and `COMPLETE` confirm; pending/processing/underpaid do not; overpaid confirms 100 cents and opens one refund case.
 
-- [ ] **Step 2: Run the tests and confirm red**
+- [x] **Step 2: Run the tests and confirm red**
 
 ```powershell
 npx vitest run tests/livePaymentDisclosure.test.ts convex/checkout.test.ts convex/payments/zaprite.test.ts
@@ -316,7 +316,7 @@ npx vitest run tests/livePaymentDisclosure.test.ts convex/checkout.test.ts conve
 
 Expected: FAIL on missing disclosure and fixed-contribution enforcement.
 
-- [ ] **Step 3: Implement the consent component**
+- [x] **Step 3: Implement the consent component**
 
 `LivePaymentDisclosure.tsx` must render the approved fictional-property wording verbatim, an unchecked required checkbox, rail-specific amount text, refund-request promise, and separate optional marketing checkbox. It accepts:
 
@@ -328,7 +328,7 @@ type Props = {
 };
 ```
 
-- [ ] **Step 4: Implement Turnstile outside wallet routes**
+- [x] **Step 4: Implement Turnstile outside wallet routes**
 
 `TurnstileChallenge.tsx` loads `https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit`, uses `VITE_TURNSTILE_SITE_KEY`, emits a token, and renders an accessible retry state. It must not be mounted under `/wallet/*`.
 
@@ -340,7 +340,7 @@ POST ${VITE_PAYMENT_EDGE_URL}/v1/eligibility
 
 with `{ action, bookingId, normalizedEmail, deviceId, turnstileToken }`. Store the Wavelength token in `sessionStorage` under `openstays.eligibility.<bookingId>.wavelength_payment`; never put it in a URL.
 
-- [ ] **Step 5: Enforce the server-side Zaprite contract**
+- [x] **Step 5: Enforce the server-side Zaprite contract**
 
 Change `createCheckoutSession` to require:
 
@@ -354,7 +354,7 @@ eligibilityToken: string;
 
 Verify the HMAC token before any provider call, patch booking consent in the same mutation that records the pending payment, and pass exactly 100 CAD cents to Zaprite. Add `consentVersion`, `bookingId`, and opaque reconciliation ID metadata. During reconciliation, compare every expected field fetched from Zaprite; never trust redirect or webhook content.
 
-- [ ] **Step 6: Verify focused tests**
+- [x] **Step 6: Verify focused tests**
 
 ```powershell
 npx vitest run tests/livePaymentDisclosure.test.ts convex/checkout.test.ts convex/payments/zaprite.test.ts
@@ -363,10 +363,10 @@ npm run typecheck
 
 Expected: all focused tests pass; typecheck exits 0.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
-git add src/components/LivePaymentDisclosure.tsx src/components/TurnstileChallenge.tsx src/pages/CheckoutPage.tsx convex/payments/checkout.ts convex/payments/zaprite.ts tests/livePaymentDisclosure.test.ts convex/checkout.test.ts convex/payments/zaprite.test.ts
+git add src/components/LivePaymentDisclosure.tsx src/components/TurnstileChallenge.tsx src/pages/CheckoutPage.tsx src/lib/livePayments.ts src/vite-env.d.ts convex/schema.ts convex/bookings.ts convex/payments/types.ts convex/payments/checkout.ts convex/payments/zaprite.ts convex/payments/webhooks.ts tests/livePaymentDisclosure.test.ts convex/checkout.test.ts convex/payments/zaprite.test.ts docs/superpowers/plans/2026-07-26-public-live-payment-rails.md
 git commit -m "feat: add consented one dollar Zaprite flow"
 ```
 

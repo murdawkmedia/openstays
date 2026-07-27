@@ -274,6 +274,10 @@ export default defineSchema({
     manualMethod: v.optional(v.string()), // 'cash' | 'etransfer' | 'pos_terminal' | 'cheque'
     providerCheckoutId: v.optional(v.string()),
     providerPaymentId: v.optional(v.string()),
+    providerReconciliationId: v.optional(v.string()),
+    providerCheckoutConfigId: v.optional(v.string()),
+    providerExpiresAt: v.optional(v.number()),
+    consentVersion: v.optional(v.string()),
     amountCents: v.number(),
     gstCents: v.number(),
     currency: v.string(),

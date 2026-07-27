@@ -29,3 +29,25 @@ export function getPublicDeviceId(
   storage.setItem(PUBLIC_DEVICE_STORAGE_KEY, created);
   return created;
 }
+
+export async function requestEligibilityToken(input: {
+  action: 'zaprite_payment' | 'wavelength_payment' | 'reward_claim';
+  bookingId: string;
+  normalizedEmail: string;
+  deviceId: string;
+  turnstileToken: string;
+}): Promise<string> {
+  const edgeUrl = import.meta.env.VITE_PAYMENT_EDGE_URL?.replace(/\/$/u, '');
+  if (!edgeUrl) throw new Error('Live payment verification is unavailable.');
+  const response = await fetch(`${edgeUrl}/v1/eligibility`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error('Live payment verification failed.');
+  const body = await response.json() as { token?: unknown };
+  if (typeof body.token !== 'string' || body.token.length === 0) {
+    throw new Error('Live payment verification returned an invalid response.');
+  }
+  return body.token;
+}
