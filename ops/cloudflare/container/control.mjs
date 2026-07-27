@@ -255,7 +255,12 @@ export function createControlServer(control, token) {
         return;
       }
       json(response, 404, { error: 'NOT_FOUND' });
-    } catch {
+    } catch (error) {
+      const category = error instanceof Error
+        && /^[A-Z][A-Z0-9_]+$/u.test(error.message)
+        ? error.message
+        : 'CONTROL_OPERATION_FAILED';
+      process.stderr.write(`merchant-control: ${category.toLowerCase()}\n`);
       json(response, 503, { error: 'CONTROL_OPERATION_FAILED' });
     }
   });
