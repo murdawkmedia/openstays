@@ -1,3 +1,9 @@
+import { createHash } from 'node:crypto';
+import {
+  accessSync,
+  constants as fileSystemConstants,
+  mkdirSync,
+} from 'node:fs';
 import * as nodeFileSystem from 'node:fs/promises';
 import {
   basename,
@@ -581,6 +587,113 @@ function validBackupKey(env) {
   return encoded;
 }
 
+function numericIdentity(env, name) {
+  const raw = requiredValue(env, name);
+  if (!/^[0-9]+$/u.test(raw)) throw new Error(`${name}_INVALID`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) throw new Error(`${name}_INVALID`);
+  if (value === 0) throw new Error(`${name}_ROOT_FORBIDDEN`);
+  return value;
+}
+
+export function validateRuntimeIdentity(
+  env,
+  {
+    getuid = process.getuid,
+    getgid = process.getgid,
+  } = {},
+) {
+  const expectedUid = numericIdentity(env, 'OPENSTAYS_UID');
+  const expectedGid = numericIdentity(env, 'OPENSTAYS_GID');
+  if (typeof getuid === 'function') {
+    const actualUid = getuid();
+    if (actualUid === 0) throw new Error('RUNTIME_ROOT_FORBIDDEN');
+    if (actualUid !== expectedUid) throw new Error('OPENSTAYS_UID_MISMATCH');
+  }
+  if (typeof getgid === 'function') {
+    const actualGid = getgid();
+    if (actualGid === 0) throw new Error('RUNTIME_ROOT_FORBIDDEN');
+    if (actualGid !== expectedGid) throw new Error('OPENSTAYS_GID_MISMATCH');
+  }
+  return { uid: expectedUid, gid: expectedGid };
+}
+
+function ensureWritableStorage(walletDirectory, quarantineRoot, backupRoot) {
+  const stateRoot = dirname(walletDirectory);
+  if (
+    isEqualOrNested(walletDirectory, quarantineRoot)
+    || isEqualOrNested(stateRoot, backupRoot)
+    || isEqualOrNested(backupRoot, stateRoot)
+  ) {
+    throw new Error('RUNTIME_STORAGE_LAYOUT_INVALID');
+  }
+  for (const root of [stateRoot, quarantineRoot, backupRoot]) {
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    accessSync(
+      root,
+      fileSystemConstants.R_OK
+        | fileSystemConstants.W_OK
+        | fileSystemConstants.X_OK,
+    );
+  }
+}
+
+export function createMerchantSupervisorControl(
+  merchant,
+  {
+    stagingRoot = '/var/lib/openstays/runtime',
+    fileSystem = nodeFileSystem,
+  } = {},
+) {
+  if (
+    !merchant
+    || typeof merchant.restore !== 'function'
+    || typeof merchant.start !== 'function'
+    || typeof merchant.bootstrap !== 'function'
+    || typeof merchant.backup !== 'function'
+    || typeof merchant.health !== 'function'
+    || typeof merchant.stop !== 'function'
+  ) {
+    throw new Error('MERCHANT_CONTROL_INVALID');
+  }
+  const root = resolve(stagingRoot);
+
+  return {
+    walletDirectory:
+      merchant.walletDirectory ?? merchant.options?.walletDirectory,
+    restore: (bytes, digest) => merchant.restore(bytes, digest),
+    start: () => merchant.start(),
+    bootstrap: () => merchant.bootstrap(),
+    async backup() {
+      await fileSystem.mkdir(root, { recursive: true, mode: 0o700 });
+      const requestDirectory = await fileSystem.mkdtemp(
+        join(root, '.supervisor-backup-'),
+      );
+      await fileSystem.chmod(requestDirectory, 0o700);
+      const outputPath = join(requestDirectory, 'wallet.tar.gz.enc');
+      try {
+        const metadata = await merchant.backup(outputPath);
+        const bytes = Buffer.from(await fileSystem.readFile(outputPath));
+        const digest = createHash('sha256').update(bytes).digest('hex');
+        if (
+          metadata?.sha256 !== digest
+          || metadata?.byteLength !== bytes.byteLength
+        ) {
+          throw new Error('BACKUP_RESULT_MISMATCH');
+        }
+        return bytes;
+      } finally {
+        await fileSystem.rm(requestDirectory, {
+          recursive: true,
+          force: true,
+        });
+      }
+    },
+    health: () => merchant.health(),
+    stop: () => merchant.stop(),
+  };
+}
+
 function runtimePort(value) {
   if (value === undefined || value === '') return 8_080;
   if (!/^[0-9]+$/u.test(String(value))) {
@@ -594,6 +707,7 @@ function runtimePort(value) {
 }
 
 function defaultRuntimeSupervisor(env) {
+  validateRuntimeIdentity(env);
   const walletDirectory = resolve(
     env.WAVELENGTH_WALLET_DIRECTORY
       ?? '/var/lib/openstays/wavelength',
@@ -606,6 +720,7 @@ function defaultRuntimeSupervisor(env) {
     env.OPENSTAYS_BACKUP_ROOT
       ?? '/var/backups/openstays',
   );
+  ensureWritableStorage(walletDirectory, quarantineRoot, backupRoot);
   const walletPassword = requiredValue(
     env,
     'WAVELENGTH_WALLET_PASSWORD',
@@ -622,7 +737,7 @@ function defaultRuntimeSupervisor(env) {
     WAVELENGTH_EXPECTED_NETWORK: 'signet',
     OTS_COMMAND: '/usr/local/bin/ots',
   };
-  const control = new MerchantControl({
+  const merchant = new MerchantControl({
     walletDirectory,
     backupKeyBase64,
     walletPassword,
@@ -660,6 +775,15 @@ function defaultRuntimeSupervisor(env) {
         env: childEnv,
       },
     ],
+  });
+  const stagingRoot = dirname(
+    resolve(
+      env.WALLET_BACKUP_OUTPUT_PATH
+        ?? '/var/lib/openstays/runtime/wallet.tar.gz.enc',
+    ),
+  );
+  const control = createMerchantSupervisorControl(merchant, {
+    stagingRoot,
   });
   const store = new GenerationStore(backupRoot, { retain: 12 });
   return createSupervisor({

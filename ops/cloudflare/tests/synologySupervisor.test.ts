@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
   access,
+  copyFile,
   mkdir,
   readFile,
   readdir,
@@ -16,9 +17,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createControlServer } from '../container/control.mjs';
 import { runOperator } from '../../synology/operator.mjs';
+import { GenerationStore } from '../../synology/generationStore.mjs';
 import {
+  createMerchantSupervisorControl,
   createSupervisor,
   createSynologyRuntime,
+  validateRuntimeIdentity,
 } from '../../synology/supervisor.mjs';
 
 const temporaryDirectories: string[] = [];
@@ -1468,6 +1472,8 @@ describe('Synology operator and container binding contract', () => {
     const env = {
       CONTAINER_CONTROL_TOKEN: 'runtime-token',
       OPENSTAYS_RELEASE: 'test-release',
+      OPENSTAYS_UID: String(process.getuid?.() ?? 1_000),
+      OPENSTAYS_GID: String(process.getgid?.() ?? 1_000),
       WALLET_BACKUP_KEY_BASE64: Buffer.alloc(32, 1).toString('base64'),
       WAVELENGTH_WALLET_PASSWORD: 'test-password',
       ...change,
@@ -1490,6 +1496,9 @@ describe('Synology operator and container binding contract', () => {
     expect(compose).toContain('network_mode: bridge');
     expect(compose).toContain('restart: unless-stopped');
     expect(compose).toContain('mem_limit: 2g');
+    expect(compose).toContain(
+      'user: "${OPENSTAYS_UID}:${OPENSTAYS_GID}"',
+    );
     expect(compose).toContain('healthcheck:');
     expect(compose).toContain(
       '/volume1/docker/openstays-merchant/state:/var/lib/openstays',
@@ -1500,7 +1509,149 @@ describe('Synology operator and container binding contract', () => {
     expect(dockerfile).toContain(
       'COPY --chown=node:node ops/synology/*.mjs /app/synology/',
     );
+    expect(dockerfile).toContain(
+      '/app/cloudflare/container/',
+    );
     expect(dockerfile).not.toMatch(/^\s*EXPOSE\s+/mu);
+  });
+
+  it('adapts path-based MerchantControl backups into verified supervisor bytes', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-merchant-adapter-')));
+    temporaryDirectories.push(root);
+    const store = new GenerationStore(join(root, 'generations'));
+    const stagingRoot = join(root, 'staging');
+    await mkdir(stagingRoot);
+    const words = Array.from({ length: 24 }, (_, index) => `word${index}`);
+    const backupPaths: string[] = [];
+    let backupNumber = 0;
+    let periodicTick: (() => void) | undefined;
+    const merchant = {
+      restore: vi.fn(),
+      start: vi.fn(),
+      bootstrap: vi.fn(async () => ({ mnemonic: words })),
+      backup: vi.fn(async (outputPath: string) => {
+        backupNumber += 1;
+        backupPaths.push(outputPath);
+        const bytes = Buffer.from(`encrypted-wallet-${backupNumber}`);
+        await writeFile(outputPath, bytes);
+        return {
+          sha256: sha256(bytes),
+          byteLength: bytes.byteLength,
+        };
+      }),
+      health: vi.fn(() => ({
+        status: 'ready',
+        release: 'test-release',
+      })),
+      stop: vi.fn(),
+    };
+    const control = createMerchantSupervisorControl(merchant, {
+      stagingRoot,
+    });
+    const supervisor = createSupervisor({
+      control,
+      store,
+      schedule: (callback: () => void) => {
+        periodicTick = callback;
+        return { timer: true };
+      },
+      clearSchedule: vi.fn(),
+    });
+
+    await supervisor.start();
+    const result = await supervisor.bootstrap();
+    expect(result).toEqual({ mnemonic: words });
+    expect((await store.loadLatest()).bytes).toEqual(
+      Buffer.from('encrypted-wallet-1'),
+    );
+
+    await supervisor.backupNow();
+    periodicTick!();
+    for (let attempt = 0; attempt < 50 && backupNumber < 3; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    expect(backupNumber).toBe(3);
+    let latestBytes = (await store.loadLatest()).bytes;
+    for (
+      let attempt = 0;
+      attempt < 50
+        && !latestBytes.equals(Buffer.from('encrypted-wallet-3'));
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      latestBytes = (await store.loadLatest()).bytes;
+    }
+    expect(new Set(backupPaths).size).toBe(3);
+    for (const outputPath of backupPaths) {
+      await expect(access(dirname(outputPath))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    }
+    expect(latestBytes).toEqual(Buffer.from('encrypted-wallet-3'));
+  });
+
+  it('rejects mismatched MerchantControl metadata and removes staging bytes', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-merchant-adapter-mismatch-')));
+    temporaryDirectories.push(root);
+    const stagingRoot = join(root, 'staging');
+    const merchant = {
+      restore: vi.fn(),
+      start: vi.fn(),
+      bootstrap: vi.fn(),
+      backup: vi.fn(async (outputPath: string) => {
+        const bytes = Buffer.from('encrypted-wallet');
+        await writeFile(outputPath, bytes);
+        return {
+          sha256: '0'.repeat(64),
+          byteLength: bytes.byteLength,
+        };
+      }),
+      health: vi.fn(),
+      stop: vi.fn(),
+    };
+    const control = createMerchantSupervisorControl(merchant, {
+      stagingRoot,
+    });
+
+    await expect(control.backup()).rejects.toThrow(
+      'BACKUP_RESULT_MISMATCH',
+    );
+    expect(await readdir(stagingRoot)).toEqual([]);
+  });
+
+  it.each([
+    {
+      env: { OPENSTAYS_UID: '0', OPENSTAYS_GID: '1000' },
+      category: 'OPENSTAYS_UID_ROOT_FORBIDDEN',
+    },
+    {
+      env: { OPENSTAYS_UID: 'abc', OPENSTAYS_GID: '1000' },
+      category: 'OPENSTAYS_UID_INVALID',
+    },
+    {
+      env: { OPENSTAYS_UID: '1000', OPENSTAYS_GID: '0' },
+      category: 'OPENSTAYS_GID_ROOT_FORBIDDEN',
+    },
+  ])('rejects an unsafe runtime identity: $category', ({
+    env,
+    category,
+  }) => {
+    expect(() => validateRuntimeIdentity(env, {
+      getuid: () => Number(env.OPENSTAYS_UID),
+      getgid: () => Number(env.OPENSTAYS_GID),
+    })).toThrow(category);
+  });
+
+  it('rejects an actual root process even when configured IDs are non-root', () => {
+    expect(() => validateRuntimeIdentity({
+      OPENSTAYS_UID: '1000',
+      OPENSTAYS_GID: '1000',
+    }, {
+      getuid: () => 0,
+      getgid: () => 1_000,
+    })).toThrow('RUNTIME_ROOT_FORBIDDEN');
   });
 
   it('routes authenticated loopback control requests through the supervisor', async () => {
@@ -1581,11 +1732,33 @@ describe('Synology operator and container binding contract', () => {
     const port = probeAddress.port;
     await new Promise<void>((resolve, reject) =>
       probe.close((error) => error ? reject(error) : resolve()));
+    const appRoot = join(root, 'app');
+    await mkdir(join(appRoot, 'synology'), { recursive: true });
+    await mkdir(join(appRoot, 'cloudflare', 'container'), {
+      recursive: true,
+    });
+    await mkdir(join(appRoot, 'container'), { recursive: true });
+    for (const name of ['supervisor.mjs', 'generationStore.mjs', 'operator.mjs']) {
+      await copyFile(
+        join(process.cwd(), '..', 'synology', name),
+        join(appRoot, 'synology', name),
+      );
+    }
+    for (const name of ['control.mjs', 'backup.mjs']) {
+      await copyFile(
+        join(process.cwd(), 'container', name),
+        join(appRoot, 'cloudflare', 'container', name),
+      );
+      await copyFile(
+        join(process.cwd(), 'container', name),
+        join(appRoot, 'container', name),
+      );
+    }
     const token = 'spawned-runtime-token';
     const stderr: string[] = [];
     const child = spawn(
       process.execPath,
-      [join(process.cwd(), '../synology/supervisor.mjs')],
+      [join(appRoot, 'synology', 'supervisor.mjs')],
       {
         stdio: ['ignore', 'ignore', 'pipe'],
         env: {
@@ -1598,6 +1771,8 @@ describe('Synology operator and container binding contract', () => {
           WAVELENGTH_WALLET_DIRECTORY: join(root, 'state', 'wavelength'),
           WALLET_BACKUP_KEY_BASE64: Buffer.alloc(32, 1).toString('base64'),
           WAVELENGTH_WALLET_PASSWORD: 'test-password',
+          OPENSTAYS_UID: String(process.getuid?.() ?? 1_000),
+          OPENSTAYS_GID: String(process.getgid?.() ?? 1_000),
         },
       },
     );
