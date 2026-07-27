@@ -4,9 +4,12 @@
 
 ## Current branch
 
-- `main` merge: `907d466`
+- Remote `main` (verified 2026-07-27):
+  `bb78b31c4568a4ce1943a1dac2c0ecbdfa312772`
 - Current branch: `codex/synology-live-merchant`
-- Generated API follow-up: <https://github.com/murdawkmedia/openstays/pull/2>
+- Generated Convex API declaration follow-up
+  [PR #2](https://github.com/murdawkmedia/openstays/pull/2) merged on
+  2026-07-27 as `bb78b31c4568a4ce1943a1dac2c0ecbdfa312772`.
 - Public showcase: <https://openstays-consensus.pages.dev/>
 - The dedicated `openstays-demo` production Convex deployment was updated and
   seeded with fictional Consensus Commons inventory.
@@ -121,18 +124,17 @@
 
 ## Remaining gates
 
-1. Merge the generated Convex declaration follow-up.
-2. Render Compose, build the image, and deploy the disabled merchant on the
+1. Render Compose, build the image, and deploy the disabled merchant on the
    approved Synology roots.
-3. Bootstrap the signet wallet once, record recovery offline, and complete the
+2. Bootstrap the signet wallet once, record recovery offline, and complete the
    forced restore drill before enabling Wavelength.
-4. Create and verify the dedicated Turnstile widget and deploy the
+3. Create and verify the dedicated Turnstile widget and deploy the
    eligibility-only Worker.
-5. Rotate the exposed Zaprite key and run exact CA$1 authoritative acceptance
+4. Rotate the exposed Zaprite key and run exact CA$1 authoritative acceptance
    before enabling Zaprite independently.
-6. Fund the capped signet budget and run Wavelength booking/reward acceptance
+5. Fund the capped signet budget and run Wavelength booking/reward acceptance
    before enabling its booking rail and rewards.
-7. Complete desktop/mobile browser acceptance, stop-switch checks, interrupted
+6. Complete desktop/mobile browser acceptance, stop-switch checks, interrupted
    settlement reconciliation, and the 15-day retention check.
 
 See:
