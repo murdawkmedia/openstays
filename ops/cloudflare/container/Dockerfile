@@ -15,22 +15,38 @@ COPY cli/tsconfig.json ./
 COPY cli/src ./src
 RUN npm run build && npm prune --omit=dev
 
+FROM golang:1.26.0-bookworm@sha256:2a0ba12e116687098780d3ce700f9ce3cb340783779646aafbabed748fa6677c AS wavelength-build
+ARG WAVELENGTH_VERSION=v0.1.0
+ARG WAVELENGTH_SOURCE_SHA256=93bc52ec22ffbad94147f3796ded5bffc3e5b9a384626b412aed920c5bd820b3
+ARG WAVELENGTH_VENDOR_SHA256=6d242ae327b47b53bf8af63c90fa60a8bb95d326b9b733c9c1c3fa96abbaeed2
+ADD --checksum=sha256:93bc52ec22ffbad94147f3796ded5bffc3e5b9a384626b412aed920c5bd820b3 \
+  https://github.com/lightninglabs/wavelength/releases/download/v0.1.0/wavelength-source-v0.1.0.tar.gz \
+  /tmp/wavelength-source.tar.gz
+ADD --checksum=sha256:6d242ae327b47b53bf8af63c90fa60a8bb95d326b9b733c9c1c3fa96abbaeed2 \
+  https://github.com/lightninglabs/wavelength/releases/download/v0.1.0/vendor.tar.gz \
+  /tmp/wavelength-vendor.tar.gz
+RUN mkdir -p /src /out \
+  && tar -xzf /tmp/wavelength-source.tar.gz -C /src --strip-components=1 \
+  && tar -xzf /tmp/wavelength-vendor.tar.gz -C /src \
+  && test "$WAVELENGTH_VERSION" = "v0.1.0" \
+  && test "$WAVELENGTH_SOURCE_SHA256" = "93bc52ec22ffbad94147f3796ded5bffc3e5b9a384626b412aed920c5bd820b3" \
+  && test "$WAVELENGTH_VENDOR_SHA256" = "6d242ae327b47b53bf8af63c90fa60a8bb95d326b9b733c9c1c3fa96abbaeed2"
+WORKDIR /src
+RUN CGO_ENABLED=0 GOWORK=off go build \
+  -mod=vendor \
+  -trimpath \
+  -tags="wavewalletrpc swapruntime" \
+  -ldflags="-s -w -buildid= -X github.com/lightninglabs/wavelength/build.Commit=v0.1.0-wallet-rpc" \
+  -o /out/waved \
+  ./cmd/waved
+
 FROM ots-runtime
 
 ARG WAVELENGTH_VERSION=v0.1.0
-ARG WAVELENGTH_ARCHIVE_SHA256=78502f588c38281e646e0e6a302c1f23e1ee1589686dbebf186739b6d41796fe
-ARG WAVELENGTH_DAEMON_SHA256=09cc6e77c2abadaebfd4fe9362440aad096851382d9aa3ee58e7a947bd37284a
 
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
-ADD --checksum=sha256:78502f588c38281e646e0e6a302c1f23e1ee1589686dbebf186739b6d41796fe \
-  https://github.com/lightninglabs/wavelength/releases/download/v0.1.0/wavelength-linux-amd64-v0.1.0.tar.gz \
-  /tmp/wavelength.tar.gz
-RUN tar -xzf /tmp/wavelength.tar.gz -C /tmp --strip-components=1 \
-  && printf '%s  %s\n' "$WAVELENGTH_DAEMON_SHA256" /tmp/waved | sha256sum -c - \
-  && install -m 0755 /tmp/waved /usr/local/bin/waved \
-  && rm -rf /tmp/wavelength.tar.gz /tmp/waved /tmp/wavecli \
-  && test "$WAVELENGTH_VERSION" = "v0.1.0" \
-  && test "$WAVELENGTH_ARCHIVE_SHA256" = "78502f588c38281e646e0e6a302c1f23e1ee1589686dbebf186739b6d41796fe" \
+COPY --from=wavelength-build /out/waved /usr/local/bin/waved
+RUN test "$WAVELENGTH_VERSION" = "v0.1.0" \
   && ots --version
 
 RUN groupadd --gid 1000 node \
