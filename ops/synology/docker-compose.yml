@@ -7,6 +7,7 @@ services:
     entrypoint: ["node", "/app/synology/supervisor.mjs"]
     env_file:
       - /volume1/docker/openstays-merchant/config/merchant.env
+    user: "${OPENSTAYS_UID}:${OPENSTAYS_GID}"
     volumes:
       - /volume1/docker/openstays-merchant/state:/var/lib/openstays
       - /volume2/openstays-wallet-backups:/var/backups/openstays

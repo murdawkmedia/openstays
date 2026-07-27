@@ -57,6 +57,7 @@ COPY --from=cli-build --chown=node:node /build/cli/package.json /app/cli/package
 COPY --from=cli-build --chown=node:node /build/cli/node_modules /app/cli/node_modules
 COPY --from=cli-build --chown=node:node /build/cli/dist /app/cli/dist
 COPY --chown=node:node ops/cloudflare/container/control.mjs ops/cloudflare/container/backup.mjs /app/container/
+COPY --chown=node:node ops/cloudflare/container/control.mjs ops/cloudflare/container/backup.mjs /app/cloudflare/container/
 COPY --chown=node:node ops/synology/*.mjs /app/synology/
 
 RUN mkdir -p /var/lib/openstays /run/openstays \
@@ -64,6 +65,7 @@ RUN mkdir -p /var/lib/openstays /run/openstays \
 
 ENV NODE_ENV=production \
   CONTROL_PORT=8080 \
+  WALLET_BACKUP_OUTPUT_PATH=/var/lib/openstays/runtime/wallet.tar.gz.enc \
   WAVELENGTH_WALLET_DIRECTORY=/var/lib/openstays/wavelength \
   WAVELENGTH_DAEMON_URL=http://127.0.0.1:10031 \
   WAVELENGTH_EXPECTED_NETWORK=signet \
