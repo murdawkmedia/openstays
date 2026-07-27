@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openstays-eligibility-edge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-26",
+  "vars": {
+    "PUBLIC_ORIGIN": "https://openstays-consensus.pages.dev",
+    "RELEASE": "local-unconfigured",
+    "OPERATIONS_MODE": "synology_external"
+  },
+  "secrets": {
+    "required": [
+      "TURNSTILE_SECRET",
+      "ELIGIBILITY_HMAC_SECRET",
+      "OPERATIONS_ADMIN_TOKEN"
+    ]
+  }
+}

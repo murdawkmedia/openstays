@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
 
 import worker, { type Env } from '../src/index';
 
@@ -9,6 +10,11 @@ const env: Env = {
   ELIGIBILITY_HMAC_SECRET: 'eligibility-signing-key-with-at-least-32-bytes',
   OPERATIONS_ADMIN_TOKEN: 'operator-secret',
 } as Env;
+
+const synologyEnv: Env = {
+  ...env,
+  OPERATIONS_MODE: 'synology_external',
+};
 
 function eligibilityRequest(
   overrides: Record<string, unknown> = {},
@@ -33,6 +39,22 @@ function eligibilityRequest(
 }
 
 describe('eligibility HTTP boundary', () => {
+  it('issues eligibility in external mode without merchant operations', async () => {
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify({ success: true })));
+    const response = await worker.fetch(
+      eligibilityRequest(),
+      synologyEnv,
+      { waitUntil() {}, passThroughOnException() {} },
+      fetcher,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      token: expect.any(String),
+    });
+  });
+
   it('returns CORS only to the configured origin', async () => {
     const fetcher = vi.fn(async () =>
       new Response(JSON.stringify({ success: true })));
@@ -47,7 +69,7 @@ describe('eligibility HTTP boundary', () => {
 
     const rejected = await worker.fetch(
       eligibilityRequest({}, 'https://attacker.example'),
-      env,
+      synologyEnv,
       { waitUntil() {}, passThroughOnException() {} },
       fetcher,
     );
@@ -60,16 +82,38 @@ describe('eligibility HTTP boundary', () => {
       new Response(JSON.stringify({ success: false })));
     expect((await worker.fetch(
       eligibilityRequest({ turnstileToken: '' }),
-      env,
+      synologyEnv,
       { waitUntil() {}, passThroughOnException() {} },
       failed,
     )).status).toBe(403);
     expect((await worker.fetch(
       eligibilityRequest(),
-      env,
+      synologyEnv,
       { waitUntil() {}, passThroughOnException() {} },
       failed,
     )).status).toBe(403);
+  });
+
+  it('rejects a Turnstile challenge reused for another action', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false })));
+
+    const first = await worker.fetch(
+      eligibilityRequest(),
+      synologyEnv,
+      { waitUntil() {}, passThroughOnException() {} },
+      fetcher,
+    );
+    const replay = await worker.fetch(
+      eligibilityRequest({ action: 'reward_claim' }),
+      synologyEnv,
+      { waitUntil() {}, passThroughOnException() {} },
+      fetcher,
+    );
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(403);
   });
 
   it.each([
@@ -80,7 +124,7 @@ describe('eligibility HTTP boundary', () => {
   ])('rejects malformed input %#', async (override) => {
     const response = await worker.fetch(
       eligibilityRequest(override),
-      env,
+      synologyEnv,
       { waitUntil() {}, passThroughOnException() {} },
       vi.fn(),
     );
@@ -116,6 +160,62 @@ describe('eligibility HTTP boundary', () => {
     );
     expect(denied.status).toBe(401);
   });
+
+  it('reports only eligibility readiness in external mode', async () => {
+    const redactedHealth = vi.fn(async () => ({ status: 'ready' as const }));
+    const externalWithAccidentalBinding = {
+      ...synologyEnv,
+      SYNOLOGY_ORIGIN: 'https://nas.internal',
+      SYNOLOGY_TOKEN: 'must-not-be-exposed',
+      MERCHANT_OPERATIONS: {
+        getByName: vi.fn(() => ({ redactedHealth })),
+      },
+    } as unknown as Env;
+    const response = await worker.fetch(
+      new Request('https://edge.example/healthz'),
+      externalWithAccidentalBinding,
+      { waitUntil() {}, passThroughOnException() {} },
+      vi.fn(),
+    );
+
+    const body = await response.text();
+    expect(JSON.parse(body)).toEqual({
+      release: 'test',
+      status: 'eligibility_ready',
+    });
+    expect(redactedHealth).not.toHaveBeenCalled();
+    expect(body).not.toContain('nas.internal');
+    expect(body).not.toContain('must-not-be-exposed');
+  });
+
+  it.each([
+    '/v1/operator/bootstrap-wallet',
+    '/v1/operator/restart-from-backup',
+  ])('keeps the operator wallet route unavailable in external mode: %s',
+    async (pathname) => {
+      const externalWithAccidentalBinding = {
+        ...synologyEnv,
+        MERCHANT_OPERATIONS: {
+          getByName: vi.fn(() => {
+            throw new Error('external mode must not use merchant operations');
+          }),
+        },
+      } as unknown as Env;
+      const response = await worker.fetch(
+        new Request(`https://edge.example${pathname}`, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer operator-secret' },
+        }),
+        externalWithAccidentalBinding,
+        { waitUntil() {}, passThroughOnException() {} },
+        vi.fn(),
+      );
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({
+        error: 'OPERATIONS_UNAVAILABLE',
+      });
+    });
 
   it('protects the single-use merchant wallet bootstrap route', async () => {
     const bootstrapWallet = vi.fn(async () => ({
@@ -228,5 +328,40 @@ describe('eligibility HTTP boundary', () => {
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toEqual({ status: 'ready' });
     expect(restartFromBackup).toHaveBeenCalledOnce();
+  });
+});
+
+describe('eligibility-only Wrangler configuration', () => {
+  it('contains only edge eligibility bindings and no merchant infrastructure', async () => {
+    const raw = await readFile(
+      new URL('../wrangler.synology.jsonc', import.meta.url),
+      'utf8',
+    );
+    const config = JSON.parse(raw) as Record<string, unknown>;
+
+    expect(config.vars).toEqual({
+      PUBLIC_ORIGIN: 'https://openstays-consensus.pages.dev',
+      RELEASE: 'local-unconfigured',
+      OPERATIONS_MODE: 'synology_external',
+    });
+    expect(config.secrets).toEqual({
+      required: [
+        'TURNSTILE_SECRET',
+        'ELIGIBILITY_HMAC_SECRET',
+        'OPERATIONS_ADMIN_TOKEN',
+      ],
+    });
+    for (const forbidden of [
+      'r2_buckets',
+      'durable_objects',
+      'containers',
+      'migrations',
+      'triggers',
+    ]) {
+      expect(config).not.toHaveProperty(forbidden);
+    }
+    expect(raw).not.toMatch(
+      /SYN(?:OLOGY)?_(?:ORIGIN|TOKEN)|MERCHANT_OPERATIONS|OPENSTAYS_URL|WAVELENGTH|BACKUP_/u,
+    );
   });
 });
