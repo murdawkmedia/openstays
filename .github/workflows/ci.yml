@@ -11,6 +11,27 @@ permissions:
 # convex/_generated is committed to the repo, so no `convex codegen` step is
 # needed here — typecheck/test/build all run against the committed types.
 jobs:
+  cloudflare-operations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: ops/cloudflare
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ops/cloudflare/package-lock.json
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run typecheck
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 5

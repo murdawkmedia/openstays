@@ -5,15 +5,16 @@ import { setTimeout as wait } from 'node:timers/promises';
 
 const SCHEMA = 'openstays.synology-wallet-backup.v1';
 const LOCK_DIRECTORY = '.generation-store.lock';
-const LOCK_OWNER = 'owner.json';
 const LOCK_RETRY_MS = 10;
 const LOCK_TIMEOUT_MS = 30_000;
-const LOCK_INITIALIZATION_GRACE_MS = 30_000;
+const LEASE_TIMEOUT_MS = 5_000;
+const HEARTBEAT_INTERVAL_MS = 1_000;
 const ARTIFACT_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const ARCHIVE_PATTERN = /^generation-([1-9]\d*)\.archive$/u;
 const MANIFEST_PATTERN = /^generation-([1-9]\d*)\.manifest\.json$/u;
 const TEMPORARY_PATTERN =
   /^\.generation-[1-9]\d*\.(?:archive|manifest\.json)\.[^.]+\.tmp$/u;
+const LEASE_PATTERN = /^lease-([a-f0-9-]+)\.json$/u;
 
 function archiveName(generation) {
   return `generation-${generation}.archive`;
@@ -122,116 +123,173 @@ async function syncDirectory(fileSystem, path) {
   }
 }
 
-function processIsAlive(pid) {
+function leaseName(token) {
+  return `lease-${token}.json`;
+}
+
+function sameDirectory(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function refreshLease(fileSystem, lock) {
+  const before = await fileSystem.stat(lock.path);
+  if (!sameDirectory(before, lock.identity)) {
+    throw new Error('BACKUP_LOCK_OWNERSHIP_LOST');
+  }
+  const temporary = resolve(
+    lock.path,
+    `.${leaseName(lock.token)}.${randomUUID()}.tmp`,
+  );
+  const metadata = {
+    token: lock.token,
+    heartbeatAt: new Date(lock.clock()).toISOString(),
+  };
   try {
-    process.kill(pid, 0);
-    return true;
+    await writeSynced(
+      fileSystem,
+      temporary,
+      Buffer.from(`${JSON.stringify(metadata)}\n`),
+    );
+    await fileSystem.rename(temporary, resolve(lock.path, leaseName(lock.token)));
+  } finally {
+    await Promise.allSettled([fileSystem.unlink(temporary)]);
+  }
+  const after = await fileSystem.stat(lock.path);
+  if (!sameDirectory(after, lock.identity)) {
+    throw new Error('BACKUP_LOCK_OWNERSHIP_LOST');
+  }
+}
+
+async function freshestLease(fileSystem, lockPath) {
+  let entries;
+  try {
+    entries = await fileSystem.readdir(lockPath);
   } catch (error) {
-    if (error?.code === 'ESRCH') return false;
-    if (error?.code === 'EPERM') return true;
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  let freshest = Number.NaN;
+  for (const entry of entries) {
+    const match = LEASE_PATTERN.exec(entry);
+    if (!match) continue;
+    try {
+      const metadata = JSON.parse(await fileSystem.readFile(
+        resolve(lockPath, entry),
+        'utf8',
+      ));
+      const heartbeat = Date.parse(metadata.heartbeatAt);
+      if (metadata.token === match[1] && Number.isFinite(heartbeat)) {
+        freshest = Number.isNaN(freshest)
+          ? heartbeat
+          : Math.max(freshest, heartbeat);
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) {
+        throw error;
+      }
+    }
+  }
+  if (Number.isFinite(freshest)) return freshest;
+  try {
+    return (await fileSystem.stat(lockPath)).mtimeMs;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
     throw error;
   }
 }
 
-async function removeLock(fileSystem, lockPath, ownerPath) {
+async function takeOverStaleLock(fileSystem, root, lockPath) {
+  const tombstone = resolve(
+    root,
+    `.generation-store-lock-${randomUUID()}.tombstone`,
+  );
   try {
-    await fileSystem.unlink(ownerPath);
+    await fileSystem.rename(lockPath, tombstone);
   } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
+    if (error?.code === 'ENOENT') return false;
+    throw error;
   }
-  try {
-    await fileSystem.rmdir(lockPath);
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
-  }
-}
-
-async function reclaimAbandonedLock(fileSystem, lockPath, ownerPath) {
-  let owner;
-  try {
-    owner = JSON.parse(await fileSystem.readFile(ownerPath, 'utf8'));
-  } catch (error) {
-    if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) {
-      throw error;
-    }
-    let lock;
-    try {
-      lock = await fileSystem.stat(lockPath);
-    } catch (statError) {
-      if (statError?.code === 'ENOENT') return true;
-      throw statError;
-    }
-    if (Date.now() - lock.mtimeMs < LOCK_INITIALIZATION_GRACE_MS) {
-      return false;
-    }
-    await removeLock(fileSystem, lockPath, ownerPath);
-    return true;
-  }
-
-  const validPid = owner
-    && typeof owner === 'object'
-    && !Array.isArray(owner)
-    && Number.isSafeInteger(owner.pid)
-    && owner.pid > 0;
-  if (!validPid) {
-    const lock = await fileSystem.stat(lockPath);
-    if (Date.now() - lock.mtimeMs < LOCK_INITIALIZATION_GRACE_MS) return false;
-  } else if (processIsAlive(owner.pid)) {
-    return false;
-  }
-  await removeLock(fileSystem, lockPath, ownerPath);
+  await fileSystem.rm(tombstone, { recursive: true, force: true });
   return true;
 }
 
-async function acquireLock(fileSystem, root) {
+async function acquireLock(fileSystem, root, options) {
   const lockPath = resolve(root, LOCK_DIRECTORY);
-  const ownerPath = resolve(lockPath, LOCK_OWNER);
-  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  const deadline = options.clock() + options.lockTimeoutMs;
 
   while (true) {
     try {
       await fileSystem.mkdir(lockPath, { mode: 0o700 });
-      const owner = {
-        pid: process.pid,
+      const lock = {
+        path: lockPath,
         token: randomUUID(),
-        createdAt: new Date().toISOString(),
+        identity: await fileSystem.stat(lockPath),
+        clock: options.clock,
       };
       try {
-        await writeSynced(
-          fileSystem,
-          ownerPath,
-          Buffer.from(`${JSON.stringify(owner)}\n`),
-        );
+        await refreshLease(fileSystem, lock);
       } catch (error) {
-        await removeLock(fileSystem, lockPath, ownerPath);
+        await takeOverStaleLock(fileSystem, root, lockPath);
         throw error;
       }
-      return { lockPath, ownerPath, token: owner.token };
+      return lock;
     } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
-      if (await reclaimAbandonedLock(fileSystem, lockPath, ownerPath)) {
+      const heartbeat = await freshestLease(fileSystem, lockPath);
+      if (
+        heartbeat !== null
+        && options.clock() - heartbeat <= options.leaseTimeoutMs
+      ) {
+        if (options.clock() >= deadline) throw new Error('BACKUP_LOCK_TIMEOUT');
+        await options.wait(LOCK_RETRY_MS);
         continue;
       }
-      if (Date.now() >= deadline) throw new Error('BACKUP_LOCK_TIMEOUT');
-      await wait(LOCK_RETRY_MS);
+      await takeOverStaleLock(fileSystem, root, lockPath);
     }
   }
 }
 
-async function releaseLock(fileSystem, lock) {
-  let owner;
-  try {
-    owner = JSON.parse(await fileSystem.readFile(lock.ownerPath, 'utf8'));
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      throw new Error('BACKUP_LOCK_OWNERSHIP_LOST');
-    }
-    throw error;
-  }
-  if (owner.token !== lock.token) {
+function startHeartbeat(fileSystem, lock, intervalMs) {
+  let failure;
+  let pending = Promise.resolve();
+  const refresh = async () => {
+    if (failure) throw failure;
+    pending = pending.then(() => refreshLease(fileSystem, lock)).catch((error) => {
+      failure = error;
+    });
+    await pending;
+    if (failure) throw failure;
+  };
+  const timer = setInterval(() => {
+    void refresh().catch(() => {});
+  }, intervalMs);
+  timer.unref();
+  return {
+    refresh,
+    async stop() {
+      clearInterval(timer);
+      await pending;
+      if (failure) throw failure;
+    },
+  };
+}
+
+async function releaseLock(fileSystem, root, lock) {
+  const current = await fileSystem.stat(lock.path);
+  if (!sameDirectory(current, lock.identity)) {
     throw new Error('BACKUP_LOCK_OWNERSHIP_LOST');
   }
-  await removeLock(fileSystem, lock.lockPath, lock.ownerPath);
+  const lease = JSON.parse(await fileSystem.readFile(
+    resolve(lock.path, leaseName(lock.token)),
+    'utf8',
+  ));
+  if (lease.token !== lock.token) throw new Error('BACKUP_LOCK_OWNERSHIP_LOST');
+  const tombstone = resolve(
+    root,
+    `.generation-store-lock-${lock.token}.tombstone`,
+  );
+  await fileSystem.rename(lock.path, tombstone);
+  await fileSystem.rm(tombstone, { recursive: true, force: true });
 }
 
 export class GenerationStore {
@@ -241,18 +299,36 @@ export class GenerationStore {
    *   retain?: number,
    *   fileSystem?: Record<string, unknown>,
    *   directorySync?: (path: string) => Promise<void>,
+   *   leaseTimeoutMs?: number,
+   *   heartbeatIntervalMs?: number,
+   *   lockTimeoutMs?: number,
+   *   clock?: () => number,
+   *   wait?: (milliseconds: number) => Promise<void>,
+   *   failureInjector?: (boundary: string) => Promise<void>,
    * }} [options]
    */
   constructor(root, {
     retain = 12,
     fileSystem = {},
     directorySync,
+    leaseTimeoutMs = LEASE_TIMEOUT_MS,
+    heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
+    lockTimeoutMs = LOCK_TIMEOUT_MS,
+    clock = Date.now,
+    wait: waitFor = wait,
+    failureInjector = async () => {},
   } = {}) {
     this.root = resolve(root);
     this.retain = Number.isSafeInteger(retain) && retain > 0 ? retain : 1;
     this.fileSystem = { ...nodeFileSystem, ...fileSystem };
     this.directorySync = directorySync
       ?? ((path) => syncDirectory(this.fileSystem, path));
+    this.leaseTimeoutMs = leaseTimeoutMs;
+    this.heartbeatIntervalMs = heartbeatIntervalMs;
+    this.lockTimeoutMs = lockTimeoutMs;
+    this.clock = clock;
+    this.wait = waitFor;
+    this.failureInjector = failureInjector;
   }
 
   async commit(value, release, now = Date.now()) {
@@ -262,8 +338,19 @@ export class GenerationStore {
     const createdAt = new Date(now).toISOString();
     await this.fileSystem.mkdir(this.root, { recursive: true, mode: 0o700 });
     const bytes = Buffer.from(value);
-    const lock = await acquireLock(this.fileSystem, this.root);
+    const lock = await acquireLock(this.fileSystem, this.root, {
+      leaseTimeoutMs: this.leaseTimeoutMs,
+      lockTimeoutMs: this.lockTimeoutMs,
+      clock: this.clock,
+      wait: this.wait,
+    });
+    const heartbeat = startHeartbeat(
+      this.fileSystem,
+      lock,
+      this.heartbeatIntervalMs,
+    );
     try {
+      await heartbeat.refresh();
       const entries = await this.fileSystem.readdir(this.root);
       const generation = entries.reduce((highest, entry) => {
         const candidate = generationFromName(entry, ARCHIVE_PATTERN)
@@ -290,21 +377,29 @@ export class GenerationStore {
 
       try {
         await writeSynced(this.fileSystem, archiveTemporary, bytes);
+        await this.failureInjector('archive-temp-write-fsync');
         await writeSynced(
           this.fileSystem,
           manifestTemporary,
           Buffer.from(`${JSON.stringify(manifest)}\n`),
         );
+        await this.failureInjector('manifest-temp-write-fsync');
         await this.fileSystem.rename(
           archiveTemporary,
           resolve(this.root, archiveName(generation)),
         );
+        await this.failureInjector('archive-rename');
         await this.directorySync(this.root);
+        await this.failureInjector('archive-directory-sync');
+        await heartbeat.refresh();
         await this.fileSystem.rename(
           manifestTemporary,
           resolve(this.root, manifestName(generation)),
         );
+        await this.failureInjector('manifest-rename');
         await this.directorySync(this.root);
+        await this.failureInjector('manifest-directory-sync');
+        await heartbeat.refresh();
       } finally {
         await Promise.allSettled([
           this.fileSystem.unlink(archiveTemporary),
@@ -339,7 +434,14 @@ export class GenerationStore {
       }
       return manifest;
     } finally {
-      await releaseLock(this.fileSystem, lock);
+      let heartbeatError;
+      try {
+        await heartbeat.stop();
+      } catch (error) {
+        heartbeatError = error;
+      }
+      await releaseLock(this.fileSystem, this.root, lock);
+      if (heartbeatError) throw heartbeatError;
     }
   }
 
@@ -362,6 +464,7 @@ export class GenerationStore {
       await this.fileSystem.unlink(
         resolve(this.root, manifestName(generation)),
       );
+      await this.failureInjector('cleanup-unlink');
       await this.fileSystem.unlink(
         resolve(this.root, archiveName(generation)),
       );
@@ -386,6 +489,7 @@ export class GenerationStore {
       if (metadata.mtimeMs > staleBefore) continue;
       try {
         await this.fileSystem.unlink(path);
+        await this.failureInjector('cleanup-unlink');
         changed = true;
       } catch (error) {
         if (error?.code !== 'ENOENT') throw error;
