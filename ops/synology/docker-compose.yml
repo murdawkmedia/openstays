@@ -6,10 +6,10 @@ services:
       dockerfile: ops/cloudflare/container/Dockerfile
     entrypoint: ["node", "/app/synology/supervisor.mjs"]
     env_file:
-      - /volume1/docker/openstays-merchant/config/merchant.env
+      - /volume1/openstays-merchant/config/merchant.env
     user: "${OPENSTAYS_UID}:${OPENSTAYS_GID}"
     volumes:
-      - /volume1/docker/openstays-merchant/state:/var/lib/openstays
+      - /volume1/openstays-merchant/state:/var/lib/openstays
       - /volume2/openstays-wallet-backups:/var/backups/openstays
     network_mode: bridge
     restart: unless-stopped

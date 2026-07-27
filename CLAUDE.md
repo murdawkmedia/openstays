@@ -268,6 +268,15 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   `/volume2/openstays-wallet-backups` are recovery authority. The public
   browser and eligibility-only Worker never connect to the NAS; the merchant
   initiates authenticated bridge calls to authoritative Convex state.
+- 2026-07-27 (Synology host trust discovery): `/volume1/docker` is writable
+  and cannot anchor privileged state. The binding application root is the
+  root-owned mode-`0700` `/volume1/openstays-merchant` leaf under trusted
+  `/volume1`. NAS source publication uses only a bounded, size- and
+  SHA-256-pinned local Git archive plus a root-owned source attestation; it
+  never depends on Git being installed on the NAS.
+- 2026-07-27 (Synology interactive operations): wallet bootstrap, backup, and
+  health use an authenticated DSM Container Manager terminal. Recovery words
+  stay offline and out of task/log output, and a second bootstrap must reject.
 - 2026-07-27 (public rail enablement): Zaprite and Wavelength are accepted and
   enabled independently. The Zaprite API key pasted during development is
   exposed and must be replaced before Zaprite enablement. Wavelength remains

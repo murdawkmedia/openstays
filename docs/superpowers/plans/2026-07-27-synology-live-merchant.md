@@ -8,6 +8,14 @@
 
 **Tech Stack:** Node.js 24 ESM, Vitest, Docker Compose, Synology Container Manager, Wavelength v0.1.0 signet, OpenTimestamps Python client 0.7.2, Cloudflare Workers/Turnstile, Convex.
 
+> **Host discovery, 2026-07-27:** the original
+> `/volume1/docker/openstays-merchant` path in this plan is superseded.
+> `/volume1/docker` is mode `0777` with ACLs; the binding trust anchor is the
+> root-owned, non-writable `/volume1` parent and active application root
+> `/volume1/openstays-merchant`. The NAS also has no Git binary, so the active
+> source handoff is a clean local `git archive` bound to literal commit,
+> archive SHA-256, and launcher SHA-256 values in the manual DSM root task.
+
 ---
 
 ## File map
@@ -16,8 +24,8 @@
   and retain encrypted wallet generations.
 - Create `ops/synology/supervisor.mjs`: restore-before-start lifecycle,
   bootstrap-and-backup transaction, periodic backup, and local health.
-- Create `ops/synology/operator.mjs`: loopback control client used through
-  `docker exec`.
+- Create `ops/synology/operator.mjs`: loopback control client used through an
+  authenticated DSM Container Manager terminal.
 - Create `ops/synology/docker-compose.yml`: isolated Synology runtime with no
   published ports and explicit `/volume1` and `/volume2` mounts.
 - Create `ops/synology/.env.example`: names and inert defaults only.
@@ -278,7 +286,7 @@ Test that:
 - requests use `Authorization: Bearer <CONTAINER_CONTROL_TOKEN>`;
 - mnemonic output is produced only for successful bootstrap;
 - Compose contains no `ports:` entry;
-- Compose mounts `/volume1/docker/openstays-merchant/state` and
+- Compose mounts `/volume1/openstays-merchant/state` and
   `/volume2/openstays-wallet-backups`;
 - Compose sets `network_mode: bridge`, `restart: unless-stopped`, a memory
   ceiling, and a health check.
@@ -315,9 +323,9 @@ services:
       context: ../..
       dockerfile: ops/cloudflare/container/Dockerfile
     entrypoint: ["node", "/app/synology/supervisor.mjs"]
-    env_file: ["/volume1/docker/openstays-merchant/config/merchant.env"]
+    env_file: ["/volume1/openstays-merchant/config/merchant.env"]
     volumes:
-      - /volume1/docker/openstays-merchant/state:/var/lib/openstays
+      - /volume1/openstays-merchant/state:/var/lib/openstays
       - /volume2/openstays-wallet-backups:/var/backups/openstays
     restart: unless-stopped
     mem_limit: 2g
@@ -384,7 +392,7 @@ Expected: FAIL because the scripts do not exist.
 
 ```bash
 set -euo pipefail
-APP_ROOT=/volume1/docker/openstays-merchant
+APP_ROOT=/volume1/openstays-merchant
 BACKUP_ROOT=/volume2/openstays-wallet-backups
 test "$(id -un)" = "murdawk"
 install -d -m 700 "$APP_ROOT/config" "$APP_ROOT/state" "$BACKUP_ROOT"
@@ -543,9 +551,9 @@ Expected: branch created on `murdawkmedia/openstays`.
 ### Task 7: Deploy disabled Synology infrastructure
 
 **Files on Synology:**
-- `/volume1/docker/openstays-merchant/source`
-- `/volume1/docker/openstays-merchant/config/merchant.env`
-- `/volume1/docker/openstays-merchant/state`
+- `/volume1/openstays-merchant/source`
+- `/volume1/openstays-merchant/config/merchant.env`
+- `/volume1/openstays-merchant/state`
 - `/volume2/openstays-wallet-backups`
 
 - [ ] **Step 1: Generate scoped secrets without displaying them**
@@ -556,27 +564,18 @@ values for every secret named in the design.
 
 - [ ] **Step 2: Deploy with all rails disabled**
 
-From the approved G14 hop:
-
-```bash
-cd /volume1/docker/openstays-merchant/source
-bash ops/synology/deploy.sh
-docker inspect openstays-merchant --format '{{json .NetworkSettings.Ports}}'
-```
-
-Expected: healthy or `awaiting_bootstrap`; ports output is `{}`.
+From the approved administration path, run the documented manual DSM root
+task with literal launcher size/SHA-256, source archive size/SHA-256, exact
+commit provenance label, and action `deploy`. Never execute the published
+checkout directly. Expected: healthy or `awaiting_bootstrap`, with the
+launcher-attested published-port count equal to zero.
 
 - [ ] **Step 3: Bootstrap once**
 
-Run:
-
-```bash
-docker exec -it openstays-merchant \
-  node /app/synology/operator.mjs bootstrap
-```
-
-Write the 24 recovery words offline. Do not capture them in command output
-files, chat, screenshots, or status notes. A second bootstrap must fail.
+Use an authenticated DSM Container Manager terminal in the attested merchant
+container and run `node /app/synology/operator.mjs bootstrap`. Write the 24
+recovery words offline. Do not capture them in task output, command logs, chat,
+screenshots, or status notes. A second bootstrap must fail.
 
 - [ ] **Step 4: Run forced recovery**
 

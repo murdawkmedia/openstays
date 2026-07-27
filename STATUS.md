@@ -16,6 +16,10 @@
 - `ZAPRITE_ENABLED`, `WAVELENGTH_ENABLED`, and
   `WAVELENGTH_REWARDS_ENABLED` remain `false`; the reward budget remains zero.
 - Synology is the approved merchant host for this showcase; SHC is excluded.
+- Host inspection established `/volume1` and `/volume2` as root-owned mode
+  `0755` Linux-mode parents without ACLs. The active application root is
+  `/volume1/openstays-merchant`; writable `/volume1/docker` is excluded from
+  privileged trust.
 - No Synology deployment, wallet bootstrap, Turnstile widget, eligibility
   Worker deployment, credential rotation, Zaprite resource, or rail enablement
   has been completed by this branch.
@@ -50,9 +54,13 @@
   - serialized periodic backup and redacted stale-backup health;
   - guarded fixed-root deployment and forced-recovery scripts;
   - a SHA-256-pinned, root-owned DSM launcher that sanitizes its environment,
-    fetches and atomically publishes an exact clean commit, preserves prior
-    source in quarantine, and gives checkout scripts a root-only nonce
-    handoff;
+    bounded-copies and verifies locally generated source archive bytes,
+    rejects unsafe archive members, atomically publishes a commit/size/digest
+    attested source tree, preserves prior source in quarantine, and gives
+    checkout scripts a root-only nonce handoff;
+  - a verify-before-publish Task Scheduler sequence that bounds staged launcher
+    reads by literal size and timeout, verifies SHA-256 before atomic rename,
+    and preserves the previous trusted launcher on mismatch;
   - exact `1026:100` container-user attestation alongside the existing fixed
     labels, mounts, ports, disabled rails, and cleanup boundaries;
   - loopback-only operator/control access with no published container ports.
@@ -70,6 +78,9 @@
 - A stale Wavelength service hides only Wavelength. Zaprite and the simulated
   tour remain independent.
 - Missing, corrupt, or stale wallet recovery fails closed.
+- Bootstrap, backup, and health are interactive only through an authenticated
+  DSM Container Manager terminal; recovery words never enter task/log output,
+  and the required second bootstrap rejects.
 - Real-payment rows are never touched by demo reset.
 - Only dedicated OpenStays resources may be configured. Unrelated projects,
   customer data, credentials, and deployments remain out of scope.
@@ -84,7 +95,7 @@
   - credential-dependent live payment browser checks remained correctly
     skipped.
 - Tasks 1-6 of the Synology plan are complete locally.
-- Cloudflare/Synology operations pass 157 tests, typecheck, the generic Worker
+- Cloudflare/Synology operations pass 167 tests, typecheck, the generic Worker
   dry-run build, and the eligibility-only dry run with no Container, Durable
   Object, or R2 binding.
 - The current full local gate passed:
