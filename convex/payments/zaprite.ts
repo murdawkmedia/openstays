@@ -20,6 +20,8 @@ export type ZapriteOrderStatus =
 export type ZapriteOrder = {
   id: string;
   externalUniqId?: string | null;
+  customCheckoutId?: string | null;
+  expiresAt?: string | null;
   totalAmount: number;
   currency: string;
   status: ZapriteOrderStatus;
@@ -49,6 +51,10 @@ export function classifyZapriteOrder(args: {
   bookingId: string;
   amountCents: number;
   currency: string;
+  reconciliationId: string;
+  customCheckoutId: string;
+  consentVersion: string;
+  expiresAtMs: number;
 }): ZapriteDisposition {
   const { order } = args;
   if (order.id !== args.orderId) {
@@ -56,6 +62,24 @@ export function classifyZapriteOrder(args: {
   }
   if (order.metadata?.bookingId !== args.bookingId) {
     return { disposition: 'mismatch', reason: 'booking_metadata', status: order.status };
+  }
+  if (
+    order.externalUniqId !== args.reconciliationId
+    || order.metadata?.reconciliationId !== args.reconciliationId
+  ) {
+    return { disposition: 'mismatch', reason: 'reconciliation_id', status: order.status };
+  }
+  if (order.customCheckoutId !== args.customCheckoutId) {
+    return { disposition: 'mismatch', reason: 'custom_checkout', status: order.status };
+  }
+  if (order.metadata?.consentVersion !== args.consentVersion) {
+    return { disposition: 'mismatch', reason: 'consent_version', status: order.status };
+  }
+  if (
+    typeof order.expiresAt !== 'string'
+    || Date.parse(order.expiresAt) !== args.expiresAtMs
+  ) {
+    return { disposition: 'mismatch', reason: 'expiry', status: order.status };
   }
   if (order.totalAmount !== args.amountCents) {
     return { disposition: 'mismatch', reason: 'order_amount', status: order.status };
@@ -139,6 +163,7 @@ export const zapriteProvider: PaymentProvider = {
           bookingId: req.bookingId,
           confirmationCode: req.confirmationCode,
           reconciliationId,
+          consentVersion: req.consentVersion,
         },
         tags: ['openstays', 'consensus-commons'],
       }),

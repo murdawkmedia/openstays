@@ -675,6 +675,7 @@ export const byConfirmationCode = query({
     const unit = await ctx.db.get(booking.unitId);
     const unitType = await ctx.db.get(booking.unitTypeId);
     const property = await ctx.db.get(booking.propertyId);
+    const guest = booking.guestId ? await ctx.db.get(booking.guestId) : null;
     const addOns = await ctx.db
       .query('bookingAddOns')
       .withIndex('by_booking', (q) => q.eq('bookingId', booking._id))
@@ -699,6 +700,7 @@ export const byConfirmationCode = query({
         quantity: a.quantity,
         unitPriceCents: a.unitPriceCents,
       })),
+      guestEmail: guest?.normalizedEmail ?? '',
     };
   },
 });
@@ -794,6 +796,7 @@ export const getForCheckout = internalQuery({
           }
         : null,
       guestEmail: guest?.email ?? null,
+      guestNormalizedEmail: guest?.normalizedEmail ?? null,
     };
   },
 });
@@ -828,6 +831,10 @@ export const listPendingZapritePayments = internalQuery({
         amountCents: payment.amountCents,
         currency: payment.currency,
         propertyId: payment.propertyId,
+        reconciliationId: payment.providerReconciliationId,
+        customCheckoutId: payment.providerCheckoutConfigId,
+        expiresAtMs: payment.providerExpiresAt,
+        consentVersion: payment.consentVersion,
       }));
   },
 });
@@ -906,8 +913,26 @@ export const recordPendingPayment = internalMutation({
     providerCheckoutId: v.string(),
     amountCents: v.number(),
     currency: v.string(),
+    providerReconciliationId: v.optional(v.string()),
+    providerCheckoutConfigId: v.optional(v.string()),
+    providerExpiresAt: v.optional(v.number()),
+    consentVersion: v.optional(v.string()),
+    publicPaymentConsent: v.optional(v.object({
+      version: v.string(),
+      acceptedAt: v.number(),
+      rail: v.literal('zaprite'),
+    })),
   },
   handler: async (ctx, args): Promise<Id<'payments'>> => {
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) {
+      throw new ConvexError({ code: 'NOT_FOUND', message: 'Booking not found.' });
+    }
+    if (args.publicPaymentConsent && !booking.publicPaymentConsent) {
+      await ctx.db.patch(booking._id, {
+        publicPaymentConsent: args.publicPaymentConsent,
+      });
+    }
     const existing = await ctx.db
       .query('payments')
       .withIndex('by_provider_checkout', (q) =>
@@ -917,15 +942,15 @@ export const recordPendingPayment = internalMutation({
       .first();
     if (existing) return existing._id;
 
-    const booking = await ctx.db.get(args.bookingId);
-    if (!booking) {
-      throw new ConvexError({ code: 'NOT_FOUND', message: 'Booking not found.' });
-    }
     return await ctx.db.insert('payments', {
       propertyId: booking.propertyId,
       bookingId: args.bookingId,
       provider: args.provider,
       providerCheckoutId: args.providerCheckoutId,
+      providerReconciliationId: args.providerReconciliationId,
+      providerCheckoutConfigId: args.providerCheckoutConfigId,
+      providerExpiresAt: args.providerExpiresAt,
+      consentVersion: args.consentVersion,
       amountCents: args.amountCents,
       gstCents: 0, // filled on confirm (tax-inclusive extraction of the captured amount)
       currency: args.currency,

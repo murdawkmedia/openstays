@@ -110,6 +110,10 @@ export const reconcileZapritePending = internalAction({
           bookingId: payment.bookingId,
           amountCents: payment.amountCents,
           currency: payment.currency,
+          reconciliationId: payment.reconciliationId ?? '',
+          customCheckoutId: payment.customCheckoutId ?? '',
+          consentVersion: payment.consentVersion ?? '',
+          expiresAtMs: payment.expiresAtMs ?? 0,
         });
         if (disposition.disposition === 'wait') continue;
         if (disposition.disposition === 'mismatch') {

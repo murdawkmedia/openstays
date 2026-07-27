@@ -9,7 +9,14 @@ import { readGuestConfirmation, walletPath } from '../../shared/bookingLinks';
 import { Spinner } from '../components/Spinner';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
 import { PriceBreakdownView } from '../components/PriceBreakdownView';
+import { LivePaymentDisclosure } from '../components/LivePaymentDisclosure';
+import { TurnstileChallenge } from '../components/TurnstileChallenge';
 import { formatCountdown, formatDisplayDate } from '../lib/dates';
+import {
+  PUBLIC_CONSENT_VERSION,
+  getPublicDeviceId,
+  requestEligibilityToken,
+} from '../lib/livePayments';
 import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 import { NotFoundPage } from './NotFoundPage';
 
@@ -49,6 +56,8 @@ export function CheckoutPage() {
   const [holdTooStale, setHoldTooStale] = useState(false);
   const [paying, setPaying] = useState(false);
   const [payingProvider, setPayingProvider] = useState<string | null>(null);
+  const [liveConsentAccepted, setLiveConsentAccepted] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -78,6 +87,8 @@ export function CheckoutPage() {
   const expired = msRemaining <= 0;
   const property = propertyConfigs?.[0];
   const demoMode = providerInfo?.demoMode ?? true;
+  const activeBookingId = bookingId;
+  const normalizedGuestEmail = booking.guestEmail;
 
   async function handleSimulatedPay() {
     setPaying(true);
@@ -98,11 +109,28 @@ export function CheckoutPage() {
     setPayError(null);
     setHoldTooStale(false);
     try {
+      let eligibilityToken: string | undefined;
+      if (provider === 'zaprite' && PUBLIC_SHOWCASE.enabled) {
+        if (!liveConsentAccepted || !turnstileToken) {
+          throw new Error('Accept the disclosure and complete the payment check.');
+        }
+        eligibilityToken = await requestEligibilityToken({
+          action: 'zaprite_payment',
+          bookingId: activeBookingId,
+          normalizedEmail: normalizedGuestEmail,
+          deviceId: getPublicDeviceId(),
+          turnstileToken,
+        });
+      }
       const result = await createCheckoutSession({
         bookingId: bookingId as Id<'bookings'>,
         provider,
         // Proof of ownership — the code the guest already has (from the URL).
         code: code ?? '',
+        consent: provider === 'zaprite' && PUBLIC_SHOWCASE.enabled
+          ? { version: PUBLIC_CONSENT_VERSION, accepted: liveConsentAccepted }
+          : undefined,
+        eligibilityToken,
       });
       window.location.assign(result.checkoutUrl);
       // Intentionally leave `paying` true — we're navigating away.
@@ -223,13 +251,32 @@ export function CheckoutPage() {
             )}
           </div>
         ) : (
+          <>
+          {providerInfo.providers.includes('zaprite') && PUBLIC_SHOWCASE.allowLiveZaprite ? (
+            <>
+              <LivePaymentDisclosure
+                rail="zaprite"
+                accepted={liveConsentAccepted}
+                onAcceptedChange={setLiveConsentAccepted}
+              />
+              <TurnstileChallenge onToken={setTurnstileToken} />
+            </>
+          ) : null}
           <div className={`mt-6 grid gap-3 ${providerInfo.providers.length > 1 ? 'sm:grid-cols-2' : ''}`}>
             {providerInfo.providers.map((provider) => (
               <button
                 key={provider}
                 type="button"
                 className="btn-primary flex w-full items-center justify-center gap-2"
-                disabled={expired || paying}
+                disabled={
+                  expired
+                  || paying
+                  || (
+                    provider === 'zaprite'
+                    && PUBLIC_SHOWCASE.enabled
+                    && (!liveConsentAccepted || !turnstileToken)
+                  )
+                }
                 onClick={() => handleProviderPay(provider)}
               >
                 <CreditCard className="h-4 w-4" aria-hidden="true" />
@@ -237,6 +284,7 @@ export function CheckoutPage() {
               </button>
             ))}
           </div>
+          </>
         )}
 
         {PUBLIC_SHOWCASE.enabled ? (
