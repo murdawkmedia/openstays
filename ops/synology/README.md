@@ -57,6 +57,13 @@ starts only the `merchant` service in the `openstays-merchant` project. A
 successful first start may report `awaiting_bootstrap`; all public payment
 flags remain disabled.
 
+Immediately before Compose starts or updates the service, deployment arms a
+failure and signal trap. A partial startup, failed post-start identity check,
+or failed health command stops only the `merchant` service through the same
+validated Compose project, environment file, and configuration file. The trap
+is disarmed only after container attestation and health both pass; unrelated
+containers are never targeted.
+
 ## Bootstrap exactly once
 
 Bootstrap is the only command that returns the 24 recovery words:

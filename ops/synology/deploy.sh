@@ -102,6 +102,16 @@ verify_container_identity() {
   container_identity_matches || fail CONTAINER_IDENTITY_INVALID
 }
 
+stop_failed_deploy() {
+  exit_status=$?
+  trap - EXIT INT TERM
+  docker compose --project-name openstays-merchant \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    stop merchant >/dev/null 2>&1 || true
+  exit "$exit_status"
+}
+
 assert_safe_target "$APP_ROOT"
 assert_safe_target "$BACKUP_ROOT"
 
@@ -165,6 +175,8 @@ if docker container inspect openstays-merchant >/dev/null 2>&1; then
   verify_container_identity
 fi
 
+trap stop_failed_deploy EXIT
+trap 'exit 130' INT TERM
 docker compose --project-name openstays-merchant \
   --env-file "$ENV_FILE" \
   -f "$COMPOSE_FILE" \
@@ -174,4 +186,5 @@ verify_container_identity
 docker exec openstays-merchant \
   node /app/synology/operator.mjs health >/dev/null
 
+trap - EXIT INT TERM
 printf '%s\n' 'OpenStays merchant deployed with public rails disabled.'

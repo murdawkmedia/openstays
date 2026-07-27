@@ -80,6 +80,79 @@ function run(
   });
 }
 
+function prepareDeploySandbox(root: string, dockerSource: string) {
+  const bin = join(root, 'bin');
+  const calls = join(root, 'calls');
+  mkdirSync(bin);
+  const { destination, appRoot, backupRoot } = sandboxedScript(
+    deployPath,
+    root,
+  );
+  mkdirSync(`${appRoot}/source/ops/synology`, { recursive: true });
+  mkdirSync(`${appRoot}/config`, { recursive: true });
+  mkdirSync(backupRoot, { recursive: true });
+  copyFileSync(
+    join(repositoryRoot, 'ops', 'synology', 'docker-compose.yml'),
+    `${appRoot}/source/ops/synology/docker-compose.yml`,
+  );
+  const requiredSecrets = [
+    'OPENSTAYS_API_KEY',
+    'CONTAINER_CONTROL_TOKEN',
+    'WALLET_BACKUP_KEY_BASE64',
+    'WAVELENGTH_WALLET_PASSWORD',
+    'WAVELENGTH_BRIDGE_TOKEN',
+    'WAVELENGTH_HEARTBEAT_TOKEN',
+    'OTS_BRIDGE_TOKEN',
+    'OTS_HEARTBEAT_TOKEN',
+    'MAIL_BRIDGE_TOKEN',
+    'MAIL_HEARTBEAT_TOKEN',
+    'SMTP_PASSWORD',
+  ];
+  writeFileSync(
+    `${appRoot}/config/merchant.env`,
+    [
+      'OPENSTAYS_UID=1234',
+      'OPENSTAYS_GID=2345',
+      'ZAPRITE_ENABLED=false',
+      'WAVELENGTH_ENABLED=false',
+      'WAVELENGTH_REWARDS_ENABLED=false',
+      ...requiredSecrets.map((name) => `${name}=not-empty`),
+    ].join('\n'),
+    { mode: 0o600 },
+  );
+  executable(join(bin, 'docker'), dockerSource);
+  executable(
+    join(bin, 'stat'),
+    '#!/usr/bin/env bash\n[[ "$*" == *"%a"* ]] && echo 600 || echo murdawk\n',
+  );
+  executable(
+    join(bin, 'install'),
+    '#!/usr/bin/env bash\nfor argument in "$@"; do case "$argument" in -d|-m|700) ;; *) mkdir -p -- "$argument" ;; esac; done\n',
+  );
+  writeFileSync(
+    destination,
+    readFileSync(destination, 'utf8')
+      .replaceAll('id -un', 'printf murdawk')
+      .replaceAll('id -u murdawk', 'printf 1234')
+      .replaceAll('id -g murdawk', 'printf 2345')
+      .replaceAll('install ', `${gitBashPath(join(bin, 'install'))} `)
+      .replaceAll('stat ', `${gitBashPath(join(bin, 'stat'))} `)
+      .replaceAll('docker ', `${gitBashPath(join(bin, 'docker'))} `),
+    { mode: 0o755 },
+  );
+  return {
+    destination,
+    appRoot,
+    backupRoot,
+    calls,
+    bin,
+  };
+}
+
+function identityOutput(appRoot: string, backupRoot: string) {
+  return `printf '%s\\n' 'openstays-merchant' 'merchant' '2' '${gitBashPath(appRoot)}/state>/var/lib/openstays>bind>true' '${gitBashPath(backupRoot)}>/var/backups/openstays>bind>true' '0'`;
+}
+
 describe('Synology script contracts', () => {
   it('pins the only approved roots, user, project, and container', () => {
     for (const body of [script(deployPath), script(recoveryPath)]) {
@@ -151,6 +224,17 @@ describe('Synology script contracts', () => {
     expect(body).toContain('trap stop_failed_recovery EXIT');
     expect(body).toContain('trap - EXIT');
     expect(body).not.toMatch(/\brm\b/u);
+  });
+
+  it('arms and disarms project-scoped deployment cleanup', () => {
+    const body = script(deployPath);
+    expect(body).toContain('trap stop_failed_deploy EXIT');
+    expect(body).toContain("trap 'exit 130' INT TERM");
+    expect(body).toContain('trap - EXIT INT TERM');
+    expect(body).toMatch(
+      /docker compose --project-name openstays-merchant[\s\S]+--env-file "\$ENV_FILE"[\s\S]+-f "\$COMPOSE_FILE"[\s\S]+stop merchant/u,
+    );
+    expect(body).not.toContain('docker stop openstays-merchant');
   });
 
   it('both scripts have valid Bash syntax', () => {
@@ -354,6 +438,127 @@ done
     expect(recordedText).toMatch(/up -d --build merchant/u);
     expect(recordedText).toContain('inspect --format');
     expect(recordedText).toContain('exec openstays-merchant');
+  });
+
+  it('leaves a pre-existing attested project container running after a successful update', () => {
+    const root = temporaryRoot();
+    const placeholderApp = gitBashPath(
+      join(root, 'volume1', 'docker', 'openstays-merchant'),
+    );
+    const placeholderBackup = gitBashPath(
+      join(root, 'volume2', 'openstays-wallet-backups'),
+    );
+    const calls = join(root, 'calls');
+    const prepared = prepareDeploySandbox(
+      root,
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
+case "$*" in
+  "container inspect"*) exit 0 ;;
+  inspect*) ${identityOutput(placeholderApp, placeholderBackup)} ;;
+  *"operator.mjs health"*) printf '{"status":"ready"}\\n' ;;
+esac
+`,
+    );
+
+    const result = run(prepared.destination, {
+      ...process.env,
+      PATH: `${gitBashPath(prepared.bin)}:/usr/bin:/bin`,
+    });
+    const recorded = readFileSync(prepared.calls, 'utf8');
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(recorded).toContain('container inspect openstays-merchant');
+    expect(recorded).toMatch(/up -d --build merchant/u);
+    expect(recorded).not.toMatch(/\bstop merchant\b/u);
+  });
+
+  it('scoped-stops the project when post-up identity or ports are wrong', () => {
+    const root = temporaryRoot();
+    const calls = join(root, 'calls');
+    const prepared = prepareDeploySandbox(
+      root,
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
+case "$*" in
+  "container inspect"*) exit 1 ;;
+  inspect*) printf '%s\\n' 'openstays-merchant' 'merchant' '2' 'wrong-state>/var/lib/openstays>bind>true' 'wrong-backup>/var/backups/openstays>bind>true' '1' ;;
+esac
+`,
+    );
+
+    const result = run(prepared.destination, {
+      ...process.env,
+      PATH: `${gitBashPath(prepared.bin)}:/usr/bin:/bin`,
+    });
+    const recorded = readFileSync(prepared.calls, 'utf8');
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('CONTAINER_IDENTITY_INVALID');
+    expect(recorded).toMatch(
+      /compose --project-name openstays-merchant .*--env-file .*merchant\.env .*docker-compose\.yml stop merchant/u,
+    );
+    expect(recorded).not.toContain('stop openstays-merchant');
+  });
+
+  it('preserves an up failure when the scoped cleanup also fails', () => {
+    const root = temporaryRoot();
+    const calls = join(root, 'calls');
+    const prepared = prepareDeploySandbox(
+      root,
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
+case "$*" in
+  "container inspect"*) exit 1 ;;
+  *"up -d --build merchant"*) exit 23 ;;
+  *"stop merchant"*) exit 88 ;;
+esac
+`,
+    );
+
+    const result = run(prepared.destination, {
+      ...process.env,
+      PATH: `${gitBashPath(prepared.bin)}:/usr/bin:/bin`,
+    });
+    const recorded = readFileSync(prepared.calls, 'utf8');
+
+    expect(result.status).toBe(23);
+    expect(recorded).toMatch(/up -d --build merchant/u);
+    expect(recorded).toMatch(/\bstop merchant\b/u);
+    expect(recorded).not.toContain('stop openstays-merchant');
+  });
+
+  it('scoped-stops the project when post-up health fails', () => {
+    const root = temporaryRoot();
+    const placeholderApp = gitBashPath(
+      join(root, 'volume1', 'docker', 'openstays-merchant'),
+    );
+    const placeholderBackup = gitBashPath(
+      join(root, 'volume2', 'openstays-wallet-backups'),
+    );
+    const calls = join(root, 'calls');
+    const prepared = prepareDeploySandbox(
+      root,
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
+case "$*" in
+  "container inspect"*) exit 1 ;;
+  inspect*) ${identityOutput(placeholderApp, placeholderBackup)} ;;
+  *"operator.mjs health"*) exit 42 ;;
+esac
+`,
+    );
+
+    const result = run(prepared.destination, {
+      ...process.env,
+      PATH: `${gitBashPath(prepared.bin)}:/usr/bin:/bin`,
+    });
+    const recorded = readFileSync(prepared.calls, 'utf8');
+
+    expect(result.status).toBe(42);
+    expect(recorded).toContain('operator.mjs health');
+    expect(recorded).toMatch(/\bstop merchant\b/u);
+    expect(recorded).not.toContain('stop openstays-merchant');
   });
 
   it('recovery stops only the merchant, preserves quarantine, and verifies snapshots', () => {
