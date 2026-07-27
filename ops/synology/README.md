@@ -10,7 +10,7 @@ gateway, or control port.
   `/volume1/docker/openstays-merchant`
 - Verified encrypted generations:
   `/volume2/openstays-wallet-backups`
-- Deployment account: `murdawk`
+- Runtime account: `murdawk` (`1026:100`)
 - Container and Compose project: `openstays-merchant`
 
 The scripts deliberately reject alternate roots, symbolic links, the wrong
@@ -22,6 +22,13 @@ Before any existing container is started, stopped, or entered, the scripts
 attest its exact Compose project and service labels, both approved mounts, and
 the absence of published ports. A container that merely reuses the expected
 name is rejected.
+
+Normal execution still requires the `murdawk` account. On a DSM host where
+`murdawk` cannot access the root-owned Docker socket or create the approved
+`/volume2` directory, the scripts also support a narrowly gated, one-shot DSM
+Task Scheduler mode. That mode does not change the Docker socket, users, or
+groups. It runs Docker as the scheduler's `root` account while Compose still
+runs the merchant process as non-root `1026:100`.
 
 ## Prepare the disabled deployment
 
@@ -56,6 +63,41 @@ The deploy script first renders the Compose configuration, then builds and
 starts only the `merchant` service in the `openstays-merchant` project. A
 successful first start may report `awaiting_bootstrap`; all public payment
 flags remain disabled.
+
+### One-shot DSM Task Scheduler deployment
+
+Use this only when the normal `murdawk` command fails because DSM keeps the
+Docker socket or approved backup volume root-owned:
+
+1. Stage a clean, exact Git checkout at the fixed
+   `/volume1/docker/openstays-merchant/source` path. Record its full
+   40-character `git rev-parse HEAD` value. The task rejects a branch name,
+   shortened hash, different commit, tracked change, or untracked file.
+2. In DSM **Control Panel → Task Scheduler**, create a **User-defined script**
+   owned by `root`. Select manual execution only; do not add a recurring
+   schedule.
+3. Replace `<40-character-commit>` below with the recorded lowercase commit
+   and use this exact script:
+
+   ```bash
+   /usr/bin/env -i \
+     PATH=/usr/local/bin:/usr/bin:/bin \
+     OPENSTAYS_DSM_ROOT_TASK=1 \
+     OPENSTAYS_DSM_SOURCE_COMMIT=<40-character-commit> \
+     /bin/bash --noprofile --norc \
+     /volume1/docker/openstays-merchant/source/ops/synology/deploy.sh
+   ```
+
+4. Run it once and inspect the task result. After the disabled deployment is
+   verified, disable or remove the scheduler task.
+
+The root gate accepts only the fixed application root, backup root, Compose
+file, project, service, runtime UID/GID, and disabled rail flags encoded in the
+script. It creates only the exact runtime directories as `1026:100` mode
+`0700`. `DOCKER_HOST`, Docker/Compose context overrides, shell startup
+injection, and alternate source/path/command values are rejected. Never add
+`chmod` or `chown` commands for the Docker socket and never add `sudo`, user,
+group, container, or volume-management commands to the task.
 
 Immediately before Compose starts or updates the service, deployment arms a
 failure and signal trap. A partial startup, failed post-start identity check,
@@ -113,6 +155,22 @@ attestation. Leave both the quarantine and backup generations untouched, keep
 public flags disabled, and investigate before retrying. Never copy the
 quarantine over a restored wallet and never delete generations to make a test
 pass.
+
+If `murdawk` still cannot reach Docker for the required recovery drill, create
+a separate manual-only root Task Scheduler entry using the same recorded
+commit pin and restricted environment, changing only the final script path:
+
+```bash
+/usr/bin/env -i \
+  PATH=/usr/local/bin:/usr/bin:/bin \
+  OPENSTAYS_DSM_ROOT_TASK=1 \
+  OPENSTAYS_DSM_SOURCE_COMMIT=<40-character-commit> \
+  /bin/bash --noprofile --norc \
+  /volume1/docker/openstays-merchant/source/ops/synology/recovery-drill.sh
+```
+
+Run it once only after bootstrap and a verified backup exist. Disable or
+remove it immediately after recording the successful drill result.
 
 ## Recovery authority and optional timestamping
 

@@ -62,7 +62,11 @@ function sandboxedScript(sourcePath: string, root: string) {
   const destination = join(root, 'script.sh');
   const rewritten = script(sourcePath)
     .replaceAll('/volume1/docker/openstays-merchant', scriptAppRoot)
-    .replaceAll('/volume2/openstays-wallet-backups', scriptBackupRoot);
+    .replaceAll('/volume2/openstays-wallet-backups', scriptBackupRoot)
+    .replaceAll(
+      'ROOT_TASK_PATH=/usr/local/bin:/usr/bin:/bin',
+      `ROOT_TASK_PATH=${gitBashPath(join(root, 'bin'))}:/usr/bin:/bin`,
+    );
   writeFileSync(destination, rewritten, { mode: 0o755 });
   chmodSync(destination, 0o755);
   return { destination, appRoot, backupRoot };
@@ -111,8 +115,8 @@ function prepareDeploySandbox(root: string, dockerSource: string) {
   writeFileSync(
     `${appRoot}/config/merchant.env`,
     [
-      'OPENSTAYS_UID=1234',
-      'OPENSTAYS_GID=2345',
+      'OPENSTAYS_UID=1026',
+      'OPENSTAYS_GID=100',
       'ZAPRITE_ENABLED=false',
       'WAVELENGTH_ENABLED=false',
       'WAVELENGTH_REWARDS_ENABLED=false',
@@ -133,8 +137,8 @@ function prepareDeploySandbox(root: string, dockerSource: string) {
     destination,
     readFileSync(destination, 'utf8')
       .replaceAll('id -un', 'printf murdawk')
-      .replaceAll('id -u murdawk', 'printf 1234')
-      .replaceAll('id -g murdawk', 'printf 2345')
+      .replaceAll('id -u murdawk', 'printf 1026')
+      .replaceAll('id -g murdawk', 'printf 100')
       .replaceAll('install ', `${gitBashPath(join(bin, 'install'))} `)
       .replaceAll('stat ', `${gitBashPath(join(bin, 'stat'))} `)
       .replaceAll('docker ', `${gitBashPath(join(bin, 'docker'))} `),
@@ -249,6 +253,14 @@ describe('Synology script behavior with fake host commands', () => {
     const bin = join(root, 'bin');
     mkdirSync(bin);
     const { destination } = sandboxedScript(deployPath, root);
+    writeFileSync(
+      destination,
+      readFileSync(destination, 'utf8').replaceAll(
+        'id -un',
+        'printf somebody',
+      ),
+      { mode: 0o755 },
+    );
     executable(
       join(bin, 'id'),
       '#!/usr/bin/env bash\n[[ "$1" == "-un" ]] && echo somebody\n',
@@ -265,6 +277,286 @@ describe('Synology script behavior with fake host commands', () => {
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('DEPLOY_USER_MUST_BE_MURDAWK');
+    expect(() => readFileSync(join(root, 'docker-called'))).toThrow();
+  });
+
+  it('deploy rejects root unless the explicit DSM task flag is present', () => {
+    const root = temporaryRoot();
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    const { destination } = sandboxedScript(deployPath, root);
+    writeFileSync(
+      destination,
+      readFileSync(destination, 'utf8').replaceAll(
+        'id -un',
+        'printf root',
+      ),
+      { mode: 0o755 },
+    );
+    executable(
+      join(bin, 'id'),
+      '#!/usr/bin/env bash\n[[ "$1" == "-un" ]] && echo root\n',
+    );
+    executable(
+      join(bin, 'docker'),
+      `#!/usr/bin/env bash\necho called > "${join(root, 'docker-called').replaceAll('\\', '/')}"\n`,
+    );
+
+    const result = run(destination, {
+      ...process.env,
+      PATH: `${gitBashPath(bin)}:/usr/bin:/bin`,
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('DSM_ROOT_TASK_FLAG_REQUIRED');
+    expect(() => readFileSync(join(root, 'docker-called'))).toThrow();
+  });
+
+  it('deploy rejects DSM root mode when murdawk is not exactly 1026:100', () => {
+    const root = temporaryRoot();
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    const { destination } = sandboxedScript(deployPath, root);
+    writeFileSync(
+      destination,
+      readFileSync(destination, 'utf8')
+        .replaceAll('id -un', 'printf root')
+        .replaceAll('id -u murdawk', 'printf 9999')
+        .replaceAll('id -g murdawk', 'printf 100'),
+      { mode: 0o755 },
+    );
+    executable(
+      join(bin, 'id'),
+      `#!/usr/bin/env bash
+case "$*" in
+  "-un") echo root ;;
+  "-u murdawk") echo 9999 ;;
+  "-g murdawk") echo 100 ;;
+esac
+`,
+    );
+    executable(
+      join(bin, 'docker'),
+      `#!/usr/bin/env bash\necho called > "${join(root, 'docker-called').replaceAll('\\', '/')}"\n`,
+    );
+
+    const result = run(destination, {
+      ...process.env,
+      PATH: `${gitBashPath(bin)}:/usr/bin:/bin`,
+      OPENSTAYS_DSM_ROOT_TASK: '1',
+      OPENSTAYS_DSM_SOURCE_COMMIT: 'a'.repeat(40),
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('MURDAWK_RUNTIME_IDENTITY_MISMATCH');
+    expect(() => readFileSync(join(root, 'docker-called'))).toThrow();
+  });
+
+  it('deploy DSM root mode owns only the fixed runtime directories and keeps the service non-root', () => {
+    const root = temporaryRoot();
+    const bin = join(root, 'bin');
+    const calls = join(root, 'calls');
+    mkdirSync(bin);
+    const { destination, appRoot, backupRoot } = sandboxedScript(
+      deployPath,
+      root,
+    );
+    writeFileSync(
+      destination,
+      readFileSync(destination, 'utf8')
+        .replaceAll('id -un', 'printf root')
+        .replaceAll('id -u murdawk', 'printf 1026')
+        .replaceAll('id -g murdawk', 'printf 100'),
+      { mode: 0o755 },
+    );
+    mkdirSync(`${appRoot}/source/ops/synology`, { recursive: true });
+    mkdirSync(`${appRoot}/config`, { recursive: true });
+    mkdirSync(backupRoot, { recursive: true });
+    copyFileSync(
+      join(repositoryRoot, 'ops', 'synology', 'docker-compose.yml'),
+      `${appRoot}/source/ops/synology/docker-compose.yml`,
+    );
+    const requiredSecrets = [
+      'OPENSTAYS_API_KEY',
+      'CONTAINER_CONTROL_TOKEN',
+      'WALLET_BACKUP_KEY_BASE64',
+      'WAVELENGTH_WALLET_PASSWORD',
+      'WAVELENGTH_BRIDGE_TOKEN',
+      'WAVELENGTH_HEARTBEAT_TOKEN',
+      'OTS_BRIDGE_TOKEN',
+      'OTS_HEARTBEAT_TOKEN',
+      'MAIL_BRIDGE_TOKEN',
+      'MAIL_HEARTBEAT_TOKEN',
+      'SMTP_PASSWORD',
+    ];
+    writeFileSync(
+      `${appRoot}/config/merchant.env`,
+      [
+        'OPENSTAYS_UID=1026',
+        'OPENSTAYS_GID=100',
+        'ZAPRITE_ENABLED=false',
+        'WAVELENGTH_ENABLED=false',
+        'WAVELENGTH_REWARDS_ENABLED=false',
+        ...requiredSecrets.map((name) => `${name}=not-empty`),
+      ].join('\n'),
+      { mode: 0o600 },
+    );
+    executable(
+      join(bin, 'id'),
+      `#!/usr/bin/env bash
+case "$*" in
+  "-un") echo root ;;
+  "-u murdawk") echo 1026 ;;
+  "-g murdawk") echo 100 ;;
+esac
+`,
+    );
+    executable(
+      join(bin, 'git'),
+      `#!/usr/bin/env bash
+case "$*" in
+  *"rev-parse HEAD"*) printf '%040d\\n' 0 ;;
+  *"status --porcelain"*) exit 0 ;;
+  *) exit 91 ;;
+esac
+`,
+    );
+    executable(
+      join(bin, 'install'),
+      `#!/usr/bin/env bash
+printf 'install %s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
+for argument in "$@"; do
+  case "$argument" in
+    -d|-m|-o|-g|700|1026|100) ;;
+    *) mkdir -p -- "$argument" ;;
+  esac
+done
+`,
+    );
+    executable(
+      join(bin, 'docker'),
+      `#!/usr/bin/env bash
+printf 'docker %s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
+case "$*" in
+  "container inspect"*) exit 1 ;;
+  inspect*) ${identityOutput(gitBashPath(appRoot), gitBashPath(backupRoot))} ;;
+  *"operator.mjs health"*) printf '{"status":"awaiting_bootstrap"}\\n' ;;
+esac
+`,
+    );
+    executable(
+      join(bin, 'stat'),
+      '#!/usr/bin/env bash\n[[ "$*" == *"%a"* ]] && echo 600 || echo root\n',
+    );
+
+    const result = run(destination, {
+      ...process.env,
+      PATH: `${gitBashPath(bin)}:/usr/bin:/bin`,
+      OPENSTAYS_DSM_ROOT_TASK: '1',
+      OPENSTAYS_DSM_SOURCE_COMMIT: '0'.repeat(40),
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    const recorded = readFileSync(calls, 'utf8');
+    expect(recorded).toContain('-d -m 700 -o 1026 -g 100');
+    expect(recorded).toContain(gitBashPath(appRoot));
+    expect(recorded).toContain(gitBashPath(`${appRoot}/config`));
+    expect(recorded).toContain(gitBashPath(`${appRoot}/state`));
+    expect(recorded).toContain(gitBashPath(backupRoot));
+    expect(recorded).not.toContain(`${gitBashPath(appRoot)}/source -`);
+    expect(recorded).toContain('up -d --build merchant');
+    expect(
+      readFileSync(
+        `${appRoot}/source/ops/synology/docker-compose.yml`,
+        'utf8',
+      ),
+    ).toContain('user: "${OPENSTAYS_UID}:${OPENSTAYS_GID}"');
+  });
+
+  it('deploy rejects shell and Docker environment injection in DSM root mode', () => {
+    for (const [name, value] of [
+      ['DOCKER_HOST', 'tcp://attacker.invalid:2375'],
+      ['COMPOSE_PROJECT_NAME', 'other-project'],
+      ['BASH_ENV', '/tmp/attacker'],
+    ]) {
+      const root = temporaryRoot();
+      const bin = join(root, 'bin');
+      mkdirSync(bin);
+      const { destination } = sandboxedScript(deployPath, root);
+      writeFileSync(
+        destination,
+        readFileSync(destination, 'utf8').replaceAll(
+          'id -un',
+          'printf root',
+        ),
+        { mode: 0o755 },
+      );
+      executable(
+        join(bin, 'id'),
+        '#!/usr/bin/env bash\n[[ "$1" == "-un" ]] && echo root\n',
+      );
+      const result = run(destination, {
+        ...process.env,
+        PATH: `${gitBashPath(bin)}:/usr/bin:/bin`,
+        OPENSTAYS_DSM_ROOT_TASK: '1',
+        OPENSTAYS_DSM_SOURCE_COMMIT: 'a'.repeat(40),
+        [name]: value,
+      });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('DSM_ROOT_TASK_ENVIRONMENT_INVALID');
+    }
+  });
+
+  it('deploy DSM root mode requires an exact immutable source commit pin', () => {
+    const root = temporaryRoot();
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    const { destination } = sandboxedScript(deployPath, root);
+    writeFileSync(
+      destination,
+      readFileSync(destination, 'utf8')
+        .replaceAll('id -un', 'printf root')
+        .replaceAll('id -u murdawk', 'printf 1026')
+        .replaceAll('id -g murdawk', 'printf 100'),
+      { mode: 0o755 },
+    );
+
+    const result = run(destination, {
+      ...process.env,
+      PATH: `${gitBashPath(bin)}:/usr/bin:/bin`,
+      OPENSTAYS_DSM_ROOT_TASK: '1',
+      OPENSTAYS_DSM_SOURCE_COMMIT: 'main; touch /tmp/not-allowed',
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('DSM_SOURCE_COMMIT_PIN_REQUIRED');
+  });
+
+  it('recovery rejects root unless the explicit DSM task flag is present', () => {
+    const root = temporaryRoot();
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    const { destination } = sandboxedScript(recoveryPath, root);
+    writeFileSync(
+      destination,
+      readFileSync(destination, 'utf8').replaceAll(
+        'id -un',
+        'printf root',
+      ),
+      { mode: 0o755 },
+    );
+    executable(
+      join(bin, 'docker'),
+      `#!/usr/bin/env bash\necho called > "${join(root, 'docker-called').replaceAll('\\', '/')}"\n`,
+    );
+
+    const result = run(destination, {
+      ...process.env,
+      PATH: `${gitBashPath(bin)}:/usr/bin:/bin`,
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('DSM_ROOT_TASK_FLAG_REQUIRED');
     expect(() => readFileSync(join(root, 'docker-called'))).toThrow();
   });
 
@@ -290,7 +582,9 @@ describe('Synology script behavior with fake host commands', () => {
       readFileSync(destination, 'utf8').replaceAll(
         'id -un',
         'printf murdawk',
-      ),
+      )
+        .replaceAll('id -u murdawk', 'printf 1026')
+        .replaceAll('id -g murdawk', 'printf 100'),
       { mode: 0o755 },
     );
     executable(
@@ -333,8 +627,8 @@ exit 90
       destination,
       readFileSync(destination, 'utf8')
         .replaceAll('id -un', 'printf murdawk')
-        .replaceAll('id -u murdawk', 'printf 1234')
-        .replaceAll('id -g murdawk', 'printf 2345'),
+        .replaceAll('id -u murdawk', 'printf 1026')
+        .replaceAll('id -g murdawk', 'printf 100'),
       { mode: 0o755 },
     );
     mkdirSync(`${appRoot}/source/ops/synology`, { recursive: true });
@@ -360,8 +654,8 @@ exit 90
     writeFileSync(
       `${appRoot}/config/merchant.env`,
       [
-        'OPENSTAYS_UID=1234',
-        'OPENSTAYS_GID=2345',
+        'OPENSTAYS_UID=1026',
+        'OPENSTAYS_GID=100',
         'ZAPRITE_ENABLED=false',
         'WAVELENGTH_ENABLED=false',
         'WAVELENGTH_REWARDS_ENABLED=false',
@@ -374,8 +668,8 @@ exit 90
       `#!/usr/bin/env bash
 case "$1" in
   -un) echo murdawk ;;
-  -u) echo 1234 ;;
-  -g) echo 2345 ;;
+  -u) echo 1026 ;;
+  -g) echo 100 ;;
 esac
 `,
     );
@@ -632,6 +926,8 @@ printf 'mv %s %s\\n' "\${2:-}" "\${3:-}" >> "${calls.replaceAll('\\', '/')}"
       destination,
       readFileSync(destination, 'utf8')
         .replaceAll('id -un', 'printf murdawk')
+        .replaceAll('id -u murdawk', 'printf 1026')
+        .replaceAll('id -g murdawk', 'printf 100')
         .replaceAll('docker ', `${gitBashPath(join(bin, 'docker'))} `)
         .replaceAll('install ', `${gitBashPath(join(bin, 'install'))} `)
         .replaceAll('\nsync\n', `\n${gitBashPath(join(bin, 'sync'))}\n`)
@@ -697,6 +993,8 @@ printf '%s\\n' 'wrong-project' 'merchant' '2' '${gitBashPath(appRoot)}/state>/va
       destination,
       readFileSync(destination, 'utf8')
         .replaceAll('id -un', 'printf murdawk')
+        .replaceAll('id -u murdawk', 'printf 1026')
+        .replaceAll('id -g murdawk', 'printf 100')
         .replaceAll('docker ', `${gitBashPath(join(bin, 'docker'))} `),
       { mode: 0o755 },
     );
@@ -770,6 +1068,8 @@ esac
       destination,
       readFileSync(destination, 'utf8')
         .replaceAll('id -un', 'printf murdawk')
+        .replaceAll('id -u murdawk', 'printf 1026')
+        .replaceAll('id -g murdawk', 'printf 100')
         .replaceAll('docker ', `${gitBashPath(join(bin, 'docker'))} `)
         .replaceAll('install ', `${gitBashPath(join(bin, 'install'))} `)
         .replaceAll('\nsync\n', `\n${gitBashPath(join(bin, 'sync'))}\n`)
