@@ -149,6 +149,12 @@ export class MerchantControl {
       },
     );
     if (!response.ok) {
+      if (this.options.diagnosticLifecycleErrors) {
+        const diagnostic = await response.clone().text();
+        process.stderr.write(
+          `merchant-daemon-diagnostic: ${diagnostic.slice(0, 2_000)}\n`,
+        );
+      }
       throw new Error(
         `WAVELENGTH_WALLET_${path.toUpperCase()}_FAILED_HTTP_${response.status}`,
       );
@@ -291,6 +297,8 @@ if (process.argv[1]
     walletDirectory,
     backupKeyBase64: process.env.WALLET_BACKUP_KEY_BASE64,
     walletPassword: process.env.WAVELENGTH_WALLET_PASSWORD,
+    diagnosticLifecycleErrors:
+      process.env.OPENSTAYS_DIAGNOSTIC_LIFECYCLE_ERRORS === 'true',
     release: process.env.OPENSTAYS_RELEASE ?? 'unknown',
     daemonCommand: {
       file: '/usr/local/bin/waved',
