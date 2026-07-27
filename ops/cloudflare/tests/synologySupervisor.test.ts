@@ -874,6 +874,180 @@ describe('Synology quarantine durability', () => {
     ).toBe(true);
   });
 
+  it('fsyncs both rename parents when stop occurs exactly after the wallet move', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-stop-after-rename-')));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    const quarantineRoot = join(root, 'quarantine');
+    await mkdir(walletDirectory);
+    await writeFile(join(walletDirectory, 'wallet.db'), 'preserved');
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    const postRenameSyncs: string[] = [];
+    let renamed = false;
+    let supervisor!: ReturnType<typeof createSupervisor>;
+    const control = controlDouble();
+    supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+      },
+      walletDirectory,
+      quarantineRoot,
+      fileSystem: {
+        access,
+        mkdir,
+        rename: async (from: string, to: string) => {
+          await rename(from, to);
+          renamed = true;
+          supervisor.stop();
+        },
+      },
+      directorySync: async (path: string) => {
+        if (renamed) postRenameSyncs.push(path);
+      },
+      ...noTimer(),
+    });
+
+    await expect(supervisor.start()).rejects.toThrow(
+      'SUPERVISOR_LIFECYCLE_ABORTED',
+    );
+
+    expect(postRenameSyncs).toEqual(expect.arrayContaining([
+      root,
+      expect.stringMatching(
+        new RegExp(`^${quarantineRoot.replaceAll('\\', '\\\\')}`),
+      ),
+    ]));
+    expect(control.restore).not.toHaveBeenCalled();
+    expect(supervisor.health()).toMatchObject({
+      status: 'failed',
+      failureCategory: 'stopped',
+    });
+    const reservations = await readdir(quarantineRoot);
+    expect(
+      await readFile(
+        join(quarantineRoot, reservations[0]!, 'wallet', 'wallet.db'),
+        'utf8',
+      ),
+    ).toBe('preserved');
+  });
+
+  it('attempts the second parent fsync when stop occurs during the first', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-stop-during-post-rename-sync-')));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    const quarantineRoot = join(root, 'quarantine');
+    await mkdir(walletDirectory);
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    const firstSyncStarted = deferred();
+    const firstSyncCanFinish = deferred();
+    const postRenameSyncs: string[] = [];
+    let renamed = false;
+    const control = controlDouble();
+    const supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+      },
+      walletDirectory,
+      quarantineRoot,
+      fileSystem: {
+        access,
+        mkdir,
+        rename: async (from: string, to: string) => {
+          await rename(from, to);
+          renamed = true;
+        },
+      },
+      directorySync: async (path: string) => {
+        if (!renamed) return;
+        postRenameSyncs.push(path);
+        if (postRenameSyncs.length === 1) {
+          firstSyncStarted.resolve();
+          await firstSyncCanFinish.promise;
+        }
+      },
+      ...noTimer(),
+    });
+
+    const starting = supervisor.start();
+    await firstSyncStarted.promise;
+    supervisor.stop();
+    firstSyncCanFinish.resolve();
+
+    await expect(starting).rejects.toThrow(
+      'SUPERVISOR_LIFECYCLE_ABORTED',
+    );
+    expect(postRenameSyncs).toHaveLength(2);
+    expect(postRenameSyncs).toEqual(expect.arrayContaining([
+      root,
+      expect.stringMatching(
+        new RegExp(`^${quarantineRoot.replaceAll('\\', '\\\\')}`),
+      ),
+    ]));
+    expect(control.restore).not.toHaveBeenCalled();
+  });
+
+  it('attempts both parent fsyncs when the destination parent sync fails', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-both-post-rename-syncs-')));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    const quarantineRoot = join(root, 'quarantine');
+    await mkdir(walletDirectory);
+    await writeFile(join(walletDirectory, 'wallet.db'), 'preserved');
+    const bytes = Buffer.from('verified-encrypted-wallet');
+    const postRenameSyncs: string[] = [];
+    let renamed = false;
+    const control = controlDouble();
+    const supervisor = createSupervisor({
+      control,
+      store: {
+        loadLatest: async () => ({ bytes, manifest: manifest(bytes) }),
+      },
+      walletDirectory,
+      quarantineRoot,
+      fileSystem: {
+        access,
+        mkdir,
+        rename: async (from: string, to: string) => {
+          await rename(from, to);
+          renamed = true;
+        },
+      },
+      directorySync: (path: string) => {
+        if (!renamed) return Promise.resolve();
+        postRenameSyncs.push(path);
+        if (path !== root) {
+          throw new Error('DESTINATION_PARENT_FSYNC_FAILED');
+        }
+        return Promise.resolve();
+      },
+      ...noTimer(),
+    });
+
+    await expect(supervisor.start()).rejects.toThrow(
+      'DESTINATION_PARENT_FSYNC_FAILED',
+    );
+
+    expect(postRenameSyncs).toHaveLength(2);
+    expect(postRenameSyncs).toContain(root);
+    expect(control.restore).not.toHaveBeenCalled();
+    expect(supervisor.health()).toMatchObject({
+      status: 'failed',
+      failureCategory: 'destination_parent_fsync_failed',
+    });
+    const reservations = await readdir(quarantineRoot);
+    expect(
+      await readFile(
+        join(quarantineRoot, reservations[0]!, 'wallet', 'wallet.db'),
+        'utf8',
+      ),
+    ).toBe('preserved');
+  });
+
   it('fails before restore when quarantine metadata cannot be fsynced', async () => {
     const root = await import('node:fs/promises').then(({ mkdtemp }) =>
       mkdtemp(join(tmpdir(), 'openstays-quarantine-sync-failure-')));
