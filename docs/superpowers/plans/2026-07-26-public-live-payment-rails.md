@@ -886,7 +886,7 @@ Add `--once` and continuous modes, `SIGTERM` handling, health publication, and p
 
 - [x] **Step 6: Pin the container image**
 
-`Dockerfile` uses a pinned Node LTS digest and pinned Python base tooling, installs the exact CLI lockfile, installs `opentimestamps-client==0.7.2`, downloads Wavelength `v0.1.0`, and verifies the published binary SHA-256 before installation. Run as a non-root user and expose only the loopback control port to the container runtime.
+`Dockerfile` uses pinned Node, Python, and Go image digests, installs the exact CLI lockfile, and installs `opentimestamps-client==0.7.2`. Lightning Labs' stock `waved` release omits the optional wallet-RPC service, so the image reproducibly builds Wavelength `v0.1.0` from its published checksum-pinned source and vendor archives with the official `wavewalletrpc swapruntime` tags. Run as a non-root user and expose only the loopback control port to the container runtime.
 
 - [x] **Step 7: Verify and commit**
 

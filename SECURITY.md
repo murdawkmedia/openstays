@@ -42,6 +42,13 @@ five-minute eligibility token before either rail can start.
 - Wavelength is signet-only. Settlement requires matching completed merchant
   activity; invoices, prepared sends, pending activity, and browser claims are
   not authority.
+- The merchant daemon is reproducibly built from Lightning Labs' checksum-
+  pinned v0.1.0 source and vendor archives with its official `wavewalletrpc`
+  and `swapruntime` tags. CI publishes the complete upstream binary scan and
+  separately blocks every fixable application/base-image high or critical
+  finding. Wavelength v0.1.0 has upstream findings that only a rebuilt release
+  can resolve, so the daemon remains isolated to disposable signet test funds;
+  never place real Bitcoin value in this wallet.
 - OpenTimestamps submission and Bitcoin anchoring are separate states.
 - Zaprite/Wavelength refunds remain paid until staff records the completed
   external refund reference.
