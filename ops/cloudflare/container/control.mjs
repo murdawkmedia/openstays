@@ -285,12 +285,6 @@ if (process.argv[1]
     ...process.env,
     WAVELENGTH_DAEMON_URL: 'http://127.0.0.1:10031',
     WAVELENGTH_EXPECTED_NETWORK: 'signet',
-    WAVELENGTH_DAEMON_MACAROON_PATH: join(
-      walletDirectory,
-      'data',
-      'signet',
-      'admin.macaroon',
-    ),
     OTS_COMMAND: '/usr/local/bin/ots',
   };
   const control = new MerchantControl({
@@ -310,6 +304,7 @@ if (process.argv[1]
         '--rpc.listenaddr=127.0.0.1:10029',
         '--rpc.gateway.listenaddr=127.0.0.1:10031',
         '--rpc.notls',
+        '--rpc.no-macaroons',
       ],
       env: childEnv,
     },
