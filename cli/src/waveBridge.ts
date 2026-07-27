@@ -1,3 +1,9 @@
+import {
+  runOperationsHeartbeat,
+  waitForAbortableDelay,
+  type OperationsHeartbeatSnapshot,
+} from './operationsHeartbeat.js';
+
 export type WaveBridgeConfig = {
   openStaysUrl: string;
   bridgeToken: string;
@@ -6,6 +12,10 @@ export type WaveBridgeConfig = {
   daemonMacaroonHex?: string;
   pollMs?: number;
   maxRewardFeeSats?: number;
+  once?: boolean;
+  signal?: AbortSignal;
+  heartbeatToken?: string;
+  release?: string;
 };
 
 export type WavelengthNetwork = 'signet';
@@ -52,6 +62,23 @@ async function daemonNetwork(
     throw new Error('INVALID_WAVELENGTH_DAEMON_NETWORK');
   }
   return info.network;
+}
+
+async function daemonBalance(
+  fetchFn: typeof fetch,
+  daemonUrl: string,
+  headers: Record<string, string>,
+): Promise<number> {
+  const balance = await jsonRequest<{ confirmed_sat?: string | number }>(
+    fetchFn,
+    `${daemonUrl}/v1/wallet/balance`,
+    { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}' },
+  );
+  const spendableSats = Number(balance.confirmed_sat);
+  if (!Number.isSafeInteger(spendableSats) || spendableSats < 0) {
+    throw new Error('INVALID_WAVELENGTH_BALANCE');
+  }
+  return spendableSats;
 }
 
 async function jsonRequest<T>(
@@ -247,15 +274,50 @@ export async function runWaveBridge(config: WaveBridgeConfig): Promise<void> {
     `OpenStays Wavelength bridge: ${config.daemonUrl} -> ${config.openStaysUrl}` +
     ` (${config.expectedNetwork ?? 'daemon-verified'})\n`,
   );
-  for (;;) {
+  const ownController = new AbortController();
+  if (config.signal?.aborted) ownController.abort();
+  else config.signal?.addEventListener('abort', () => ownController.abort(), { once: true });
+  const signal = ownController.signal;
+  let heartbeatStatus: OperationsHeartbeatSnapshot = { status: 'starting' };
+  const heartbeat = config.heartbeatToken
+    ? runOperationsHeartbeat({
+        openStaysUrl: config.openStaysUrl,
+        heartbeatToken: config.heartbeatToken,
+        service: 'wavelength',
+        release: config.release ?? 'openstays-cli-0.1.0',
+        signal,
+        snapshot: async () => {
+          try {
+            const daemonUrl = config.daemonUrl.replace(/\/$/, '');
+            const headers = daemonHeaders(config);
+            await daemonNetwork(fetch, daemonUrl, headers);
+            const spendableSats = await daemonBalance(fetch, daemonUrl, headers);
+            return { status: heartbeatStatus.status === 'failed' ? 'degraded' : 'ready', spendableSats };
+          } catch {
+            return { status: 'degraded', failureCategory: 'dependency_unavailable' };
+          }
+        },
+      })
+    : Promise.resolve();
+  while (!signal.aborted) {
     try {
       const result = await runWaveBridgeOnce(config);
+      heartbeatStatus = { status: 'ready' };
       if (result.invoices > 0 || result.settlements > 0 || result.rewardsPaid > 0 || result.rewardsFailed > 0) {
         process.stdout.write(`${new Date().toISOString()} invoices=${result.invoices} settlements=${result.settlements} rewards_paid=${result.rewardsPaid} rewards_failed=${result.rewardsFailed}\n`);
       }
     } catch (error) {
-      process.stderr.write(`${new Date().toISOString()} wave-bridge: ${error instanceof Error ? error.message : String(error)}\n`);
+      heartbeatStatus = { status: 'degraded', failureCategory: 'processing' };
+      process.stderr.write(`${new Date().toISOString()} wave-bridge: processing_failed\n`);
+      if (config.once) {
+        ownController.abort();
+        await heartbeat;
+        throw error;
+      }
     }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    if (config.once) break;
+    await waitForAbortableDelay(pollMs, signal);
   }
+  ownController.abort();
+  await heartbeat;
 }

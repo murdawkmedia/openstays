@@ -95,6 +95,36 @@ describe('judge-facing checkout copy', () => {
     expect(source).toContain('Demo wallet ready');
     expect(source).toContain('12 judge attempts');
   });
+
+  it('keeps every public booking surface explicit about the fictional property', () => {
+    for (const page of [
+      'CheckoutPage.tsx',
+      'ManageBookingPage.tsx',
+      'ConfirmationPage.tsx',
+      'WavelengthWalletPage.tsx',
+      'ConsensusRewardPage.tsx',
+    ]) {
+      const source = readFileSync(new URL(`../src/pages/${page}`, import.meta.url), 'utf8');
+      expect(source).toContain('FictionalBookingNotice');
+    }
+    const notice = readFileSync(
+      new URL('../src/components/FictionalBookingNotice.tsx', import.meta.url),
+      'utf8',
+    );
+    expect(notice).toContain('Consensus Commons is fictional');
+    expect(notice).toContain('does not create a real accommodation');
+  });
+
+  it('keeps an independent simulated fallback and honest manual-refund state', () => {
+    const checkout = readFileSync(new URL('../src/pages/CheckoutPage.tsx', import.meta.url), 'utf8');
+    const manage = readFileSync(new URL('../src/pages/ManageBookingPage.tsx', import.meta.url), 'utf8');
+    expect(checkout).toContain('Take the simulated tour');
+    expect(checkout).toContain('No charge and no signet reward');
+    expect(checkout).toContain('Live Wavelength is temporarily unavailable');
+    expect(manage).toContain('Request contribution refund');
+    expect(manage).toContain('Refund requested. Staff resolution is pending.');
+    expect(manage).toContain('remains paid until staff records');
+  });
 });
 
 describe('staff auth errors', () => {

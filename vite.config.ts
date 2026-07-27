@@ -4,6 +4,19 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const publicShowcaseBuild = process.env.VITE_PUBLIC_SHOWCASE === 'true';
+const includeWavelengthWallet = !publicShowcaseBuild
+  || process.env.VITE_PUBLIC_WAVELENGTH === 'true';
+const walletIsolation = () => (
+  request: { url?: string },
+  response: { setHeader: (name: string, value: string) => void },
+  next: () => void,
+) => {
+  if (request.url?.startsWith('/wallet/')) {
+    response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  }
+  next();
+};
 
 // base is '/' locally and on Cloudflare Pages; the GH Pages demo build
 // overrides it via VITE_BASE (see .github/workflows/pages.yml).
@@ -13,23 +26,20 @@ export default defineConfig({
     {
       name: 'public-showcase-omit-wallet-runtime',
       closeBundle() {
-        if (publicShowcaseBuild) {
+        if (!includeWavelengthWallet) {
           rmSync(resolve('dist', 'wavewalletdk'), { recursive: true, force: true });
         }
       },
     },
+    {
+      name: 'wallet-route-cross-origin-isolation',
+      configureServer(server) {
+        server.middlewares.use(walletIsolation());
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use(walletIsolation());
+      },
+    },
   ],
   base: process.env.VITE_BASE ?? '/',
-  server: {
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
-  },
-  preview: {
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
-  },
 });

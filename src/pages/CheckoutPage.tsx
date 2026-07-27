@@ -9,7 +9,16 @@ import { readGuestConfirmation, walletPath } from '../../shared/bookingLinks';
 import { Spinner } from '../components/Spinner';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
 import { PriceBreakdownView } from '../components/PriceBreakdownView';
+import { LivePaymentDisclosure } from '../components/LivePaymentDisclosure';
+import { FictionalBookingNotice } from '../components/FictionalBookingNotice';
+import { TurnstileChallenge } from '../components/TurnstileChallenge';
 import { formatCountdown, formatDisplayDate } from '../lib/dates';
+import {
+  PUBLIC_CONSENT_VERSION,
+  getPublicDeviceId,
+  requestEligibilityToken,
+  storeEligibilityToken,
+} from '../lib/livePayments';
 import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 import { NotFoundPage } from './NotFoundPage';
 
@@ -49,6 +58,8 @@ export function CheckoutPage() {
   const [holdTooStale, setHoldTooStale] = useState(false);
   const [paying, setPaying] = useState(false);
   const [payingProvider, setPayingProvider] = useState<string | null>(null);
+  const [liveConsentAccepted, setLiveConsentAccepted] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -77,18 +88,27 @@ export function CheckoutPage() {
   const msRemaining = (booking.holdExpiresAt ?? now) - now;
   const expired = msRemaining <= 0;
   const property = propertyConfigs?.[0];
-  const demoMode = providerInfo?.demoMode ?? true;
+  const demoMode = providerInfo?.demoMode ?? false;
+  const simulatedEnabled = providerInfo?.simulatedEnabled ?? demoMode;
+  const activeBookingId = bookingId;
+  const normalizedGuestEmail = booking.guestEmail;
 
   async function handleSimulatedPay() {
     setPaying(true);
+    setPayingProvider('simulated');
     setPayError(null);
     try {
-      await confirmSimulated({ bookingId: bookingId as Id<'bookings'> });
+      await confirmSimulated({
+        bookingId: bookingId as Id<'bookings'>,
+        confirmationCode: code ?? undefined,
+        email: normalizedGuestEmail,
+      });
       // Navigation happens reactively once the query reflects 'confirmed'.
     } catch (error) {
       setPayError(extractErrorMessage(error));
     } finally {
       setPaying(false);
+      setPayingProvider(null);
     }
   }
 
@@ -98,11 +118,28 @@ export function CheckoutPage() {
     setPayError(null);
     setHoldTooStale(false);
     try {
+      let eligibilityToken: string | undefined;
+      if (provider === 'zaprite' && PUBLIC_SHOWCASE.enabled) {
+        if (!liveConsentAccepted || !turnstileToken) {
+          throw new Error('Accept the disclosure and complete the payment check.');
+        }
+        eligibilityToken = await requestEligibilityToken({
+          action: 'zaprite_payment',
+          bookingId: activeBookingId,
+          normalizedEmail: normalizedGuestEmail,
+          deviceId: getPublicDeviceId(),
+          turnstileToken,
+        });
+      }
       const result = await createCheckoutSession({
         bookingId: bookingId as Id<'bookings'>,
         provider,
         // Proof of ownership — the code the guest already has (from the URL).
         code: code ?? '',
+        consent: provider === 'zaprite' && PUBLIC_SHOWCASE.enabled
+          ? { version: PUBLIC_CONSENT_VERSION, accepted: liveConsentAccepted }
+          : undefined,
+        eligibilityToken,
       });
       window.location.assign(result.checkoutUrl);
       // Intentionally leave `paying` true — we're navigating away.
@@ -131,10 +168,41 @@ export function CheckoutPage() {
     }
   }
 
+  async function handleWavelengthPay() {
+    setPaying(true);
+    setPayingProvider('wavelength');
+    setPayError(null);
+    try {
+      if (PUBLIC_SHOWCASE.enabled) {
+        if (!liveConsentAccepted || !turnstileToken) {
+          throw new Error('Accept the disclosure and complete the payment check.');
+        }
+        const eligibilityToken = await requestEligibilityToken({
+          action: 'wavelength_payment',
+          bookingId: activeBookingId,
+          normalizedEmail: normalizedGuestEmail,
+          deviceId: getPublicDeviceId(),
+          turnstileToken,
+        });
+        storeEligibilityToken(
+          'wavelength_payment',
+          activeBookingId,
+          eligibilityToken,
+        );
+      }
+      navigate(walletPath(bookingId!, code!));
+    } catch (error) {
+      setPayError(extractErrorMessage(error));
+      setPaying(false);
+      setPayingProvider(null);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-lg">
       <div className="card p-8">
         <h1 className="text-2xl font-semibold text-stone-900">Complete your booking</h1>
+        {PUBLIC_SHOWCASE.enabled ? <FictionalBookingNotice /> : null}
 
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-3 text-amber-800">
           <Clock className="h-4 w-4" aria-hidden="true" />
@@ -189,6 +257,29 @@ export function CheckoutPage() {
           </div>
         ) : null}
 
+        {PUBLIC_SHOWCASE.enabled && (
+          (providerInfo?.providers.includes('zaprite') && PUBLIC_SHOWCASE.allowLiveZaprite)
+          || (wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength)
+        ) ? (
+          <>
+            <LivePaymentDisclosure
+              rail={
+                providerInfo?.providers.includes('zaprite')
+                  && PUBLIC_SHOWCASE.allowLiveZaprite
+                  && wavelengthInfo?.available
+                  && PUBLIC_SHOWCASE.allowLiveWavelength
+                  ? 'both'
+                  : wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength
+                    ? 'wavelength'
+                    : 'zaprite'
+              }
+              accepted={liveConsentAccepted}
+              onAcceptedChange={setLiveConsentAccepted}
+            />
+            <TurnstileChallenge onToken={setTurnstileToken} />
+          </>
+        ) : null}
+
         {demoMode ? (
           <>
             <button
@@ -207,7 +298,9 @@ export function CheckoutPage() {
           <div className="mt-6">
             <Spinner label="Loading payment options…" />
           </div>
-        ) : providerInfo.providers.length === 0 ? (
+        ) : providerInfo.providers.length === 0
+          && !wavelengthInfo?.available
+          && !simulatedEnabled ? (
           <div className="mt-6 rounded-lg bg-stone-50 px-4 py-3 text-sm text-stone-600">
             Online payment isn't configured for this property yet.{' '}
             {property ? (
@@ -223,13 +316,22 @@ export function CheckoutPage() {
             )}
           </div>
         ) : (
+          <>
           <div className={`mt-6 grid gap-3 ${providerInfo.providers.length > 1 ? 'sm:grid-cols-2' : ''}`}>
             {providerInfo.providers.map((provider) => (
               <button
                 key={provider}
                 type="button"
                 className="btn-primary flex w-full items-center justify-center gap-2"
-                disabled={expired || paying}
+                disabled={
+                  expired
+                  || paying
+                  || (
+                    provider === 'zaprite'
+                    && PUBLIC_SHOWCASE.enabled
+                    && (!liveConsentAccepted || !turnstileToken)
+                  )
+                }
                 onClick={() => handleProviderPay(provider)}
               >
                 <CreditCard className="h-4 w-4" aria-hidden="true" />
@@ -237,24 +339,58 @@ export function CheckoutPage() {
               </button>
             ))}
           </div>
+          </>
         )}
 
-        {PUBLIC_SHOWCASE.enabled ? (
-          <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Live signet settlement is shown in the public tour but is not operated as a
-            public wallet faucet. Complete the simulated demo payment to explore the
-            authoritative booking state.
-          </p>
+        {!demoMode && simulatedEnabled && PUBLIC_SHOWCASE.allowSimulated ? (
+          <>
+            <button
+              type="button"
+              className="btn-secondary mt-3 w-full"
+              disabled={expired || paying}
+              onClick={() => void handleSimulatedPay()}
+            >
+              {paying && payingProvider === 'simulated'
+                ? 'Processing…'
+                : 'Take the simulated tour'}
+            </button>
+            <p className="mt-2 text-center text-xs text-stone-500">
+              No charge and no signet reward. The booking ledger and receipt
+              flow still run.
+            </p>
+          </>
         ) : null}
+
         {wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength && (
-          <Link
-            to={walletPath(bookingId, code)}
+          <button
+            type="button"
+            onClick={() => void handleWavelengthPay()}
+            disabled={
+              expired
+              || paying
+              || (
+                PUBLIC_SHOWCASE.enabled
+                && (!liveConsentAccepted || !turnstileToken)
+              )
+            }
             className={`btn-secondary mt-3 flex w-full items-center justify-center gap-2 ${expired ? 'pointer-events-none opacity-40' : ''}`}
           >
             <span aria-hidden="true">⚡</span>
-            Pay with a signet Wavelength wallet
-          </Link>
+            {paying && payingProvider === 'wavelength'
+              ? 'Opening wallet…'
+              : 'Pay 1,000 signet sats with Wavelength'}
+          </button>
         )}
+        {PUBLIC_SHOWCASE.enabled
+          && PUBLIC_SHOWCASE.allowLiveWavelength
+          && wavelengthInfo !== undefined
+          && !wavelengthInfo.available ? (
+          <p role="status" className="mt-3 rounded-lg bg-stone-100 px-4 py-3 text-sm text-stone-600">
+            Live Wavelength is temporarily unavailable because the signet
+            merchant bridge is not healthy. Zaprite and the simulated tour
+            remain independent.
+          </p>
+        ) : null}
         {wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength && (
           <p className="mt-2 text-center text-xs text-stone-500">
             Signet test sats · fixed hackathon quote · self-custodial

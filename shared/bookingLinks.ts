@@ -9,5 +9,5 @@ export function checkoutPath(bookingId: string, confirmationCode: string): strin
 }
 
 export function walletPath(bookingId: string, confirmationCode: string): string {
-  return `/wallet/${bookingId}?confirmation=${encodeURIComponent(confirmationCode)}`;
+  return `/wallet/pay/${bookingId}?confirmation=${encodeURIComponent(confirmationCode)}`;
 }

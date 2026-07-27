@@ -7,6 +7,14 @@ import {
   quoteSignetSats,
   type WavelengthNetwork,
 } from '../shared/wavelength';
+import {
+  eligibilityEmailDigest,
+  PUBLIC_CONSENT_VERSION,
+  readPublicPolicy,
+  verifyEligibilityToken,
+} from './publicPolicy';
+
+const HEALTH_FRESH_MS = 60_000;
 
 export function bridgeBearerAuthorized(authorization: string | undefined, expectedToken: string): boolean {
   if (!authorization?.startsWith('Bearer ') || !expectedToken) return false;
@@ -42,8 +50,25 @@ function quoteSats(amountCents: number): number {
 
 export const available = query({
   args: {},
-  handler: async () => {
+  handler: async (ctx) => {
     const network = configuredNetwork();
+    const policy = readPublicPolicy(process.env);
+    if (policy.liveMode) {
+      const health = await ctx.db.query('bridgeHealth')
+        .withIndex('by_service', (q) => q.eq('service', 'wavelength'))
+        .unique();
+      return {
+        available: Boolean(
+          policy.wavelengthEnabled
+          && configuredBridgeToken()
+          && health?.status === 'ready'
+          && health.lastHeartbeatAt >= Date.now() - HEALTH_FRESH_MS,
+        ),
+        network,
+        satsPerCurrencyUnit: configuredRate(),
+        fixedPaymentSats: policy.wavelengthPaymentSats,
+      };
+    }
     return {
       available: Boolean(configuredBridgeToken()),
       network,
@@ -57,10 +82,16 @@ export const createRequest = mutation({
     bookingId: v.id('bookings'),
     confirmationCode: v.string(),
     email: v.string(),
+    consent: v.optional(v.object({
+      version: v.string(),
+      accepted: v.boolean(),
+    })),
+    eligibilityToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const network = configuredNetwork();
     if (!configuredBridgeToken()) throw new ConvexError('WAVELENGTH_NOT_CONFIGURED');
+    const policy = readPublicPolicy(process.env);
     const booking = await ctx.db.get(args.bookingId);
     if (!booking || !booking.guestId || booking.confirmationCode !== args.confirmationCode.trim().toUpperCase()) {
       throw new ConvexError('BOOKING_NOT_FOUND');
@@ -68,6 +99,46 @@ export const createRequest = mutation({
     const guest = await ctx.db.get(booking.guestId);
     if (!guest || guest.normalizedEmail !== args.email.trim().toLowerCase()) {
       throw new ConvexError('BOOKING_NOT_FOUND');
+    }
+    if (policy.liveMode) {
+      const health = await ctx.db.query('bridgeHealth')
+        .withIndex('by_service', (q) => q.eq('service', 'wavelength'))
+        .unique();
+      if (
+        !policy.wavelengthEnabled
+        || !health
+        || health.status !== 'ready'
+        || health.lastHeartbeatAt < Date.now() - HEALTH_FRESH_MS
+      ) {
+        throw new ConvexError('WAVELENGTH_UNAVAILABLE');
+      }
+      if (
+        !args.consent?.accepted
+        || args.consent.version !== PUBLIC_CONSENT_VERSION
+      ) {
+        throw new ConvexError('PUBLIC_PAYMENT_CONSENT_REQUIRED');
+      }
+      const signingKey = process.env.ELIGIBILITY_HMAC_SECRET ?? '';
+      if (!args.eligibilityToken || !signingKey) {
+        throw new ConvexError('WAVELENGTH_ELIGIBILITY_REQUIRED');
+      }
+      let eligibility;
+      try {
+        eligibility = await verifyEligibilityToken(
+          args.eligibilityToken,
+          { action: 'wavelength_payment', bookingId: String(booking._id) },
+          signingKey,
+          Date.now(),
+        );
+      } catch {
+        throw new ConvexError('WAVELENGTH_ELIGIBILITY_INVALID');
+      }
+      if (
+        eligibility.emailDigest
+        !== await eligibilityEmailDigest(guest.normalizedEmail, signingKey)
+      ) {
+        throw new ConvexError('WAVELENGTH_ELIGIBILITY_INVALID');
+      }
     }
     if (booking.status !== 'hold' || !booking.priceBreakdown || !booking.holdExpiresAt) {
       throw new ConvexError('NOT_A_PAYABLE_HOLD');
@@ -84,7 +155,9 @@ export const createRequest = mutation({
     const amountCents = booking.priceBreakdown.depositDueCents > 0
       ? booking.priceBreakdown.depositDueCents
       : booking.priceBreakdown.totalCents - booking.priceBreakdown.giftCertAppliedCents;
-    const satsAmount = quoteSats(amountCents);
+    const satsAmount = policy.liveMode
+      ? policy.wavelengthPaymentSats
+      : quoteSats(amountCents);
     const now = Date.now();
     const paymentId = await ctx.db.insert('payments', {
       propertyId: booking.propertyId,
@@ -94,6 +167,7 @@ export const createRequest = mutation({
       gstCents: 0,
       currency: property.currency,
       status: 'pending',
+      consentVersion: policy.liveMode ? PUBLIC_CONSENT_VERSION : undefined,
       refunds: [],
       createdAt: now,
     });
@@ -111,6 +185,15 @@ export const createRequest = mutation({
       updatedAt: now,
     });
     await ctx.db.patch(paymentId, { providerCheckoutId: requestId });
+    if (policy.liveMode && !booking.publicPaymentConsent) {
+      await ctx.db.patch(booking._id, {
+        publicPaymentConsent: {
+          version: PUBLIC_CONSENT_VERSION,
+          rail: 'wavelength',
+          acceptedAt: now,
+        },
+      });
+    }
     return await ctx.db.get(requestId);
   },
 });

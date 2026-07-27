@@ -38,6 +38,7 @@ export type CheckoutRequest = {
    * handles payment-after-expiry via re-acquire or payment_conflict.
    */
   expiresAtMs: number;
+  consentVersion?: string;
 };
 
 export type CheckoutSession = {

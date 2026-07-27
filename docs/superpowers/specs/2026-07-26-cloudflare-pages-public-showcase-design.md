@@ -17,13 +17,13 @@ operating a public faucet or exposing local infrastructure.
 - Pages project: `openstays-consensus`.
 - Initial URL: `https://openstays-consensus.pages.dev`.
 - Backend: a new, dedicated Murdawk Media Convex project/deployment.
-- Never inspect, configure, or use CBAP.
+- Never inspect, configure, or use unrelated projects.
 - Never connect the public site to the existing local hackathon deployment.
 - Do not add a custom domain, GitHub deployment secret, production payment
   credential, or SHC worker in this release.
 
 Cloudflare and Convex creation are external actions. Credential-bearing files
-or password-manager items may be opened only after Murphy gives fresh
+or password-manager items may be opened only after the operator gives fresh
 implementation-time approval. Secret values must never be printed, committed,
 or copied into documentation.
 
@@ -105,7 +105,7 @@ not fall back to another Convex project.
 - Desktop and 390px layouts have no horizontal overflow or console errors.
 - COOP/COEP and runtime cache headers are present.
 - Root/CLI tests, typechecks, builds, docs build, and focused browser smoke pass.
-- The Cloudflare account is confirmed as Murdawk Media and CBAP remains
+- The Cloudflare account is confirmed as the intended organization and unrelated projects remain
   untouched.
 
 ## Deferred work
