@@ -19,10 +19,12 @@ import { PublicShowcaseBoundaryPage } from './pages/PublicShowcaseBoundaryPage';
 import { PUBLIC_SHOWCASE } from './lib/publicShowcase';
 
 const IS_PUBLIC_SHOWCASE_BUILD = import.meta.env.VITE_PUBLIC_SHOWCASE === 'true';
+const INCLUDE_WAVELENGTH_WALLET = !IS_PUBLIC_SHOWCASE_BUILD
+  || import.meta.env.VITE_PUBLIC_WAVELENGTH === 'true';
 const WavelengthWalletPage =
-  IS_PUBLIC_SHOWCASE_BUILD ? null : lazy(() => import('./pages/WavelengthWalletPage'));
+  INCLUDE_WAVELENGTH_WALLET ? lazy(() => import('./pages/WavelengthWalletPage')) : null;
 const ConsensusRewardPage =
-  IS_PUBLIC_SHOWCASE_BUILD ? null : lazy(() => import('./pages/ConsensusRewardPage'));
+  INCLUDE_WAVELENGTH_WALLET ? lazy(() => import('./pages/ConsensusRewardPage')) : null;
 const AdminTapePage =
   IS_PUBLIC_SHOWCASE_BUILD ? null : lazy(() => import('./pages/AdminTapePage').then((module) => ({ default: module.AdminTapePage })));
 const AdminOperationsPage =
@@ -79,6 +81,7 @@ createRoot(rootElement).render(
             <Route path="/checkout/:bookingId" element={<CheckoutPage />} />
             <Route path="/confirmation/:code" element={<ConfirmationPage />} />
             <Route path="/manage/:code" element={<ManageBookingPage />} />
+            <Route path="/wallet/pay/:bookingId" element={walletPaymentElement} />
             <Route path="/wallet/:bookingId" element={walletPaymentElement} />
             <Route path="/wallet/reward/:code" element={rewardWalletElement} />
             <Route path="/about" element={<AboutPage />} />

@@ -4,7 +4,7 @@ import { checkoutPath, readGuestConfirmation, walletPath } from './bookingLinks.
 describe('guest booking links', () => {
   it('uses a confirmation query parameter that Convex Auth does not consume', () => {
     expect(checkoutPath('booking_1', 'OS-A&B')).toBe('/checkout/booking_1?confirmation=OS-A%26B');
-    expect(walletPath('booking_1', 'OS-A&B')).toBe('/wallet/booking_1?confirmation=OS-A%26B');
+    expect(walletPath('booking_1', 'OS-A&B')).toBe('/wallet/pay/booking_1?confirmation=OS-A%26B');
   });
 
   it('prefers the durable parameter while reading legacy links', () => {

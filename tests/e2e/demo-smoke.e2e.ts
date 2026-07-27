@@ -36,7 +36,7 @@ test('live Wavelength checkout loads one isolated wallet engine', async ({ page 
   });
   page.on('pageerror', (error) => browserErrors.push(error.message));
 
-  await page.goto(`/wallet/${bookingId}?confirmation=${encodeURIComponent(confirmation!)}`);
+  await page.goto(`/wallet/pay/${bookingId}?confirmation=${encodeURIComponent(confirmation!)}`);
   await page.getByLabel('Booking email').fill(email!);
   await page.getByRole('button', { name: 'Request signet invoice' }).click();
   await expect(page.getByRole('button', { name: 'Create local wallet' })).toBeVisible({ timeout: 20_000 });

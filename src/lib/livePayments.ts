@@ -3,6 +3,12 @@ export const PUBLIC_ZAPRITE_CONTRIBUTION_CENTS = 100 as const;
 export const PUBLIC_WAVELENGTH_PAYMENT_SATS = 1_000 as const;
 export const PUBLIC_WAVELENGTH_REWARD_SATS = 1_000 as const;
 export const PUBLIC_DEVICE_STORAGE_KEY = 'openstays.public.device.v1';
+const ELIGIBILITY_SESSION_PREFIX = 'openstays.eligibility.v1';
+
+type EligibilityAction =
+  | 'zaprite_payment'
+  | 'wavelength_payment'
+  | 'reward_claim';
 
 export const PUBLIC_PAYMENT_DISCLOSURE =
   'Consensus Commons is a fictional property created to demonstrate OpenStays. '
@@ -31,7 +37,7 @@ export function getPublicDeviceId(
 }
 
 export async function requestEligibilityToken(input: {
-  action: 'zaprite_payment' | 'wavelength_payment' | 'reward_claim';
+  action: EligibilityAction;
   bookingId: string;
   normalizedEmail: string;
   deviceId: string;
@@ -50,4 +56,36 @@ export async function requestEligibilityToken(input: {
     throw new Error('Live payment verification returned an invalid response.');
   }
   return body.token;
+}
+
+function eligibilityStorageKey(
+  action: EligibilityAction,
+  scope: string,
+): string {
+  return `${ELIGIBILITY_SESSION_PREFIX}.${action}.${scope}`;
+}
+
+export function storeEligibilityToken(
+  action: EligibilityAction,
+  scope: string,
+  token: string,
+  storage: Pick<Storage, 'setItem'> = window.sessionStorage,
+): void {
+  storage.setItem(eligibilityStorageKey(action, scope), token);
+}
+
+export function readEligibilityToken(
+  action: EligibilityAction,
+  scope: string,
+  storage: Pick<Storage, 'getItem'> = window.sessionStorage,
+): string | null {
+  return storage.getItem(eligibilityStorageKey(action, scope));
+}
+
+export function clearEligibilityToken(
+  action: EligibilityAction,
+  scope: string,
+  storage: Pick<Storage, 'removeItem'> = window.sessionStorage,
+): void {
+  storage.removeItem(eligibilityStorageKey(action, scope));
 }

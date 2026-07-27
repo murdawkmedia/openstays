@@ -35,6 +35,11 @@ import {
   demoWalletAttemptsFunded,
   isLocalDemoWalletSetup,
 } from '../lib/wavelengthDemoWallet';
+import {
+  clearEligibilityToken,
+  PUBLIC_CONSENT_VERSION,
+  readEligibilityToken,
+} from '../lib/livePayments';
 
 const wavelengthApi = (api as any).wavelength;
 const DEMO_FUNDING_DISPLAY_WINDOW_MS = 10 * 60_000;
@@ -128,7 +133,18 @@ function WalletPayment() {
   async function begin() {
     setError('');
     try {
-      await createRequest({ bookingId, confirmationCode, email });
+      const eligibilityToken = readEligibilityToken('wavelength_payment', bookingId);
+      await createRequest({
+        bookingId,
+        confirmationCode,
+        email,
+        consent: {
+          version: PUBLIC_CONSENT_VERSION,
+          accepted: true,
+        },
+        eligibilityToken: eligibilityToken ?? undefined,
+      });
+      clearEligibilityToken('wavelength_payment', bookingId);
       setStarted(true);
     } catch (err) {
       setError(explainWavelengthError(err));

@@ -1,7 +1,7 @@
 import { PUBLIC_PAYMENT_DISCLOSURE } from '../lib/livePayments';
 
 type Props = {
-  rail: 'zaprite' | 'wavelength';
+  rail: 'zaprite' | 'wavelength' | 'both';
   accepted: boolean;
   onAcceptedChange: (accepted: boolean) => void;
 };
@@ -18,7 +18,9 @@ export function LivePaymentDisclosure({
       <p className="mt-2 font-medium">
         {rail === 'zaprite'
           ? 'This checkout creates a real CA$1 voluntary contribution.'
-          : 'This checkout sends exactly 1,000 signet test sats.'}
+          : rail === 'wavelength'
+            ? 'This checkout sends exactly 1,000 signet test sats.'
+            : 'Choose either a real CA$1 voluntary contribution or exactly 1,000 signet test sats.'}
       </p>
       <label className="mt-4 flex cursor-pointer items-start gap-3">
         <input
