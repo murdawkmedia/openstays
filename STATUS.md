@@ -101,7 +101,7 @@
 - The current full local gate passed:
   - root: 469 tests, typecheck, production build, docs build, and runtime audit;
   - CLI: 72 tests, typecheck, and build;
-  - operations: 157 tests, typecheck, and build;
+  - operations: 167 tests, typecheck, and build;
   - `git diff --check`.
 - GitHub CI run
   [30233083376](https://github.com/murdawkmedia/openstays/actions/runs/30233083376)
