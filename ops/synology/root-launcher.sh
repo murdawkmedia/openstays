@@ -34,6 +34,8 @@ fail() {
 test "$EUID" = "0" || fail ROOT_LAUNCHER_REQUIRES_ROOT
 test "$("$READLINK" -f -- "$0")" = "$INSTALL_PATH" \
   || fail ROOT_LAUNCHER_INSTALL_PATH_INVALID
+test "$("$STAT" -c '%u:%g:%a' "$INSTALL_PATH")" = "0:0:700" \
+  || fail ROOT_LAUNCHER_INSTALL_IDENTITY_INVALID
 
 action="${1:-}"
 commit="${2:-}"

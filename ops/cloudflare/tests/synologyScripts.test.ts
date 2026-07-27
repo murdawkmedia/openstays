@@ -232,6 +232,7 @@ function prepareRootLauncherTools(
     join(bin, 'stat'),
     `#!/usr/bin/env bash
 case "$*" in
+  *"%u:%g:%a"*"openstays-merchant-root"*) echo 0:0:700 ;;
   *"%u:%g:%a"*"openstays-merchant/source"*) echo 0:0:700 ;;
   *"%u:%g:%a"*"source-quarantine"*) echo 0:0:700 ;;
   *"%u:%g:%a"*"openstays-merchant/quarantine"*) echo 0:0:700 ;;
@@ -313,6 +314,7 @@ describe('Synology script contracts', () => {
     expect(body).toContain(
       'INSTALL_PATH=/usr/local/sbin/openstays-merchant-root',
     );
+    expect(body).toContain('ROOT_LAUNCHER_INSTALL_IDENTITY_INVALID');
     expect(body).toContain(
       'REPOSITORY_URL=https://github.com/murdawkmedia/openstays.git',
     );
