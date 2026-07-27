@@ -5,7 +5,9 @@
 ## Current branch
 
 - Branch: `codex/public-live-payment-rails`
-- Latest completed product checkpoint: `1faaecb`
+- Product/UI checkpoint: `1faaecb`
+- Merchant bootstrap/recovery checkpoint: `e6aee3f`
+- Public operations documentation checkpoint: `9945dde`
 - The branch is local only. It has not been pushed, merged, or deployed.
 - No credential-bearing file was opened. No provider, Convex, Cloudflare,
   Turnstile, R2, Worker, Durable Object, Container, Pages, or Zaprite resource
@@ -69,19 +71,34 @@
   bootstrap, heartbeat, backup, and forced-restore tests pass.
 - A real Linux container build and vulnerability scan are still required.
   No Docker-compatible engine is installed in the current environment.
+- Fresh release-candidate verification:
+  - root: 469 tests, typecheck, production build, docs build, and the
+    project-specific runtime audit passed;
+  - CLI: 72 tests, typecheck, build, and the high-severity audit threshold
+    passed; two moderate findings remain in the MCP dependency's unused
+    Windows static-file adapter;
+  - Cloudflare: 28 tests, typecheck, dry-run build, and production dependency
+    audit passed with zero findings;
+  - public showcase build: zero staff chunks, nine Wavelength runtime files,
+    and no scanned credential, recovery, private-path, or personal identifiers;
+  - browser: desktop and mobile fictional showcase funnels passed; six
+    credential-dependent live-rail cases remained skipped;
+  - focused failure injection: 52 payment/reward/retention/heartbeat tests and
+    24 backup/bootstrap/restore/control tests passed.
+- Raw `npm audit --omit=dev --audit-level=high` remains nonzero only for
+  `GHSA-qwww-vcr4-c8h2`. The repository's fail-closed audit script verifies
+  OpenStays is a client-only Vite SPA with no React Server Components or
+  server-router package and accepts only this documented non-applicable
+  advisory.
 
 ## Remaining gates
 
-1. Complete the public integration guide, operator runbook, security notes, and
-   privacy scan.
-2. Run every root, CLI, docs, Cloudflare, audit, built-artifact, and
-   whitespace gate from the approved plan.
-3. Build and scan the real container image on a Docker-capable host.
-4. Run disposable failure injection, including corrupt-copy restore,
+1. Build and scan the real container image on a Docker-capable host.
+2. Run disposable integration failure injection, including corrupt-copy restore,
    interrupted settlement reconciliation, and 15-day retention.
-5. Stop for fresh approval before opening/using credentials, creating
+3. Obtain fresh approval before opening/using credentials, creating
    resources, pushing, or deploying.
-6. Deploy with all live rails disabled, bootstrap the merchant wallet once,
+4. Deploy with all live rails disabled, bootstrap the merchant wallet once,
    record recovery offline, force a verified restore, then perform live
    acceptance before enabling either rail.
 
