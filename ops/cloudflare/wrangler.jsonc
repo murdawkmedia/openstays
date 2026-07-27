@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openstays-merchant-operations",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-26",
+  "vars": {
+    "PUBLIC_ORIGIN": "https://openstays.example.invalid",
+    "RELEASE": "local-unconfigured"
+  },
+  "r2_buckets": [
+    {
+      "binding": "WALLET_BACKUPS",
+      "bucket_name": "openstays-wallet-backups"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MERCHANT_OPERATIONS",
+        "class_name": "MerchantOperations"
+      }
+    ]
+  },
+  "containers": [
+    {
+      "class_name": "MerchantOperations",
+      "image": "./container/Dockerfile",
+      "instance_type": "basic",
+      "max_instances": 1
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["MerchantOperations"]
+    }
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
+}

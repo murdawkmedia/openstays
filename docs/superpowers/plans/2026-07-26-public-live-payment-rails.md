@@ -623,7 +623,7 @@ git commit -m "feat: expose guarded public signet wallets"
 - Create: `ops/cloudflare/tests/eligibility.test.ts`
 - Create: `ops/cloudflare/tests/http.test.ts`
 
-- [ ] **Step 1: Scaffold exact package versions**
+- [x] **Step 1: Scaffold exact package versions**
 
 Use:
 
@@ -635,7 +635,7 @@ Use:
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "build": "wrangler deploy --dry-run --outdir dist"
+    "build": "wrangler deploy --dry-run --containers-rollout=none --outdir dist"
   },
   "dependencies": {
     "@cloudflare/containers": "0.3.7"
@@ -643,15 +643,19 @@ Use:
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260726.1",
     "typescript": "5.9.3",
-    "vitest": "3.2.4",
+    "vitest": "3.2.7",
     "wrangler": "4.114.0"
   }
 }
 ```
 
-Run `npm --prefix ops/cloudflare install`.
+Run `npm --prefix ops/cloudflare install`. Vitest 3.2.7 supersedes the
+original 3.2.4 draft pin because 3.2.4 is affected by
+`GHSA-5xrq-8626-4rwp`. The edge-only dry run suppresses container rollout so
+it remains executable without Docker; the real container-image build remains
+a mandatory Task 9 deployment gate.
 
-- [ ] **Step 2: Write failing eligibility tests**
+- [x] **Step 2: Write failing eligibility tests**
 
 Use a mocked Turnstile endpoint. Assert:
 
@@ -662,7 +666,7 @@ Use a mocked Turnstile endpoint. Assert:
 - signature changes when any claim changes;
 - unsupported action or malformed input returns 400.
 
-- [ ] **Step 3: Confirm red**
+- [x] **Step 3: Confirm red**
 
 ```powershell
 npm --prefix ops/cloudflare test
@@ -670,7 +674,7 @@ npm --prefix ops/cloudflare test
 
 Expected: FAIL because Worker modules are missing.
 
-- [ ] **Step 4: Implement compact HMAC tokens**
+- [x] **Step 4: Implement compact HMAC tokens**
 
 `eligibility.ts` exports:
 
@@ -708,11 +712,11 @@ export async function issueEligibilityToken(
 
 Use Web Crypto HMAC-SHA-256 and base64url encoding. The daily network digest input is `YYYY-MM-DD + "\n" + ip`; return no raw IP.
 
-- [ ] **Step 5: Implement HTTP boundary**
+- [x] **Step 5: Implement HTTP boundary**
 
 `POST /v1/eligibility` validates JSON size under 8 KiB, exact origin, Turnstile response, action, booking ID, normalized email, and device ID. `GET /healthz` returns only release and aggregate component state. Unknown routes return 404. Operator diagnostics require bearer auth and never expose wallet secrets or recovery state.
 
-- [ ] **Step 6: Define bindings without values**
+- [x] **Step 6: Define bindings without values**
 
 `wrangler.jsonc` declares:
 
@@ -725,7 +729,7 @@ Use Web Crypto HMAC-SHA-256 and base64url encoding. The daily network digest inp
 
 List secret names, never values: `TURNSTILE_SECRET`, `ELIGIBILITY_HMAC_SECRET`, `OPERATIONS_ADMIN_TOKEN`.
 
-- [ ] **Step 7: Verify and commit**
+- [x] **Step 7: Verify and commit**
 
 ```powershell
 npm --prefix ops/cloudflare test
