@@ -383,7 +383,7 @@ git commit -m "feat: add consented one dollar Zaprite flow"
 - Modify: `convex/email.ts`
 - Modify: `convex/schema.ts`
 
-- [ ] **Step 1: Write failing cleanup tests**
+- [x] **Step 1: Write failing cleanup tests**
 
 Build fixtures for:
 
@@ -402,7 +402,7 @@ Assert that cleanup:
 - deletes expired unpaid holds and disposable simulated browsing state;
 - is idempotent.
 
-- [ ] **Step 2: Confirm red**
+- [x] **Step 2: Confirm red**
 
 ```powershell
 npx vitest run convex/publicMaintenance.test.ts
@@ -410,7 +410,7 @@ npx vitest run convex/publicMaintenance.test.ts
 
 Expected: FAIL because `publicMaintenance` is missing.
 
-- [ ] **Step 3: Implement maintenance**
+- [x] **Step 3: Implement maintenance**
 
 Create `convex/publicMaintenance.ts` with:
 
@@ -424,7 +424,7 @@ Process at most 100 records per table per invocation. Preserve immutable and fin
 Add `retentionPurgedAt: v.optional(v.number())` to `emailLog` in
 `convex/schema.ts`.
 
-- [ ] **Step 4: Disable destructive reset in live mode**
+- [x] **Step 4: Disable destructive reset in live mode**
 
 At the start of `convex/demo.ts` reset:
 
@@ -439,7 +439,7 @@ if (process.env.PUBLIC_LIVE_PAYMENTS === "true") {
 
 Replace the nightly reset cron with `internal.publicMaintenance.runNightly`.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```powershell
 npx vitest run convex/publicMaintenance.test.ts convex/demo.test.ts
@@ -448,7 +448,7 @@ npm run typecheck
 
 Expected: cleanup/reset tests pass and typecheck exits 0.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add convex/publicMaintenance.ts convex/publicMaintenance.test.ts convex/demo.ts convex/crons.ts convex/email.ts convex/schema.ts
