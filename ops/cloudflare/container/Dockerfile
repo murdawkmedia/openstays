@@ -57,6 +57,7 @@ COPY --from=cli-build --chown=node:node /build/cli/package.json /app/cli/package
 COPY --from=cli-build --chown=node:node /build/cli/node_modules /app/cli/node_modules
 COPY --from=cli-build --chown=node:node /build/cli/dist /app/cli/dist
 COPY --chown=node:node ops/cloudflare/container/control.mjs ops/cloudflare/container/backup.mjs /app/container/
+COPY --chown=node:node ops/synology/*.mjs /app/synology/
 
 RUN mkdir -p /var/lib/openstays /run/openstays \
   && chown -R node:node /var/lib/openstays /run/openstays /app
@@ -69,5 +70,4 @@ ENV NODE_ENV=production \
   OTS_COMMAND=/usr/local/bin/ots
 
 USER node
-EXPOSE 8080
 ENTRYPOINT ["node", "/app/container/control.mjs"]
