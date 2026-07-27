@@ -71,7 +71,7 @@ other file from a checkout writable by `murdawk`.
 3. In DSM **Control Panel → Task Scheduler**, create a manual-only
    **User-defined script** owned by `root`.
 4. Confirm the trusted launcher digest is
-   `d46eac9492af2b6e46ee4343cb84087984b13eb7ad6869f5598f973709d4b488`.
+   `7094a2cc8175f3800f138eb4683e95516f3bafa15efd43ca534ad0a4760f612b`.
    Replace both `<40-character-commit>` values with the same lowercase commit.
    The digest must remain a literal in the task, never read from the staging
    folder.
@@ -83,7 +83,7 @@ other file from a checkout writable by `murdawk`.
    installed_sha256=$(/bin/sha256sum \
      /usr/local/sbin/openstays-merchant-root)
    case "${installed_sha256%% *}" in
-     d46eac9492af2b6e46ee4343cb84087984b13eb7ad6869f5598f973709d4b488) ;;
+     7094a2cc8175f3800f138eb4683e95516f3bafa15efd43ca534ad0a4760f612b) ;;
      *) exit 72 ;;
    esac
    /usr/bin/env -i \
