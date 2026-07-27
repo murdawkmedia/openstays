@@ -45,6 +45,7 @@ run_container() {
     --env "OTS_BRIDGE_TOKEN=recovery-drill" \
     --env "MAIL_BRIDGE_TOKEN=recovery-drill" \
     --env "OPENSTAYS_RELEASE=recovery-drill" \
+    --env "OPENSTAYS_DIAGNOSTIC_LIFECYCLE_ERRORS=true" \
     "$image_ref" >/dev/null
 }
 
