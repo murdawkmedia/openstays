@@ -49,9 +49,12 @@
     returning recovery words;
   - serialized periodic backup and redacted stale-backup health;
   - guarded fixed-root deployment and forced-recovery scripts;
-  - a one-shot DSM Task Scheduler root mode gated by the exact `1026:100`
-    runtime identity, clean 40-character source commit pin, fixed roots,
-    disabled rails, restricted environment, and non-root Compose service;
+  - a SHA-256-pinned, root-owned DSM launcher that sanitizes its environment,
+    fetches and atomically publishes an exact clean commit, preserves prior
+    source in quarantine, and gives checkout scripts a root-only nonce
+    handoff;
+  - exact `1026:100` container-user attestation alongside the existing fixed
+    labels, mounts, ports, disabled rails, and cleanup boundaries;
   - loopback-only operator/control access with no published container ports.
 - The Cloudflare eligibility-only configuration contains no Container, Durable
   Object, R2, Synology origin, or Synology credential.
@@ -81,13 +84,13 @@
   - credential-dependent live payment browser checks remained correctly
     skipped.
 - Tasks 1-6 of the Synology plan are complete locally.
-- Cloudflare/Synology operations pass 144 tests, typecheck, the generic Worker
+- Cloudflare/Synology operations pass 157 tests, typecheck, the generic Worker
   dry-run build, and the eligibility-only dry run with no Container, Durable
   Object, or R2 binding.
 - The current full local gate passed:
   - root: 469 tests, typecheck, production build, docs build, and runtime audit;
   - CLI: 72 tests, typecheck, and build;
-  - operations: 144 tests, typecheck, and build;
+  - operations: 157 tests, typecheck, and build;
   - `git diff --check`.
 - GitHub CI run
   [30233083376](https://github.com/murdawkmedia/openstays/actions/runs/30233083376)
