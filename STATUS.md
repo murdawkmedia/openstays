@@ -1,16 +1,19 @@
 # OpenStays status
 
-**Updated: 2026-07-26 — public live-payment release candidate verified for integration.**
+**Updated: 2026-07-26 — fictional public showcase deployed; live rails remain disabled.**
 
 ## Current branch
 
-- Branch: `codex/public-live-payment-rails`
-- Release-candidate checkpoint: `0aefe19`
-- Draft PR: <https://github.com/murdawkmedia/openstays/pull/1>
-- The branch is pushed but has not yet been merged.
-- The existing Murdawk Media `openstays-consensus` Pages project was inspected
-  read-only. No Convex, Turnstile, R2, Worker, Durable Object, Container, or
-  Zaprite resource was created or changed.
+- `main` merge: `907d466`
+- Follow-up branch: `codex/public-live-payment-rails`
+- Generated API follow-up: <https://github.com/murdawkmedia/openstays/pull/2>
+- Public showcase: <https://openstays-consensus.pages.dev/>
+- The dedicated `openstays-demo` production Convex deployment was updated and
+  seeded with fictional Consensus Commons inventory.
+- `ZAPRITE_ENABLED`, `WAVELENGTH_ENABLED`, and
+  `WAVELENGTH_REWARDS_ENABLED` remain `false`; the reward budget remains zero.
+- No Turnstile, R2, Worker, Durable Object, Container, or Zaprite resource was
+  created or changed.
 
 ## Implemented
 
@@ -101,7 +104,7 @@
 
 ## Remaining gates
 
-1. Merge the verified branch and publish the fictional showcase.
+1. Merge the generated Convex declaration follow-up.
 2. Run credential-dependent live integration acceptance, including
    interrupted settlement reconciliation and 15-day retention.
 3. Gain access to a durable merchant host. The Synology was preferred but was
