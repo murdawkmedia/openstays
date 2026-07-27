@@ -5,14 +5,74 @@ APP_ROOT=/volume1/docker/openstays-merchant
 BACKUP_ROOT=/volume2/openstays-wallet-backups
 ENV_FILE="$APP_ROOT/config/merchant.env"
 COMPOSE_FILE="$APP_ROOT/source/ops/synology/docker-compose.yml"
+EXPECTED_UID=1026
+EXPECTED_GID=100
+ROOT_TASK_PATH=/usr/local/bin:/usr/bin:/bin
+
+PATH="$ROOT_TASK_PATH"
+export PATH
 
 fail() {
   printf '%s\n' "$1" >&2
   exit 1
 }
 
-test "$(id -un)" = "murdawk" \
-  || fail DEPLOY_USER_MUST_BE_MURDAWK
+require_clean_pinned_source() {
+  local expected_commit="${OPENSTAYS_DSM_SOURCE_COMMIT:-}"
+  local actual_commit
+  local dirty
+  [[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]] \
+    || fail DSM_SOURCE_COMMIT_PIN_REQUIRED
+  actual_commit="$(
+    git -c "safe.directory=$APP_ROOT/source" \
+      -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false \
+      -C "$APP_ROOT/source" rev-parse HEAD
+  )" \
+    || fail DSM_SOURCE_COMMIT_UNREADABLE
+  test "$actual_commit" = "$expected_commit" \
+    || fail DSM_SOURCE_COMMIT_MISMATCH
+  dirty="$(
+    git -c "safe.directory=$APP_ROOT/source" \
+      -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false \
+      -C "$APP_ROOT/source" status --porcelain
+  )" \
+    || fail DSM_SOURCE_STATUS_UNREADABLE
+  test -z "$dirty" || fail DSM_SOURCE_MUST_BE_CLEAN
+}
+
+root_task=false
+case "$(id -un)" in
+  murdawk)
+    test -z "${OPENSTAYS_DSM_ROOT_TASK:-}" \
+      || fail DSM_ROOT_TASK_REQUIRES_ROOT
+    test "$(id -un)" = "murdawk" \
+      || fail DEPLOY_USER_MUST_BE_MURDAWK
+    ;;
+  root)
+    test "${OPENSTAYS_DSM_ROOT_TASK:-}" = "1" \
+      || fail DSM_ROOT_TASK_FLAG_REQUIRED
+    for rejected_name in \
+      BASH_ENV ENV CDPATH DOCKER_HOST DOCKER_CONTEXT \
+      COMPOSE_FILE COMPOSE_PROJECT_NAME
+    do
+      if rejected_value="$(printenv "$rejected_name" 2>/dev/null)"; then
+        test -z "$rejected_value" \
+          || fail DSM_ROOT_TASK_ENVIRONMENT_INVALID
+      fi
+    done
+    umask 077
+    root_task=true
+    ;;
+  *)
+    fail DEPLOY_USER_MUST_BE_MURDAWK
+    ;;
+esac
+
+test "$(id -u murdawk)" = "$EXPECTED_UID" \
+  && test "$(id -g murdawk)" = "$EXPECTED_GID" \
+  || fail MURDAWK_RUNTIME_IDENTITY_MISMATCH
 
 assert_safe_target() {
   local target="$1"
@@ -115,11 +175,21 @@ stop_failed_deploy() {
 assert_safe_target "$APP_ROOT"
 assert_safe_target "$BACKUP_ROOT"
 
-install -d -m 700 \
-  "$APP_ROOT" \
-  "$APP_ROOT/config" \
-  "$APP_ROOT/state" \
-  "$BACKUP_ROOT"
+if test "$root_task" = "true"; then
+  assert_safe_target "$APP_ROOT/source"
+  require_clean_pinned_source
+  install -d -m 700 -o "$EXPECTED_UID" -g "$EXPECTED_GID" \
+    "$APP_ROOT" \
+    "$APP_ROOT/config" \
+    "$APP_ROOT/state" \
+    "$BACKUP_ROOT"
+else
+  install -d -m 700 \
+    "$APP_ROOT" \
+    "$APP_ROOT/config" \
+    "$APP_ROOT/state" \
+    "$BACKUP_ROOT"
+fi
 
 assert_managed_directory "$APP_ROOT" "$APP_ROOT"
 assert_managed_directory "$BACKUP_ROOT" "$BACKUP_ROOT"
@@ -139,8 +209,8 @@ case "$env_owner" in
   *) fail MERCHANT_ENV_OWNER_INVALID ;;
 esac
 
-expected_uid="$(id -u murdawk)"
-expected_gid="$(id -g murdawk)"
+expected_uid="$EXPECTED_UID"
+expected_gid="$EXPECTED_GID"
 test "$(env_value OPENSTAYS_UID)" = "$expected_uid" \
   || fail OPENSTAYS_UID_MISMATCH
 test "$(env_value OPENSTAYS_GID)" = "$expected_gid" \

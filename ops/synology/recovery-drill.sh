@@ -7,14 +7,74 @@ ENV_FILE="$APP_ROOT/config/merchant.env"
 COMPOSE_FILE="$APP_ROOT/source/ops/synology/docker-compose.yml"
 LIVE_WALLET="$APP_ROOT/state/wavelength"
 QUARANTINE_ROOT="$APP_ROOT/state/quarantine"
+EXPECTED_UID=1026
+EXPECTED_GID=100
+ROOT_TASK_PATH=/usr/local/bin:/usr/bin:/bin
+
+PATH="$ROOT_TASK_PATH"
+export PATH
 
 fail() {
   printf '%s\n' "$1" >&2
   exit 1
 }
 
-test "$(id -un)" = "murdawk" \
-  || fail RECOVERY_USER_MUST_BE_MURDAWK
+require_clean_pinned_source() {
+  local expected_commit="${OPENSTAYS_DSM_SOURCE_COMMIT:-}"
+  local actual_commit
+  local dirty
+  [[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]] \
+    || fail DSM_SOURCE_COMMIT_PIN_REQUIRED
+  actual_commit="$(
+    git -c "safe.directory=$APP_ROOT/source" \
+      -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false \
+      -C "$APP_ROOT/source" rev-parse HEAD
+  )" \
+    || fail DSM_SOURCE_COMMIT_UNREADABLE
+  test "$actual_commit" = "$expected_commit" \
+    || fail DSM_SOURCE_COMMIT_MISMATCH
+  dirty="$(
+    git -c "safe.directory=$APP_ROOT/source" \
+      -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false \
+      -C "$APP_ROOT/source" status --porcelain
+  )" \
+    || fail DSM_SOURCE_STATUS_UNREADABLE
+  test -z "$dirty" || fail DSM_SOURCE_MUST_BE_CLEAN
+}
+
+root_task=false
+case "$(id -un)" in
+  murdawk)
+    test -z "${OPENSTAYS_DSM_ROOT_TASK:-}" \
+      || fail DSM_ROOT_TASK_REQUIRES_ROOT
+    test "$(id -un)" = "murdawk" \
+      || fail RECOVERY_USER_MUST_BE_MURDAWK
+    ;;
+  root)
+    test "${OPENSTAYS_DSM_ROOT_TASK:-}" = "1" \
+      || fail DSM_ROOT_TASK_FLAG_REQUIRED
+    for rejected_name in \
+      BASH_ENV ENV CDPATH DOCKER_HOST DOCKER_CONTEXT \
+      COMPOSE_FILE COMPOSE_PROJECT_NAME
+    do
+      if rejected_value="$(printenv "$rejected_name" 2>/dev/null)"; then
+        test -z "$rejected_value" \
+          || fail DSM_ROOT_TASK_ENVIRONMENT_INVALID
+      fi
+    done
+    umask 077
+    root_task=true
+    ;;
+  *)
+    fail RECOVERY_USER_MUST_BE_MURDAWK
+    ;;
+esac
+
+test "$(id -u murdawk)" = "$EXPECTED_UID" \
+  && test "$(id -g murdawk)" = "$EXPECTED_GID" \
+  || fail MURDAWK_RUNTIME_IDENTITY_MISMATCH
 
 physical_path() {
   readlink -f -- "$1"
@@ -76,6 +136,10 @@ verify_container_identity() {
 
 assert_exact_directory "$APP_ROOT" "$APP_ROOT"
 assert_exact_directory "$BACKUP_ROOT" "$BACKUP_ROOT"
+if test "$root_task" = "true"; then
+  assert_exact_directory "$APP_ROOT/source" "$APP_ROOT/source"
+  require_clean_pinned_source
+fi
 test -f "$ENV_FILE" && test ! -L "$ENV_FILE" \
   || fail MERCHANT_ENV_REQUIRED
 test -f "$COMPOSE_FILE" && test ! -L "$COMPOSE_FILE" \
@@ -88,7 +152,12 @@ require_disabled_flag WAVELENGTH_ENABLED
 require_disabled_flag WAVELENGTH_REWARDS_ENABLED
 verify_container_identity
 
-install -d -m 700 "$QUARANTINE_ROOT"
+if test "$root_task" = "true"; then
+  install -d -m 700 -o "$EXPECTED_UID" -g "$EXPECTED_GID" \
+    "$QUARANTINE_ROOT"
+else
+  install -d -m 700 "$QUARANTINE_ROOT"
+fi
 assert_exact_directory "$QUARANTINE_ROOT" "$QUARANTINE_ROOT"
 case "$QUARANTINE_ROOT/" in
   "$LIVE_WALLET/"|"$LIVE_WALLET/"*) fail QUARANTINE_CONTAINMENT_INVALID ;;

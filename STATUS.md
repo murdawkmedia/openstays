@@ -49,6 +49,9 @@
     returning recovery words;
   - serialized periodic backup and redacted stale-backup health;
   - guarded fixed-root deployment and forced-recovery scripts;
+  - a one-shot DSM Task Scheduler root mode gated by the exact `1026:100`
+    runtime identity, clean 40-character source commit pin, fixed roots,
+    disabled rails, restricted environment, and non-root Compose service;
   - loopback-only operator/control access with no published container ports.
 - The Cloudflare eligibility-only configuration contains no Container, Durable
   Object, R2, Synology origin, or Synology credential.
@@ -124,8 +127,9 @@
 
 ## Remaining gates
 
-1. Render Compose, build the image, and deploy the disabled merchant on the
-   approved Synology roots.
+1. Use the documented manual-only DSM root task to render Compose, build the
+   image, and deploy the disabled merchant on the approved Synology roots;
+   remove or disable the task after the one-shot run.
 2. Bootstrap the signet wallet once, record recovery offline, and complete the
    forced restore drill before enabling Wavelength.
 3. Create and verify the dedicated Turnstile widget and deploy the
