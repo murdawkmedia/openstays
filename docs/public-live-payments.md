@@ -37,6 +37,40 @@ The browser never decides that money moved.
 The simulated tour exercises the booking ledger and receipt UI without
 creating a provider charge or a signet reward.
 
+## Deployment and recovery boundary
+
+For this showcase, the signet merchant runtime is hosted on the Synology NAS.
+SHC is deliberately excluded. The runtime has no published container ports:
+the browser and the eligibility-only Cloudflare Worker cannot reach the NAS.
+Both talk only to public application services, while the merchant initiates
+authenticated bridge calls to authoritative Convex state.
+
+Encrypted wallet generations are written atomically to
+`/volume2/openstays-wallet-backups`, a separate volume from live application
+state. Those verified archive/manifest pairs are the recovery authority.
+Missing, corrupt, or stale recovery data fails closed. A required restore
+drill proves the same redacted signet wallet identity and activity before a
+rail may be enabled.
+
+Zaprite and Wavelength enable independently. Zaprite can operate while
+Wavelength is unhealthy or disabled; the simulated tour remains available
+without either live rail. The Zaprite API key previously pasted during
+development is treated as exposed and must be replaced before public
+enablement.
+
+### Optional backup-manifest timestamp
+
+OpenTimestamps may be used as an optional audit layer for a sanitized
+generation-manifest commitment. It can provide evidence that the commitment
+existed by a particular time, but it does not make a backup valid and does not
+replace atomic publication, SHA-256 verification, encryption, or the restore
+drill.
+
+No backup bytes, secret values, recovery material, wallet data, guest data,
+invoice, or payment hash may enter the timestamped document. Calendar
+submission is distinct from a later Bitcoin block attestation, and anchoring
+is never required for merchant startup, restore, or payment processing.
+
 ## Privacy and retention
 
 Public booking data uses a 14-day minimization policy:
@@ -124,31 +158,35 @@ the relevant provider's secret store and must never use a `VITE_` prefix.
 - `MAIL_HEARTBEAT_TOKEN`
 - `BACKUP_HEARTBEAT_TOKEN`
 
-Optional mail delivery also uses `EMAIL_FROM`; the Worker/container may use
+Optional mail delivery also uses `EMAIL_FROM`; the Synology merchant may use
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, and
 `SMTP_PASSWORD`.
 
-### Cloudflare Worker and Container
+### Eligibility-only Cloudflare Worker
 
 Non-secret variables:
 
 - `PUBLIC_ORIGIN`
 - `RELEASE`
+- `OPERATIONS_MODE=synology_external`
 
 Worker secrets:
 
-- `OPENSTAYS_URL`
 - `TURNSTILE_SECRET`
 - `ELIGIBILITY_HMAC_SECRET`
 - `OPERATIONS_ADMIN_TOKEN`
-- `CONTAINER_CONTROL_TOKEN`
-- `WALLET_BACKUP_KEY_BASE64`
-- `WAVELENGTH_WALLET_PASSWORD`
-- all bridge and heartbeat tokens listed above
-- optional SMTP settings
 
-The HMAC secret and each bridge/heartbeat token must match only its intended
-counterpart. Do not reuse a token across services.
+This Worker has no Container, Durable Object, R2, Synology origin, or
+Synology credential. The HMAC secret must match only its intended Convex
+counterpart.
+
+### Synology merchant
+
+The private `merchant.env` holds the Convex API key, container control token,
+wallet backup key, wallet password, service-scoped bridge and heartbeat
+tokens, and optional SMTP settings. It is mode `0600` and never committed.
+Each token matches only its intended Convex counterpart; do not reuse tokens
+across services.
 
 ## Availability and fail-closed behavior
 
@@ -156,8 +194,8 @@ counterpart. Do not reuse a token across services.
   action without disabling Zaprite or the simulated tour.
 - A reward additionally requires at least 1,000 sats plus the configured fee
   ceiling in the merchant wallet.
-- A missing, corrupt, or stale encrypted wallet backup prevents the merchant
-  container from becoming ready.
+- A missing, corrupt, or stale encrypted `/volume2` wallet generation prevents
+  the merchant container from becoming ready.
 - The live reward budget defaults to zero.
 - Reset and retention jobs never rewrite real payment, refund, reward, or
   receipt authority.

@@ -263,6 +263,23 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
 - 2026-07-26 (scope): only dedicated OpenStays resources may be configured.
   Unrelated projects, deployments, credentials, and customer data are out of
   scope.
+- 2026-07-27 (Synology merchant boundary): the showcase merchant runtime is
+  hosted on Synology; SHC is excluded. Verified encrypted generations under
+  `/volume2/openstays-wallet-backups` are recovery authority. The public
+  browser and eligibility-only Worker never connect to the NAS; the merchant
+  initiates authenticated bridge calls to authoritative Convex state.
+- 2026-07-27 (public rail enablement): Zaprite and Wavelength are accepted and
+  enabled independently. The Zaprite API key pasted during development is
+  exposed and must be replaced before Zaprite enablement. Wavelength remains
+  signet-only. Consensus Commons is fictional: Zaprite is a CA$1 voluntary
+  development contribution, while Wavelength booking and reward flows use
+  1,000 signet test sats.
+- 2026-07-27 (backup timestamping): atomic generation publication, digest
+  verification, encryption, and forced restore are the wallet-safety
+  authority. OpenTimestamps is an optional audit layer for a sanitized
+  manifest commitment only: no archive, secret, recovery, wallet, guest,
+  invoice, payment-hash, host, or path data. Bitcoin anchoring is not required
+  for restore, startup, reconciliation, or payment availability.
 - 2026-07-22 (OpenStays Mail): Convex is authoritative for rendered email,
   idempotency, leases, retries, and audit state. `mail_bridge` exposes only
   bearer-authenticated bounded claims and acknowledgements; the local worker

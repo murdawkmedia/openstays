@@ -2,11 +2,32 @@
 
 This runbook is for the fictional Consensus Commons showcase. Commands that
 create resources, use credentials, move test funds, push code, or deploy are
-marked **REQUIRES FRESH OPERATOR APPROVAL**. Run them only against the
-dedicated OpenStays resources. Unrelated deployments and credentials are out
-of scope.
+marked **REQUIRES FRESH OPERATOR APPROVAL**. Run them only against dedicated
+OpenStays resources. Unrelated deployments, credentials, and customer data are
+out of scope.
 
-## 1. Local release gates
+## 1. Binding deployment boundaries
+
+- The approved merchant host is the Synology NAS. SHC is not used by this
+  deployment.
+- Live application state is under
+  `/volume1/docker/openstays-merchant/state`.
+- Encrypted, verified wallet generations under
+  `/volume2/openstays-wallet-backups` are the recovery authority.
+- The Cloudflare Worker is eligibility-only. It has no Container, Durable
+  Object, R2, NAS origin, or NAS credential.
+- Neither the public browser nor the Worker can reach the NAS. They interact
+  with Convex and the eligibility edge; the Synology merchant initiates its
+  authenticated bridge calls to Convex.
+- Zaprite and Wavelength have independent backend and frontend enable flags.
+  One rail may remain disabled while the other and the simulated tour operate.
+- Wavelength is signet-only. Never send mainnet bitcoin to this wallet.
+
+The public property is fictional. A CA$1 Zaprite payment is a voluntary
+contribution to OpenStays development, not payment for accommodation, and the
+1,000-sat Wavelength flow and reward use signet test sats only.
+
+## 2. Local release gates
 
 From the repository root:
 
@@ -30,82 +51,66 @@ npm --prefix ops/cloudflare run build
 git diff --check
 ```
 
-The Cloudflare build is a dry run and does not roll out a container.
-
-Build the pinned Linux image from the repository root:
+Render the eligibility-only Worker without deploying it:
 
 ```powershell
-docker build --pull --no-cache `
-  --file ops/cloudflare/container/Dockerfile `
-  --tag openstays-merchant-operations:release-candidate .
-bash ops/cloudflare/tests/container-recovery-drill.sh `
-  openstays-merchant-operations:release-candidate
-trivy image --severity HIGH,CRITICAL --exit-code 0 `
-  openstays-merchant-operations:release-candidate
-trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 `
-  --skip-files /usr/local/bin/waved `
-  openstays-merchant-operations:release-candidate
+npx --prefix ops/cloudflare wrangler deploy `
+  --config wrangler.synology.jsonc --dry-run
 ```
 
-The full report must remain visible. The blocking scan excludes only the
-upstream Wavelength binary, which Lightning Labs must rebuild against newer Go
-dependencies; OpenStays remains signet-only while that exception exists. Do
-not deploy if the image, recovery drill, or blocking scan fails.
+The dry run must contain no container image build. The checked-in Compose
+contract has no published ports, but native Docker build, Compose rendering,
+container health, and forced recovery remain explicitly pending until they are
+run on the Synology host. A local workstation without a compatible Docker
+engine cannot satisfy that host gate.
 
-## 2. Create dedicated Cloudflare resources
+## 3. Create the eligibility edge
 
 **REQUIRES FRESH OPERATOR APPROVAL**
 
-```powershell
-Push-Location ops/cloudflare
-npx wrangler login
-npx wrangler r2 bucket create openstays-wallet-backups
-npx wrangler r2 bucket info openstays-wallet-backups
-Pop-Location
-```
+Create a dedicated Turnstile widget for the exact public Pages origin. Do not
+reuse an unrelated widget.
 
-Create a dedicated Turnstile widget for the exact public origin in the
-Cloudflare dashboard. Do not reuse an unrelated widget or R2 bucket.
-
-Set every required Worker secret interactively so no value appears in shell
-history:
+Set only the eligibility Worker secrets interactively:
 
 ```powershell
 Push-Location ops/cloudflare
 $secretNames = @(
   'TURNSTILE_SECRET',
   'ELIGIBILITY_HMAC_SECRET',
-  'OPERATIONS_ADMIN_TOKEN',
-  'CONTAINER_CONTROL_TOKEN',
-  'WALLET_BACKUP_KEY_BASE64',
-  'WAVELENGTH_WALLET_PASSWORD',
-  'WAVELENGTH_BRIDGE_TOKEN',
-  'WAVELENGTH_HEARTBEAT_TOKEN',
-  'OTS_BRIDGE_TOKEN',
-  'OTS_HEARTBEAT_TOKEN',
-  'MAIL_BRIDGE_TOKEN',
-  'MAIL_HEARTBEAT_TOKEN',
-  'BACKUP_HEARTBEAT_TOKEN'
+  'OPERATIONS_ADMIN_TOKEN'
 )
 foreach ($name in $secretNames) {
   Write-Host "Setting $name"
-  npx wrangler secret put $name
+  npx wrangler secret put $name --config wrangler.synology.jsonc
   if ($LASTEXITCODE -ne 0) { throw "Failed to set $name" }
 }
 Pop-Location
 ```
 
-Use separate random values for every scoped token. Configure optional SMTP
-settings the same way. Update `PUBLIC_ORIGIN`, `RELEASE`, `OPENSTAYS_URL`, and
-the R2 bucket name in a deployment-specific Wrangler configuration; do not
-commit account identifiers.
+Use separate random values. Update `PUBLIC_ORIGIN` and `RELEASE` in a
+deployment-specific configuration. Do not add Synology origins, bridge tokens,
+R2 bindings, Container bindings, or account identifiers to the committed
+configuration.
 
-## 3. Configure Convex with all rails disabled
+Deploy only after the disabled configuration and Turnstile rejection paths
+pass:
+
+```powershell
+Push-Location ops/cloudflare
+npx wrangler deploy --config wrangler.synology.jsonc
+Pop-Location
+```
+
+`/healthz` reports `eligibility_ready`; it does not claim the Synology merchant
+is healthy. Operator wallet routes remain unavailable in this mode.
+
+## 4. Configure Convex with all rails disabled
 
 **REQUIRES FRESH OPERATOR APPROVAL**
 
-Use interactive provider secret entry or approved local secret pointers. The
-initial non-secret state is:
+Use interactive secret entry or approved local secret pointers. The initial
+non-secret state is:
 
 ```powershell
 npx convex env set PUBLIC_LIVE_PAYMENTS true
@@ -121,98 +126,81 @@ npx convex env set WAVELENGTH_ENABLED false
 npx convex env set WAVELENGTH_REWARDS_ENABLED false
 ```
 
-Set `ELIGIBILITY_HMAC_SECRET` and each bridge/heartbeat secret in Convex to its
-matching Worker value without printing either value. Configure the dedicated
-Zaprite checkout only; do not reuse another project's checkout.
+Set `ELIGIBILITY_HMAC_SECRET` and each bridge/heartbeat secret only in its
+intended counterpart. Do not print values. The Zaprite API key previously
+pasted into chat is exposed and must be replaced with a fresh, dedicated key
+before Zaprite is enabled. Do not reuse the exposed value.
 
-## 4. Deploy disabled infrastructure
-
-**REQUIRES FRESH OPERATOR APPROVAL**
-
-```powershell
-npx convex deploy
-Push-Location ops/cloudflare
-npx wrangler deploy --containers-rollout=immediate
-Pop-Location
-```
-
-Build Pages with the live buttons still hidden:
-
-```powershell
-$env:VITE_PUBLIC_SHOWCASE='true'
-$env:VITE_PUBLIC_ZAPRITE='false'
-$env:VITE_PUBLIC_WAVELENGTH='false'
-$env:VITE_PUBLIC_SIMULATED='true'
-npm run build
-npx wrangler@4.114.0 pages deploy dist --project-name openstays-consensus
-```
-
-Confirm the fictional/no-service disclosure, simulated flow, and
-`/healthz` before bootstrapping the wallet.
-
-## 5. Bootstrap the signet merchant wallet once
+## 5. Prepare the disabled Synology merchant
 
 **REQUIRES FRESH OPERATOR APPROVAL**
 
-The Worker accepts this command only with the operator bearer credential. The
-daemon creates a fresh 24-word recovery phrase, the container immediately
-encrypts and commits the first wallet archive to private R2, and the phrase is
-returned once over the authenticated response.
+Follow the repository runbook at `ops/synology/README.md`. The fixed layout
+is:
 
-```powershell
-$edgeOrigin = 'https://openstays-merchant-operations.example.workers.dev'
-$operatorCredential = Read-Host 'Operations credential' -AsSecureString
-$operatorPointer = [System.Net.NetworkCredential]::new('', $operatorCredential)
-$headers = @{ Authorization = "Bearer $($operatorPointer.Password)" }
-$created = Invoke-RestMethod `
-  -Method Post `
-  -Uri "$edgeOrigin/v1/operator/bootstrap-wallet" `
-  -Headers $headers
-$created.mnemonic -join ' '
+```text
+/volume1/docker/openstays-merchant/
+  config/merchant.env
+  source/
+  state/
+/volume2/openstays-wallet-backups/
 ```
 
-Write the phrase down offline immediately, clear the terminal, remove the
-PowerShell variables, and never place the phrase in a file, screenshot,
-status report, issue, or chat. A second bootstrap must return a conflict.
+The environment file must be mode `0600`, use distinct secrets, contain the
+real `murdawk` UID/GID, and start with:
 
-```powershell
-Remove-Variable created
-Clear-Host
+```dotenv
+ZAPRITE_ENABLED=false
+WAVELENGTH_ENABLED=false
+WAVELENGTH_REWARDS_ENABLED=false
 ```
 
-## 6. Verify backup and forced restore
+From the exact source checkout:
+
+```bash
+cd /volume1/docker/openstays-merchant/source
+bash ops/synology/deploy.sh
+docker inspect openstays-merchant --format '{{json .NetworkSettings.Ports}}'
+```
+
+The ports result must be `{}`. The guarded script validates the fixed roots,
+Compose identity, mounts, environment permissions, disabled flags, and
+post-start health. It never prunes Docker or targets an unrelated container.
+
+## 6. Bootstrap and prove recovery
 
 **REQUIRES FRESH OPERATOR APPROVAL**
 
-Use redacted diagnostics:
+Bootstrap exactly once:
 
-```powershell
-$diagnostics = Invoke-RestMethod `
-  -Method Get `
-  -Uri "$edgeOrigin/v1/operator/diagnostics" `
-  -Headers $headers
-$diagnostics | ConvertTo-Json -Depth 5
+```bash
+docker exec -it openstays-merchant \
+  node /app/synology/operator.mjs bootstrap
 ```
 
-Require `merchant.status = ready` and a backup age below two minutes. Then
-force the container to stop and restore from the newest verified R2 archive:
+Write the 24 words offline immediately. Do not redirect them, copy them into
+chat, capture them in screenshots, or place them in status notes. The
+supervisor returns them only after the initial encrypted generation is durably
+published and reread. A second bootstrap must fail.
 
-```powershell
-$restored = Invoke-RestMethod `
-  -Method Post `
-  -Uri "$edgeOrigin/v1/operator/restart-from-backup" `
-  -Headers $headers
-$restored | ConvertTo-Json
+Create and inspect a redacted backup health result:
+
+```bash
+docker exec openstays-merchant node /app/synology/operator.mjs backup
+docker exec openstays-merchant node /app/synology/operator.mjs health
 ```
 
-Require `status = ready`, the same wallet balance/activity, and no duplicate
-booking or reward settlement. Copy and corrupt an archive only in an isolated
-test bucket; prove that digest verification leaves health unavailable. Never
-alter the current production archive or manifest.
+With all public rails still disabled, perform the required forced recovery:
 
-```powershell
-Remove-Variable operatorPointer,operatorCredential,headers
+```bash
+cd /volume1/docker/openstays-merchant/source
+bash ops/synology/recovery-drill.sh
 ```
+
+The drill quarantines the live wallet, restores the newest verified
+`/volume2` generation, compares a redacted wallet identity/activity
+commitment, commits a fresh generation, and preserves the quarantine. Never
+delete a generation or quarantine to make the drill pass.
 
 ## 7. Fund a capped signet budget
 
@@ -222,16 +210,15 @@ Fund only the approved signet amount. For twelve maximum demonstrations, the
 recommended upper bound is:
 
 ```text
-12 × (1,000-sat booking + 1,000-sat reward + 210-sat reward fee ceiling)
+12 x (1,000-sat booking + 1,000-sat reward + 210-sat reward fee ceiling)
 = 26,520 signet sats
 ```
 
 Use the merchant daemon's amount-bearing deposit request, verify `signet`,
 wait for funds to become spendable, and check the redacted Wavelength
-heartbeat. Pending funds are not a usable budget. Never fund this wallet with
-mainnet bitcoin.
+heartbeat. Pending funds are not a usable budget.
 
-## 8. Health and reconciliation
+## 8. Health and authoritative reconciliation
 
 Public Wavelength closes after 60 seconds without a healthy heartbeat.
 Operator diagnostics contain only service state, release, backup age, and
@@ -240,21 +227,34 @@ spendable signet balance.
 Reconcile in this order:
 
 1. **Zaprite:** fetch the pending order through the server-held API credential;
-   confirm only exact amount/currency and authoritative paid state.
+   confirm only exact amount, currency, and authoritative paid state.
 2. **Wavelength booking:** match request, signet network, invoice, exact
    1,000-sat amount, merchant receive activity, and payment identifier.
 3. **Reward:** verify the prepared send, fee ceiling, single-use intent, exact
    principal, and completed outgoing activity.
-4. **OpenTimestamps:** preserve the last valid proof; distinguish calendar
-   submission from a verified Bitcoin block attestation.
+4. **OpenTimestamps receipt:** preserve the last valid proof; distinguish
+   calendar submission from a verified Bitcoin block attestation.
 5. **Mail:** retry the durable queue without changing its idempotency key.
 6. **Refunds:** complete the external transfer first, then record its external
    reference in Staff Operations.
 
-Never repair state by editing authoritative payment, reward, receipt, or refund
-rows directly.
+Never repair state by editing authoritative payment, reward, receipt, refund,
+or backup records directly.
 
-## 9. Independent stop switches
+## 9. Optional OpenTimestamps backup-manifest audit
+
+The atomic generation store and its SHA-256 verification are the wallet-safety
+authority. As an optional audit layer, an operator may timestamp a sanitized
+manifest commitment to prove that it existed by a particular time.
+
+The stamped document must contain no archive bytes, secret values, recovery
+words, wallet identifiers, balances, activity, guest data, invoices, payment
+hashes, host addresses, or filesystem paths. Timestamping must never upload the
+encrypted backup itself. A submitted calendar proof is not yet Bitcoin
+anchoring, and anchoring is never a prerequisite for restore, startup,
+reconciliation, or payment availability.
+
+## 10. Independent stop switches
 
 **REQUIRES FRESH OPERATOR APPROVAL**
 
@@ -273,7 +273,7 @@ npx convex env set WAVELENGTH_REWARD_DAILY_BUDGET_SATS 0
 Rebuild Pages with the corresponding `VITE_PUBLIC_*` flag set to `false`.
 Stopping Wavelength must not stop Zaprite or the simulated tour.
 
-## 10. Secret rotation
+## 11. Secret rotation
 
 **REQUIRES FRESH OPERATOR APPROVAL**
 
@@ -281,47 +281,36 @@ Rotate one scoped secret at a time:
 
 1. disable the affected rail;
 2. drain or release in-flight leases;
-3. update the provider/Worker side;
-4. update the matching Convex side;
-5. restart the container from its verified backup;
+3. update the provider or edge side;
+4. update the matching Convex or Synology side;
+5. restart the merchant from a verified generation;
 6. require fresh heartbeats and one non-money smoke test;
 7. re-enable only that rail.
 
 Rotate `WALLET_BACKUP_KEY_BASE64` only through a planned decrypt/re-encrypt
-migration that verifies a new archive before changing the pointer. Never
-discard the prior key or archive until a forced restore passes.
+migration that verifies a new generation before changing the pointer. Never
+discard the prior key or generation until a forced restore passes.
 
-## 11. Rollback
-
-**REQUIRES FRESH OPERATOR APPROVAL**
-
-1. Set all three enable flags to `false` and reward budget to `0`.
-2. Hide both live buttons in the Pages build.
-3. Preserve Convex payment, refund, receipt, reward, message, and audit rows.
-4. Preserve all verified R2 generations and the current manifest.
-5. Deploy the last verified Worker/container release with an immediate
-   rollout.
-6. Restart from the verified archive and reconcile any in-flight provider
-   state.
-
-Rollback never runs demo reset against real-payment rows and never deletes a
-provider order, wallet, archive, or authoritative ledger.
-
-## 12. Enable after live acceptance
+## 12. Rollback and enablement
 
 **REQUIRES FRESH OPERATOR APPROVAL**
 
-Only after Zaprite, Wavelength booking, receipt submission, reward payment,
-manual refund, mail, desktop/mobile, and forced-restore acceptance pass:
+Rollback:
 
-```powershell
-npx convex env set ZAPRITE_ENABLED true
-npx convex env set WAVELENGTH_ENABLED true
-npx convex env set WAVELENGTH_REWARDS_ENABLED true
-npx convex env set WAVELENGTH_REWARD_DAILY_BUDGET_SATS 12000
-```
+1. set all three enable flags to `false` and reward budget to `0`;
+2. hide both live buttons in the Pages build;
+3. preserve Convex payment, refund, receipt, reward, message, and audit rows;
+4. preserve every verified `/volume2` generation and wallet quarantine;
+5. deploy the last verified eligibility Worker and Synology source release;
+6. restore from a verified generation and reconcile in-flight provider state.
 
-Rebuild Pages with `VITE_PUBLIC_ZAPRITE=true` and
-`VITE_PUBLIC_WAVELENGTH=true`. Record only release identifiers and redacted
-health—not secrets, recovery material, invoices, payment identifiers, guest
-data, or raw network addresses.
+Only after separate Zaprite and Wavelength acceptance passes may each rail be
+enabled. Zaprite acceptance requires a fresh API key and one exact CA$1
+authoritative reconciliation. Wavelength acceptance requires the forced
+restore, spendable signet balance, one exact booking payment, one exact reward,
+and replay-safe completed activity. Enable the booking rail before rewards,
+and keep the daily reward budget capped.
+
+Record only release identifiers, public URLs, enabled/disabled states, redacted
+health, backup age, and test results. Never record secrets, recovery material,
+invoices, payment identifiers, guest data, raw host addresses, or backup bytes.
