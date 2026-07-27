@@ -397,7 +397,7 @@ Expected: every command exits 0. The existing nonfatal Node `TimeoutNegativeWarn
 
 - [ ] **Step 3: Perform no-money preflight**
 
-After Murphy's Lightning Labs contact confirms endpoints and 210-sat support, start the isolated mainnet daemon with explicit acknowledgement and verify only process state, loopback ports, reported network, wallet state, and zero/expected balance. Do not fund, create an invoice, or pay during this step.
+After an approved Wavelength contact confirms endpoints and 210-sat support, start the isolated mainnet daemon with explicit acknowledgement and verify only process state, loopback ports, reported network, wallet state, and zero/expected balance. Do not fund, create an invoice, or pay during this step.
 
 - [ ] **Step 4: Commit documentation**
 
@@ -408,4 +408,4 @@ git commit -m "Document guarded 210-sat Wavelength acceptance"
 
 - [ ] **Step 5: Stop at the real-money gate**
 
-Report the verified no-money state to Murphy. Obtain a final explicit go-ahead immediately before creating/paying the real 210-sat invoice; this prevents a stale approval from authorizing an unexpected payment after configuration changes.
+Report the verified no-money state to the operator. Obtain a final explicit go-ahead immediately before creating/paying the real 210-sat invoice; this prevents a stale approval from authorizing an unexpected payment after configuration changes.

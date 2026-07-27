@@ -37,7 +37,7 @@ the demo amount.
 - The merchant daemon remains loopback-only with TLS and macaroon protection.
   Mainnet requires Wavelength's explicit `--allow-mainnet` guard and never uses
   `--allow-insecure-mainnet`.
-- Before any wallet is funded or invoice is paid, Murphy's Lightning Labs
+- Before any wallet is funded or invoice is paid, the operator's Wavelength
   contact should review the selected public operator/swap endpoints and confirm
   that a 210-sat receive is supported.
 - Invoice creation is tested before real money is sent. If the operator rejects
@@ -65,11 +65,11 @@ booking. Refunds remain manual and require an external Lightning reference.
 
 ### Zaprite boundary
 
-Zaprite remains an independent sandbox flow. Murphy will create an
+Zaprite remains an independent sandbox flow. The operator will create an
 `OpenStays Consensus Commons Sandbox` organization, enable Test Payment, and
-create a dedicated API checkout/key. The existing Signal21 credentials are
+create a dedicated API checkout/key. Credentials from another project are
 temporary local configuration only and are replaced before the first live
-Zaprite acceptance run. OpenStays should remind Murphy at that blocker.
+Zaprite acceptance run. OpenStays should remind the operator at that blocker.
 
 ## Mainnet components and flow
 
@@ -80,7 +80,7 @@ Zaprite acceptance run. OpenStays should remind Murphy at that blocker.
    daemon for a 210-sat Lightning receive invoice.
 4. OpenStays displays the invoice, QR code, real-money warning, network, amount,
    and expiry. It never initiates payment automatically.
-5. Murphy pays from a separate external Lightning wallet.
+5. The operator pays from a separate external Lightning wallet.
 6. The bridge observes completed receive activity and reports the matching
    invoice, hash, network, and amount.
 7. Convex idempotently records the payment and confirms the booking. The
@@ -182,7 +182,7 @@ bridge process and never enter Convex or the repository.
    210-sat settlement and booking confirmation.
 4. Complete a guest/staff chat round trip and inspect both rendered emails in
    Mailpit.
-5. Create the dedicated Zaprite sandbox resources, replace temporary Signal21
+5. Create the dedicated Zaprite sandbox resources, replace any temporary
    credentials, and run simulated Zaprite reconciliation.
 
 No push, public deployment, local merge, mainnet amount above 210 sats, or

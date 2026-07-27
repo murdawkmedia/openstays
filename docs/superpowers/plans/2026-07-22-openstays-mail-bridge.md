@@ -331,7 +331,7 @@ git commit -m "Add verified local Mailpit runtime"
 
 - [ ] **Step 1: Configure only the isolated Convex deployment**
 
-Generate a random `MAIL_BRIDGE_TOKEN`, set `EMAIL_PROVIDER=mail_bridge`, and set `EMAIL_FROM=Consensus Commons <stays@openstays.local>` on `affable-wildcat-206`. Capture values without printing them. Do not configure production.
+Generate a random `MAIL_BRIDGE_TOKEN`, set `EMAIL_PROVIDER=mail_bridge`, and set `EMAIL_FROM=Consensus Commons <stays@openstays.local>` on the isolated development deployment. Capture values without printing them. Do not configure production.
 
 - [ ] **Step 2: Run a local message acceptance test**
 
@@ -364,6 +364,6 @@ git add -- docs/hackathon-mvp.md docs/configuration.md CLAUDE.md STATUS.md
 git commit -m "Document OpenStays Mail operations"
 ```
 
-- [ ] **Step 6: Remind Murphy about Zaprite**
+- [ ] **Step 6: Remind the operator about Zaprite**
 
-Before the first Zaprite acceptance run, stop and remind Murphy to create the dedicated sandbox organization, Test Payment connection, API key, and API checkout. Replace the temporary Signal21 credentials only after Murphy confirms those resources exist.
+Before the first Zaprite acceptance run, stop and remind the operator to create the dedicated sandbox organization, Test Payment connection, API key, and API checkout. Replace any temporary credentials only after the operator confirms those resources exist.

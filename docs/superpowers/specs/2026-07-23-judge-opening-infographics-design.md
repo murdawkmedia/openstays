@@ -6,7 +6,7 @@ Audience: Bitcoin++ Toronto hackathon judges
 
 ## Purpose
 
-Create three distinct, single-screen infographic variations that Murphy can use
+Create three distinct, single-screen infographic variations that the presenter can use
 during the first 30–40 seconds of the OpenStays demo. Each visual must reinforce
 the same spoken story without requiring the judges to read paragraphs.
 

@@ -293,7 +293,7 @@ npx convex run seed:run
 
 Do not configure Zaprite, Wavelength, OpenTimestamps bridge, Channex, SMTP,
 OAuth, Stripe, or Square credentials on this deployment. In particular, never
-select or inspect the unrelated CBAP Convex project.
+select or inspect any unrelated Convex project.
 
 Build and upload the static site:
 

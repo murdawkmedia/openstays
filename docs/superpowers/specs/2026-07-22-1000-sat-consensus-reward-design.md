@@ -101,7 +101,7 @@ reward is still `eligible` and can be safely upgraded.
 ## Boundaries
 
 This design does not authorize a push, merge, production deployment, mainnet
-Wavelength use, CBAP access, credential handling, or changes to the CA$0.21
+Wavelength use, unrelated-project access, credential handling, or changes to the CA$0.21
 Zaprite booking price. Updating the already approved isolated Convex
 development deployment remains a separate execution step after local changes
 and verification.
