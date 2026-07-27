@@ -38,12 +38,19 @@ Build the pinned Linux image from the repository root:
 docker build --pull --no-cache `
   --file ops/cloudflare/container/Dockerfile `
   --tag openstays-merchant-operations:release-candidate .
-docker scout cves --exit-code --only-severity critical,high `
+bash ops/cloudflare/tests/container-recovery-drill.sh `
+  openstays-merchant-operations:release-candidate
+trivy image --severity HIGH,CRITICAL --exit-code 0 `
+  openstays-merchant-operations:release-candidate
+trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 `
+  --skip-files /usr/local/bin/waved `
   openstays-merchant-operations:release-candidate
 ```
 
-Do not deploy if the image was not built or the scanner reports a
-critical/high runtime finding.
+The full report must remain visible. The blocking scan excludes only the
+upstream Wavelength binary, which Lightning Labs must rebuild against newer Go
+dependencies; OpenStays remains signet-only while that exception exists. Do
+not deploy if the image, recovery drill, or blocking scan fails.
 
 ## 2. Create dedicated Cloudflare resources
 

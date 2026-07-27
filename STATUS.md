@@ -1,17 +1,16 @@
 # OpenStays status
 
-**Updated: 2026-07-26 — public live-payment release candidate in local verification.**
+**Updated: 2026-07-26 — public live-payment release candidate verified for integration.**
 
 ## Current branch
 
 - Branch: `codex/public-live-payment-rails`
-- Product/UI checkpoint: `1faaecb`
-- Merchant bootstrap/recovery checkpoint: `e6aee3f`
-- Public operations documentation checkpoint: `9945dde`
-- The branch is local only. It has not been pushed, merged, or deployed.
-- No credential-bearing file was opened. No provider, Convex, Cloudflare,
-  Turnstile, R2, Worker, Durable Object, Container, Pages, or Zaprite resource
-  was created or changed.
+- Release-candidate checkpoint: `0aefe19`
+- Draft PR: <https://github.com/murdawkmedia/openstays/pull/1>
+- The branch is pushed but has not yet been merged.
+- The existing Murdawk Media `openstays-consensus` Pages project was inspected
+  read-only. No Convex, Turnstile, R2, Worker, Durable Object, Container, or
+  Zaprite resource was created or changed.
 
 ## Implemented
 
@@ -65,12 +64,21 @@
   - desktop and mobile public showcase smoke checks passed;
   - credential-dependent live payment browser checks remained correctly
     skipped.
-- Cloudflare operations currently pass 28 tests, typecheck, and Worker dry-run
-  build.
+- Cloudflare operations pass 28 tests, typecheck, and Worker dry-run build.
+- GitHub CI run
+  [30233083376](https://github.com/murdawkmedia/openstays/actions/runs/30233083376)
+  passed both jobs:
+  - the application job ran root typecheck, 469 tests, production build, and
+    docs build;
+  - the merchant job reproducibly built the checksum-pinned Wavelength v0.1.0
+    source with `wavewalletrpc` and `swapruntime`, smoke-tested Node,
+    OpenTimestamps, and `waved`, then completed wallet bootstrap, encrypted
+    backup, clean-container restore, full vulnerability reporting, and the
+    blocking fixable high/critical scan.
 - Focused public refund, simulated-tour, receipt-timeline, disclosure, wallet
   bootstrap, heartbeat, backup, and forced-restore tests pass.
-- A real Linux container build and vulnerability scan are still required.
-  No Docker-compatible engine is installed in the current environment.
+- The real Linux container and recovery drill passed on an amd64 GitHub-hosted
+  runner. The local workstation still has no Docker-compatible engine.
 - Fresh release-candidate verification:
   - root: 469 tests, typecheck, production build, docs build, and the
     project-specific runtime audit passed;
@@ -93,12 +101,13 @@
 
 ## Remaining gates
 
-1. Build and scan the real container image on a Docker-capable host.
-2. Run disposable integration failure injection, including corrupt-copy restore,
-   interrupted settlement reconciliation, and 15-day retention.
-3. Obtain fresh approval before opening/using credentials, creating
-   resources, pushing, or deploying.
-4. Deploy with all live rails disabled, bootstrap the merchant wallet once,
+1. Merge the verified branch and publish the fictional showcase.
+2. Run credential-dependent live integration acceptance, including
+   interrupted settlement reconciliation and 15-day retention.
+3. Gain access to a durable merchant host. The Synology was preferred but was
+   unreachable from the current network; the present Cloudflare token can
+   access Pages but not the required private R2 bucket.
+4. Deploy merchant infrastructure with all live rails disabled, bootstrap the wallet once,
    record recovery offline, force a verified restore, then perform live
    acceptance before enabling either rail.
 
