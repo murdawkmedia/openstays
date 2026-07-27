@@ -18,6 +18,11 @@ account, permissive environment-file modes, or a UID/GID that does not match
 the `murdawk` account. They never prune Docker, recursively delete either
 volume, or remove a wallet quarantine.
 
+Before any existing container is started, stopped, or entered, the scripts
+attest its exact Compose project and service labels, both approved mounts, and
+the absence of published ports. A container that merely reuses the expected
+name is rejected.
+
 ## Prepare the disabled deployment
 
 1. Put an exact source checkout at
@@ -96,9 +101,11 @@ The drill:
 7. commits a fresh verified backup.
 
 The quarantine is always preserved. If any comparison or health check fails,
-leave both the quarantine and backup generations untouched, keep public flags
-disabled, and investigate before retrying. Never copy the quarantine over a
-restored wallet and never delete generations to make a test pass.
+the failure trap stops only a container that still passes the full identity
+attestation. Leave both the quarantine and backup generations untouched, keep
+public flags disabled, and investigate before retrying. Never copy the
+quarantine over a restored wallet and never delete generations to make a test
+pass.
 
 ## Recovery authority and optional timestamping
 
