@@ -87,18 +87,20 @@ export class MerchantControl {
 
   start() {
     if (!this.restored) throw new Error('RESTORE_REQUIRED');
+    const failRequiredProcess = () => {
+      this.status = 'failed';
+      this.failureCategory = 'required_process_exited';
+      this.stop();
+    };
     for (const command of this.options.commands) {
       const child = spawn(command.file, command.args ?? [], {
         cwd: command.cwd,
         env: command.env,
         stdio: ['ignore', 'inherit', 'inherit'],
       });
+      child.once('error', failRequiredProcess);
       child.once('exit', (code) => {
-        if (code !== 0) {
-          this.status = 'failed';
-          this.failureCategory = 'required_process_exited';
-          this.stop();
-        }
+        if (code !== 0) failRequiredProcess();
       });
       this.processes.push(child);
     }
@@ -172,15 +174,55 @@ export function createControlServer(control, token) {
 
 if (process.argv[1]
   && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const walletDirectory = process.env.WAVELENGTH_WALLET_DIRECTORY
+    ?? '/var/lib/openstays/wavelength';
+  const cli = '/app/cli/dist/index.js';
+  const childEnv = {
+    ...process.env,
+    WAVELENGTH_DAEMON_URL: 'http://127.0.0.1:10031',
+    WAVELENGTH_EXPECTED_NETWORK: 'signet',
+    WAVELENGTH_DAEMON_MACAROON_PATH: join(
+      walletDirectory,
+      'data',
+      'signet',
+      'admin.macaroon',
+    ),
+    OTS_COMMAND: '/usr/local/bin/ots',
+  };
   const control = new MerchantControl({
-    walletDirectory: process.env.WAVELENGTH_WALLET_DIRECTORY,
+    walletDirectory,
     backupKeyBase64: process.env.WALLET_BACKUP_KEY_BASE64,
     release: process.env.OPENSTAYS_RELEASE ?? 'unknown',
-    commands: [],
+    commands: [
+      {
+        file: '/usr/local/bin/waved',
+        args: [
+          '--network=signet',
+          `--datadir=${walletDirectory}`,
+          `--logdir=${join(walletDirectory, 'logs')}`,
+          `--wallet.password_file=${process.env.WAVELENGTH_WALLET_PASSWORD_FILE
+            ?? join(walletDirectory, 'merchant-wallet.password')}`,
+          '--wallet.esploraurl=https://mempool.space/signet/api',
+          '--rpc.listenaddr=127.0.0.1:10029',
+          '--rpc.gateway.listenaddr=127.0.0.1:10031',
+          '--rpc.notls',
+        ],
+        env: childEnv,
+      },
+      { file: process.execPath, args: [cli, 'wave-bridge'], env: childEnv },
+      { file: process.execPath, args: [cli, 'ots-bridge'], env: childEnv },
+      { file: process.execPath, args: [cli, 'mail-bridge'], env: childEnv },
+    ],
   });
   const server = createControlServer(
     control,
     process.env.CONTAINER_CONTROL_TOKEN ?? '',
   );
   server.listen(Number(process.env.CONTROL_PORT ?? 8_080), HOST);
+  const shutdown = () => {
+    control.stop();
+    server.close(() => process.exit(0));
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
 }

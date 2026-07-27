@@ -121,6 +121,18 @@ export interface MerchantOperationsEnv {
   CONTAINER_CONTROL_TOKEN: string;
   WALLET_BACKUP_KEY_BASE64: string;
   RELEASE: string;
+  OPENSTAYS_URL: string;
+  WAVELENGTH_BRIDGE_TOKEN: string;
+  WAVELENGTH_HEARTBEAT_TOKEN: string;
+  OTS_BRIDGE_TOKEN: string;
+  OTS_HEARTBEAT_TOKEN: string;
+  MAIL_BRIDGE_TOKEN: string;
+  MAIL_HEARTBEAT_TOKEN: string;
+  SMTP_HOST?: string;
+  SMTP_PORT?: string;
+  SMTP_SECURE?: string;
+  SMTP_USERNAME?: string;
+  SMTP_PASSWORD?: string;
 }
 
 function bearer(token: string): HeadersInit {
@@ -152,6 +164,18 @@ export class MerchantOperations extends Container<MerchantOperationsEnv> {
               CONTAINER_CONTROL_TOKEN: env.CONTAINER_CONTROL_TOKEN,
               WALLET_BACKUP_KEY_BASE64: env.WALLET_BACKUP_KEY_BASE64,
               OPENSTAYS_RELEASE: env.RELEASE,
+              OPENSTAYS_URL: env.OPENSTAYS_URL,
+              WAVELENGTH_BRIDGE_TOKEN: env.WAVELENGTH_BRIDGE_TOKEN,
+              WAVELENGTH_HEARTBEAT_TOKEN: env.WAVELENGTH_HEARTBEAT_TOKEN,
+              OTS_BRIDGE_TOKEN: env.OTS_BRIDGE_TOKEN,
+              OTS_HEARTBEAT_TOKEN: env.OTS_HEARTBEAT_TOKEN,
+              MAIL_BRIDGE_TOKEN: env.MAIL_BRIDGE_TOKEN,
+              MAIL_HEARTBEAT_TOKEN: env.MAIL_HEARTBEAT_TOKEN,
+              ...(env.SMTP_HOST ? { SMTP_HOST: env.SMTP_HOST } : {}),
+              ...(env.SMTP_PORT ? { SMTP_PORT: env.SMTP_PORT } : {}),
+              ...(env.SMTP_SECURE ? { SMTP_SECURE: env.SMTP_SECURE } : {}),
+              ...(env.SMTP_USERNAME ? { SMTP_USERNAME: env.SMTP_USERNAME } : {}),
+              ...(env.SMTP_PASSWORD ? { SMTP_PASSWORD: env.SMTP_PASSWORD } : {}),
             },
           },
         );
