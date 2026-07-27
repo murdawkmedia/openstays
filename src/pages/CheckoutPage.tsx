@@ -10,6 +10,7 @@ import { Spinner } from '../components/Spinner';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
 import { PriceBreakdownView } from '../components/PriceBreakdownView';
 import { LivePaymentDisclosure } from '../components/LivePaymentDisclosure';
+import { FictionalBookingNotice } from '../components/FictionalBookingNotice';
 import { TurnstileChallenge } from '../components/TurnstileChallenge';
 import { formatCountdown, formatDisplayDate } from '../lib/dates';
 import {
@@ -87,20 +88,27 @@ export function CheckoutPage() {
   const msRemaining = (booking.holdExpiresAt ?? now) - now;
   const expired = msRemaining <= 0;
   const property = propertyConfigs?.[0];
-  const demoMode = providerInfo?.demoMode ?? true;
+  const demoMode = providerInfo?.demoMode ?? false;
+  const simulatedEnabled = providerInfo?.simulatedEnabled ?? demoMode;
   const activeBookingId = bookingId;
   const normalizedGuestEmail = booking.guestEmail;
 
   async function handleSimulatedPay() {
     setPaying(true);
+    setPayingProvider('simulated');
     setPayError(null);
     try {
-      await confirmSimulated({ bookingId: bookingId as Id<'bookings'> });
+      await confirmSimulated({
+        bookingId: bookingId as Id<'bookings'>,
+        confirmationCode: code ?? undefined,
+        email: normalizedGuestEmail,
+      });
       // Navigation happens reactively once the query reflects 'confirmed'.
     } catch (error) {
       setPayError(extractErrorMessage(error));
     } finally {
       setPaying(false);
+      setPayingProvider(null);
     }
   }
 
@@ -194,6 +202,7 @@ export function CheckoutPage() {
     <div className="mx-auto max-w-lg">
       <div className="card p-8">
         <h1 className="text-2xl font-semibold text-stone-900">Complete your booking</h1>
+        {PUBLIC_SHOWCASE.enabled ? <FictionalBookingNotice /> : null}
 
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-3 text-amber-800">
           <Clock className="h-4 w-4" aria-hidden="true" />
@@ -289,7 +298,9 @@ export function CheckoutPage() {
           <div className="mt-6">
             <Spinner label="Loading payment options…" />
           </div>
-        ) : providerInfo.providers.length === 0 ? (
+        ) : providerInfo.providers.length === 0
+          && !wavelengthInfo?.available
+          && !simulatedEnabled ? (
           <div className="mt-6 rounded-lg bg-stone-50 px-4 py-3 text-sm text-stone-600">
             Online payment isn't configured for this property yet.{' '}
             {property ? (
@@ -331,6 +342,25 @@ export function CheckoutPage() {
           </>
         )}
 
+        {!demoMode && simulatedEnabled && PUBLIC_SHOWCASE.allowSimulated ? (
+          <>
+            <button
+              type="button"
+              className="btn-secondary mt-3 w-full"
+              disabled={expired || paying}
+              onClick={() => void handleSimulatedPay()}
+            >
+              {paying && payingProvider === 'simulated'
+                ? 'Processing…'
+                : 'Take the simulated tour'}
+            </button>
+            <p className="mt-2 text-center text-xs text-stone-500">
+              No charge and no signet reward. The booking ledger and receipt
+              flow still run.
+            </p>
+          </>
+        ) : null}
+
         {wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength && (
           <button
             type="button"
@@ -351,6 +381,16 @@ export function CheckoutPage() {
               : 'Pay 1,000 signet sats with Wavelength'}
           </button>
         )}
+        {PUBLIC_SHOWCASE.enabled
+          && PUBLIC_SHOWCASE.allowLiveWavelength
+          && wavelengthInfo !== undefined
+          && !wavelengthInfo.available ? (
+          <p role="status" className="mt-3 rounded-lg bg-stone-100 px-4 py-3 text-sm text-stone-600">
+            Live Wavelength is temporarily unavailable because the signet
+            merchant bridge is not healthy. Zaprite and the simulated tour
+            remain independent.
+          </p>
+        ) : null}
         {wavelengthInfo?.available && PUBLIC_SHOWCASE.allowLiveWavelength && (
           <p className="mt-2 text-center text-xs text-stone-500">
             Signet test sats · fixed hackathon quote · self-custodial

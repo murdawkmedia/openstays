@@ -7,6 +7,8 @@ import { Spinner } from '../components/Spinner';
 import { PriceBreakdownView } from '../components/PriceBreakdownView';
 import { formatDisplayDate } from '../lib/dates';
 import { NotFoundPage } from './NotFoundPage';
+import { FictionalBookingNotice } from '../components/FictionalBookingNotice';
+import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 
 /**
  * NEVER trust navigation state here — only the reactive query result decides
@@ -38,10 +40,12 @@ export function ConfirmationPage() {
       <div className="card p-8 text-center">
         <ShieldAlert className="mx-auto h-10 w-10 text-amber-600" aria-hidden="true" />
         <h1 className="mt-3 text-2xl font-semibold text-stone-900">We couldn't hold these dates</h1>
+        {PUBLIC_SHOWCASE.enabled ? <FictionalBookingNotice /> : null}
         <p className="mt-2 text-stone-500">
-          Your payment came through after the hold on these dates had already lapsed, and someone else booked
-          them in the meantime. We're very sorry for the mix-up — a full refund is on its way and should appear
-          on your statement within a few business days.
+          Your payment came through after the hold on these dates had already
+          lapsed, and someone else booked them in the meantime. A refund case
+          is being reconciled. Zaprite and Wavelength refunds require staff to
+          record an external reference before OpenStays marks them completed.
         </p>
         {property ? (
           <p className="mt-4 text-sm text-stone-600">
@@ -65,6 +69,7 @@ export function ConfirmationPage() {
         <h1 className="text-2xl font-semibold text-stone-900">
           {booking.status === 'expired' ? 'This hold expired' : 'This booking was cancelled'}
         </h1>
+        {PUBLIC_SHOWCASE.enabled ? <FictionalBookingNotice /> : null}
         <p className="mt-2 text-stone-500">
           {booking.status === 'expired'
             ? 'The dates were released. Please start a new booking.'
@@ -81,6 +86,7 @@ export function ConfirmationPage() {
     return (
       <div className="card p-8 text-center">
         <h1 className="text-2xl font-semibold text-stone-900">Booking status: {booking.status.replace('_', ' ')}</h1>
+        {PUBLIC_SHOWCASE.enabled ? <FictionalBookingNotice /> : null}
       </div>
     );
   }
@@ -90,6 +96,7 @@ export function ConfirmationPage() {
       <div className="card p-8 text-center">
         <PartyPopper className="mx-auto h-10 w-10 text-emerald-700" aria-hidden="true" />
         <h1 className="mt-3 text-2xl font-semibold text-stone-900">You're all booked!</h1>
+        {PUBLIC_SHOWCASE.enabled ? <FictionalBookingNotice /> : null}
         <p className="mt-1 text-stone-500">
           Confirmation code <span className="font-mono font-semibold text-stone-900">{booking.confirmationCode}</span>
         </p>

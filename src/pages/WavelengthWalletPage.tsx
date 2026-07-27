@@ -18,6 +18,7 @@ import {
 } from '@lightninglabs/wavelength-react';
 import { readGuestConfirmation } from '../../shared/bookingLinks';
 import { Bolt11Invoice } from '../components/Bolt11Invoice';
+import { FictionalBookingNotice } from '../components/FictionalBookingNotice';
 import { wavelengthRuntimeOptions } from '../lib/wavelengthRuntime';
 import {
   shouldAutoRefreshWavelengthBalance,
@@ -40,6 +41,7 @@ import {
   PUBLIC_CONSENT_VERSION,
   readEligibilityToken,
 } from '../lib/livePayments';
+import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 
 const wavelengthApi = (api as any).wavelength;
 const DEMO_FUNDING_DISPLAY_WINDOW_MS = 10 * 60_000;
@@ -271,6 +273,7 @@ function WalletPayment() {
         </div>
         <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-900">test sats only</span>
       </div>
+      {!demoSetup && PUBLIC_SHOWCASE.enabled ? <FictionalBookingNotice /> : null}
 
       {!demoSetup && !started ? (
         <section className="card p-6">

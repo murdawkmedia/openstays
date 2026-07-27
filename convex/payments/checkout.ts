@@ -17,10 +17,15 @@ import {
  */
 export const availableProviders = query({
   args: {},
-  handler: async () => ({
-    demoMode: process.env.DEMO_MODE === 'true',
-    providers: configuredProviders(),
-  }),
+  handler: async () => {
+    const policy = readPublicPolicy(process.env);
+    return {
+      demoMode: process.env.DEMO_MODE === 'true',
+      simulatedEnabled: process.env.DEMO_MODE === 'true'
+        || (policy.liveMode && policy.simulatedEnabled),
+      providers: configuredProviders(),
+    };
+  },
 });
 
 /**

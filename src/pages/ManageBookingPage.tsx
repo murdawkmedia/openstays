@@ -16,6 +16,7 @@ import {
   storeEligibilityToken,
 } from '../lib/livePayments';
 import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
+import { FictionalBookingNotice } from '../components/FictionalBookingNotice';
 
 export function ManageBookingPage() {
   const { code } = useParams<{ code: string }>();
@@ -23,6 +24,7 @@ export function ManageBookingPage() {
   const booking = useQuery(api.bookings.byConfirmationCode, code ? { code } : 'skip');
   const cancelByGuest = useMutation(api.bookings.cancelByGuest);
   const postMessage = useMutation((api as any).messages.postGuest);
+  const requestPublicRefund = useMutation((api as any).refunds.requestForGuest);
 
   const [email, setEmail] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
@@ -33,6 +35,7 @@ export function ManageBookingPage() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [rewardCheckToken, setRewardCheckToken] = useState<string | null>(null);
   const [openingReward, setOpeningReward] = useState(false);
+  const [requestingRefund, setRequestingRefund] = useState(false);
   const thread = useQuery(
     (api as any).messages.listGuest,
     code && email.trim().includes('@') ? { confirmationCode: code, email: email.trim() } : 'skip',
@@ -44,6 +47,17 @@ export function ManageBookingPage() {
   const guestAuth = code && email.trim().includes('@') ? { confirmationCode: code, email: email.trim() } : 'skip';
   const receipt = useQuery((api as any).consensusReceipts.forGuest, guestAuth) as any;
   const reward = useQuery((api as any).wavelengthRewards.forGuest, guestAuth) as any;
+  const publicRefund = useQuery((api as any).refunds.forGuest, guestAuth) as
+    | {
+        refundablePaymentCount: number;
+        requestedCaseCount: number;
+        completedCaseCount: number;
+        refundableAmountCents: number;
+      }
+    | undefined;
+  const operations = useQuery((api as any).operationsHealth.publicAvailability) as
+    | { rewardAvailable: boolean }
+    | undefined;
 
   if (!code) return <NotFoundPage />;
   if (booking === undefined) return <Spinner label="Loading booking…" />;
@@ -109,6 +123,21 @@ export function ManageBookingPage() {
     }
   }
 
+  async function handlePublicRefundRequest() {
+    setRequestingRefund(true);
+    setError(null);
+    try {
+      await requestPublicRefund({
+        confirmationCode: code!,
+        email: email.trim(),
+      });
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setRequestingRefund(false);
+    }
+  }
+
   function download(name: string, data: BlobPart, type: string) {
     const anchor = document.createElement('a');
     anchor.href = URL.createObjectURL(new Blob([data], { type }));
@@ -121,6 +150,7 @@ export function ManageBookingPage() {
     <div className="mx-auto max-w-lg">
       <div className="card p-8">
         <h1 className="text-2xl font-semibold text-stone-900">Manage your booking</h1>
+        {PUBLIC_SHOWCASE.enabled ? <FictionalBookingNotice /> : null}
         <p className="mt-1 text-sm text-stone-500">
           Confirmation code <span className="font-mono font-medium text-stone-900">{booking.confirmationCode}</span>
         </p>
@@ -177,7 +207,8 @@ export function ManageBookingPage() {
           ))}</ol>
         </section> : null}
 
-        {receipt && PUBLIC_SHOWCASE.enabled && reward?.status !== 'paid' ? (
+        {receipt && reward && PUBLIC_SHOWCASE.enabled && reward.status !== 'paid'
+          && operations?.rewardAvailable ? (
           <section className="mt-6 rounded-xl border border-sky-200 bg-sky-50 p-4">
             <h2 className="font-semibold text-sky-950">Reward eligibility check</h2>
             <p className="mt-1 text-sm text-sky-900">
@@ -189,9 +220,21 @@ export function ManageBookingPage() {
           </section>
         ) : null}
 
+        {receipt && reward && PUBLIC_SHOWCASE.enabled && reward.status !== 'paid'
+          && operations && !operations.rewardAvailable ? (
+          <p role="status" className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            The 1,000-sat signet reward is temporarily unavailable while the
+            merchant bridge or funded reward budget is unhealthy. Your receipt
+            and reward eligibility remain recorded.
+          </p>
+        ) : null}
+
         {receipt ? <ConsensusReceiptSummary receipt={receipt} reward={reward ?? null}
           rewardUrl={`/wallet/reward/${encodeURIComponent(code)}?email=${encodeURIComponent(email.trim())}`}
-          onClaimReward={PUBLIC_SHOWCASE.enabled ? () => void handleRewardClaim() : undefined}
+          onClaimReward={PUBLIC_SHOWCASE.enabled && reward && operations?.rewardAvailable
+            ? () => void handleRewardClaim()
+            : undefined}
+          claimAvailable={!PUBLIC_SHOWCASE.enabled || operations?.rewardAvailable === true}
           onDownloadJson={() => download(`${receipt.publicId}.json`, receipt.canonicalJson, 'application/json')}
           onDownloadProof={() => {
             if (!receipt.proofBase64) return;
@@ -201,12 +244,47 @@ export function ManageBookingPage() {
           }}
         /> : null}
 
+        {PUBLIC_SHOWCASE.enabled && publicRefund?.refundablePaymentCount ? (
+          <section className="mt-6 rounded-xl border border-stone-200 p-4" aria-labelledby="public-refund-heading">
+            <h2 id="public-refund-heading" className="font-semibold text-stone-900">
+              Project contribution refund
+            </h2>
+            <p className="mt-1 text-sm text-stone-600">
+              Zaprite and Wavelength refunds are handled manually. The payment
+              remains paid until staff records the external refund reference.
+            </p>
+            {publicRefund.completedCaseCount > 0 ? (
+              <p role="status" className="mt-3 text-sm font-medium text-emerald-700">
+                Refund completed by staff.
+              </p>
+            ) : publicRefund.requestedCaseCount > 0 ? (
+              <p role="status" className="mt-3 text-sm font-medium text-amber-800">
+                Refund requested. Staff resolution is pending.
+              </p>
+            ) : (
+              <button
+                type="button"
+                className="btn-secondary mt-4"
+                disabled={requestingRefund}
+                onClick={() => void handlePublicRefundRequest()}
+              >
+                {requestingRefund ? 'Requesting…' : 'Request contribution refund'}
+              </button>
+            )}
+          </section>
+        ) : null}
+
         {result ? (
           <div className="mt-6 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             <p className="font-medium">Booking cancelled.</p>
             <p className="mt-1">
-              Paid: {formatMoney(result.paidCents, booking?.currency)} · Refund: {formatMoney(result.refundCents, booking?.currency)}
+              Paid: {formatMoney(result.paidCents, booking?.currency)} · Refund due: {formatMoney(result.refundCents, booking?.currency)}
             </p>
+            {result.refundCents > 0 ? (
+              <p className="mt-1">
+                Manual providers remain paid until staff records the completed refund.
+              </p>
+            ) : null}
           </div>
         ) : cancellable ? (
           <div className="mt-6 border-t border-stone-200 pt-6">
