@@ -613,6 +613,7 @@ export default defineSchema({
     leaseToken: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
     deliveredAt: v.optional(v.number()),
+    retentionPurgedAt: v.optional(v.number()),
     ts: v.number(),
   })
     .index('by_booking', ['bookingId'])
