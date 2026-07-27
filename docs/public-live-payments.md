@@ -49,8 +49,9 @@ Encrypted wallet generations are written atomically to
 `/volume2/openstays-wallet-backups`, a separate volume from live application
 state. Those verified archive/manifest pairs are the recovery authority.
 Missing, corrupt, or stale recovery data fails closed. A required restore
-drill proves the same redacted signet wallet identity and activity before a
-rail may be enabled.
+drill proves the same redacted signet wallet identity and activity before
+Wavelength may be enabled. Zaprite does not depend on the signet wallet or its
+recovery drill.
 
 Zaprite and Wavelength enable independently. Zaprite can operate while
 Wavelength is unhealthy or disabled; the simulated tour remains available
@@ -122,7 +123,7 @@ the relevant provider's secret store and must never use a `VITE_` prefix.
 | `VITE_PUBLIC_WAVELENGTH` | `false` until accepted |
 | `VITE_PUBLIC_SIMULATED` | `true` |
 | `VITE_TURNSTILE_SITE_KEY` | `public-site-key` |
-| `VITE_PAYMENT_EDGE_URL` | `https://openstays-merchant-operations.example.workers.dev` |
+| `VITE_PAYMENT_EDGE_URL` | `https://openstays-eligibility-edge.<account-subdomain>.workers.dev` until deployment provides the actual URL |
 
 ### Convex non-secret policy
 
