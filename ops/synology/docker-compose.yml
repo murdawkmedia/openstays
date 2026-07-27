@@ -1,0 +1,21 @@
+services:
+  merchant:
+    container_name: openstays-merchant
+    build:
+      context: ../..
+      dockerfile: ops/cloudflare/container/Dockerfile
+    entrypoint: ["node", "/app/synology/supervisor.mjs"]
+    env_file:
+      - /volume1/docker/openstays-merchant/config/merchant.env
+    volumes:
+      - /volume1/docker/openstays-merchant/state:/var/lib/openstays
+      - /volume2/openstays-wallet-backups:/var/backups/openstays
+    network_mode: bridge
+    restart: unless-stopped
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "node", "/app/synology/operator.mjs", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

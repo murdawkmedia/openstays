@@ -9,6 +9,13 @@ import {
   sep,
 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { fileURLToPath } from 'node:url';
+
+import {
+  createControlServer,
+  MerchantControl,
+} from '../cloudflare/container/control.mjs';
+import { GenerationStore } from './generationStore.mjs';
 
 function errorCategory(error, fallback = 'supervisor_operation_failed') {
   return error instanceof Error
@@ -543,4 +550,230 @@ export function createSupervisor({
     health,
     stop,
   };
+}
+
+const LOOPBACK_HOST = '127.0.0.1';
+
+function requiredValue(env, name) {
+  const value = env[name];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${name}_REQUIRED`);
+  }
+  return value;
+}
+
+function controlToken(env) {
+  const token = requiredValue(env, 'CONTAINER_CONTROL_TOKEN');
+  if (/[\r\n]/u.test(token)) {
+    throw new Error('CONTAINER_CONTROL_TOKEN_INVALID');
+  }
+  return token;
+}
+
+function validBackupKey(env) {
+  const encoded = requiredValue(env, 'WALLET_BACKUP_KEY_BASE64');
+  if (
+    !/^(?:[A-Za-z0-9+/]{4}){10}[A-Za-z0-9+/]{3}=$/u.test(encoded)
+    || Buffer.from(encoded, 'base64').byteLength !== 32
+  ) {
+    throw new Error('WALLET_BACKUP_KEY_BASE64_INVALID');
+  }
+  return encoded;
+}
+
+function runtimePort(value) {
+  if (value === undefined || value === '') return 8_080;
+  if (!/^[0-9]+$/u.test(String(value))) {
+    throw new Error('CONTROL_PORT_INVALID');
+  }
+  const port = Number(value);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw new Error('CONTROL_PORT_INVALID');
+  }
+  return port;
+}
+
+function defaultRuntimeSupervisor(env) {
+  const walletDirectory = resolve(
+    env.WAVELENGTH_WALLET_DIRECTORY
+      ?? '/var/lib/openstays/wavelength',
+  );
+  const quarantineRoot = resolve(
+    env.OPENSTAYS_QUARANTINE_ROOT
+      ?? '/var/lib/openstays/quarantine',
+  );
+  const backupRoot = resolve(
+    env.OPENSTAYS_BACKUP_ROOT
+      ?? '/var/backups/openstays',
+  );
+  const walletPassword = requiredValue(
+    env,
+    'WAVELENGTH_WALLET_PASSWORD',
+  );
+  if (Buffer.byteLength(walletPassword, 'utf8') < 8) {
+    throw new Error('WAVELENGTH_WALLET_PASSWORD_TOO_SHORT');
+  }
+  const release = requiredValue(env, 'OPENSTAYS_RELEASE');
+  const backupKeyBase64 = validBackupKey(env);
+  const cli = '/app/cli/dist/index.js';
+  const childEnv = {
+    ...env,
+    WAVELENGTH_DAEMON_URL: 'http://127.0.0.1:10031',
+    WAVELENGTH_EXPECTED_NETWORK: 'signet',
+    OTS_COMMAND: '/usr/local/bin/ots',
+  };
+  const control = new MerchantControl({
+    walletDirectory,
+    backupKeyBase64,
+    walletPassword,
+    diagnosticLifecycleErrors:
+      env.OPENSTAYS_DIAGNOSTIC_LIFECYCLE_ERRORS === 'true',
+    release,
+    daemonCommand: {
+      file: '/usr/local/bin/waved',
+      args: [
+        '--network=signet',
+        `--datadir=${walletDirectory}`,
+        `--logdir=${join(walletDirectory, 'logs')}`,
+        '--wallet.esploraurl=https://mempool.space/signet/api',
+        '--rpc.listenaddr=127.0.0.1:10029',
+        '--rpc.gateway.listenaddr=127.0.0.1:10031',
+        '--rpc.notls',
+        '--rpc.no-macaroons',
+      ],
+      env: childEnv,
+    },
+    workerCommands: [
+      {
+        file: process.execPath,
+        args: [cli, 'wave-bridge'],
+        env: childEnv,
+      },
+      {
+        file: process.execPath,
+        args: [cli, 'ots-bridge'],
+        env: childEnv,
+      },
+      {
+        file: process.execPath,
+        args: [cli, 'mail-bridge'],
+        env: childEnv,
+      },
+    ],
+  });
+  const store = new GenerationStore(backupRoot, { retain: 12 });
+  return createSupervisor({
+    control,
+    store,
+    walletDirectory,
+    quarantineRoot,
+  });
+}
+
+/**
+ * Compose the executable Synology supervisor around the authenticated control
+ * server. The HTTP listener is fixed to container loopback and is never
+ * reachable through a published host port.
+ *
+ * @param {{
+ *   env?: NodeJS.ProcessEnv,
+ *   supervisor?: Record<string, any>,
+ *   port?: number,
+ *   serverFactory?: typeof createControlServer,
+ * }} options
+ */
+export function createSynologyRuntime({
+  env = process.env,
+  supervisor,
+  port,
+  serverFactory = createControlServer,
+} = {}) {
+  const token = controlToken(env);
+  const resolvedSupervisor = supervisor ?? defaultRuntimeSupervisor(env);
+  const listenPort = port ?? runtimePort(env.CONTROL_PORT);
+  const server = serverFactory(resolvedSupervisor, token);
+  let listening = false;
+  let startInFlight;
+  let stopInFlight;
+
+  function start() {
+    if (startInFlight) return startInFlight;
+    startInFlight = (async () => {
+      try {
+        await resolvedSupervisor.start();
+        await new Promise((resolveListen, rejectListen) => {
+          const onError = (error) => {
+            server.off('listening', onListening);
+            rejectListen(error);
+          };
+          const onListening = () => {
+            server.off('error', onError);
+            listening = true;
+            resolveListen();
+          };
+          server.once('error', onError);
+          server.once('listening', onListening);
+          server.listen(listenPort, LOOPBACK_HOST);
+        });
+        const address = server.address();
+        if (!address || typeof address === 'string') {
+          throw new Error('CONTROL_LISTENER_ADDRESS_INVALID');
+        }
+        return address;
+      } catch (error) {
+        try {
+          resolvedSupervisor.stop();
+        } catch {
+          // Preserve the startup failure as the operator-facing cause.
+        }
+        throw error;
+      }
+    })();
+    return startInFlight;
+  }
+
+  function stop() {
+    if (stopInFlight) return stopInFlight;
+    stopInFlight = (async () => {
+      resolvedSupervisor.stop();
+      if (!listening) return;
+      await new Promise((resolveClose, rejectClose) =>
+        server.close((error) => error
+          ? rejectClose(error)
+          : resolveClose()));
+      listening = false;
+    })();
+    return stopInFlight;
+  }
+
+  return { start, stop };
+}
+
+if (
+  process.argv[1]
+  && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  let runtime;
+  try {
+    runtime = createSynologyRuntime();
+    await runtime.start();
+    const shutdown = () => {
+      void runtime.stop()
+        .then(() => {
+          process.exitCode = 0;
+        })
+        .catch(() => {
+          process.exitCode = 1;
+        });
+    };
+    process.once('SIGTERM', shutdown);
+    process.once('SIGINT', shutdown);
+  } catch (error) {
+    const category = error instanceof Error
+      && /^[A-Z][A-Z0-9_]+$/u.test(error.message)
+      ? error.message.toLowerCase()
+      : 'runtime_start_failed';
+    process.stderr.write(`synology-supervisor: ${category}\n`);
+    process.exitCode = 1;
+  }
 }

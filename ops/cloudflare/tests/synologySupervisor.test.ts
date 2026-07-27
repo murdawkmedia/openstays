@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import {
   access,
   mkdir,
@@ -14,7 +15,11 @@ import { dirname, join, relative } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createControlServer } from '../container/control.mjs';
-import { createSupervisor } from '../../synology/supervisor.mjs';
+import { runOperator } from '../../synology/operator.mjs';
+import {
+  createSupervisor,
+  createSynologyRuntime,
+} from '../../synology/supervisor.mjs';
 
 const temporaryDirectories: string[] = [];
 
@@ -1290,4 +1295,341 @@ describe('control server interface', () => {
       }
     },
   );
+});
+
+describe('Synology operator and container binding contract', () => {
+  it.each(['health', 'bootstrap', 'backup'])(
+    'sends the %s command to loopback with the control bearer token',
+    async (command) => {
+      const fetchImpl = vi.fn(async (
+        _url: Parameters<typeof fetch>[0],
+        _request?: Parameters<typeof fetch>[1],
+      ) => {
+        const backupBytes = Buffer.from('encrypted-wallet');
+        return new Response(
+          command === 'backup'
+          ? backupBytes
+          : JSON.stringify(command === 'bootstrap'
+            ? { mnemonic: Array.from({ length: 24 }, () => 'word') }
+            : { status: 'ready', release: 'test-release' }),
+        {
+          status: command === 'bootstrap' || command === 'backup' ? 201 : 200,
+          headers: command === 'backup'
+              ? {
+                'Content-Type': 'application/octet-stream',
+                'X-Backup-Sha256': sha256(backupBytes),
+                'Content-Length': String(backupBytes.byteLength),
+              }
+            : { 'Content-Type': 'application/json' },
+        },
+        );
+      });
+      const writes: string[] = [];
+
+      await runOperator([command], {
+        env: {
+          CONTAINER_CONTROL_TOKEN: 'test-control-token',
+          CONTROL_PORT: '8181',
+        },
+        fetchImpl,
+        write: (value: string) => {
+          writes.push(value);
+          return true;
+        },
+      });
+
+      const [url, request] = fetchImpl.mock.calls[0]!;
+      expect(url).toBe(`http://127.0.0.1:8181/${command}`);
+      expect(request).toMatchObject({
+        method: command === 'health' ? 'GET' : 'POST',
+        headers: {
+          Authorization: 'Bearer test-control-token',
+        },
+      });
+      expect(JSON.stringify(fetchImpl.mock.calls)).not.toContain(
+        '0.0.0.0',
+      );
+      expect(writes.join('')).not.toContain('test-control-token');
+    },
+  );
+
+  it.each([
+    { arguments_: [] },
+    { arguments_: ['restore'] },
+    { arguments_: ['health', 'extra'] },
+    { arguments_: ['HEALTH'] },
+  ])('rejects unsupported operator arguments: $arguments_', async ({
+    arguments_,
+  }) => {
+    const fetchImpl = vi.fn();
+
+    await expect(runOperator(arguments_, {
+      env: { CONTAINER_CONTROL_TOKEN: 'test-control-token' },
+      fetchImpl,
+      write: vi.fn(),
+    })).rejects.toThrow('OPERATOR_COMMAND_INVALID');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('prints recovery words only after a successful bootstrap response', async () => {
+    const writes: string[] = [];
+    const mnemonic = Array.from({ length: 24 }, (_, index) => `word${index}`);
+
+    await expect(runOperator(['bootstrap'], {
+      env: { CONTAINER_CONTROL_TOKEN: 'test-control-token' },
+      fetchImpl: vi.fn(async () => new Response(
+        JSON.stringify({ mnemonic }),
+        {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )),
+      write: (value: string) => {
+        writes.push(value);
+        return true;
+      },
+    })).rejects.toThrow('OPERATOR_REQUEST_FAILED');
+    expect(writes.join('')).not.toContain('word0');
+
+    await runOperator(['bootstrap'], {
+      env: { CONTAINER_CONTROL_TOKEN: 'test-control-token' },
+      fetchImpl: vi.fn(async () => new Response(
+        JSON.stringify({ mnemonic }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )),
+      write: (value: string) => {
+        writes.push(value);
+        return true;
+      },
+    });
+    expect(writes.join('')).toContain('word0');
+    expect(writes.join('')).toContain('word23');
+  });
+
+  it('requires a non-empty control token before making a request', async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(runOperator(['health'], {
+      env: {},
+      fetchImpl,
+      write: vi.fn(),
+    })).rejects.toThrow('CONTAINER_CONTROL_TOKEN_REQUIRED');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('fails the health command when supervisor health is unavailable', async () => {
+    const write = vi.fn();
+
+    await expect(runOperator(['health'], {
+      env: { CONTAINER_CONTROL_TOKEN: 'test-control-token' },
+      fetchImpl: vi.fn(async () => new Response(JSON.stringify({
+        status: 'failed',
+        failureCategory: 'backup_stale',
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })),
+      write,
+    })).rejects.toThrow('OPERATOR_HEALTH_FAILED');
+
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: 'missing backup key',
+      change: { WALLET_BACKUP_KEY_BASE64: undefined },
+      category: 'WALLET_BACKUP_KEY_BASE64_REQUIRED',
+    },
+    {
+      name: 'invalid backup key',
+      change: { WALLET_BACKUP_KEY_BASE64: 'not-base64' },
+      category: 'WALLET_BACKUP_KEY_BASE64_INVALID',
+    },
+    {
+      name: 'short wallet password',
+      change: { WAVELENGTH_WALLET_PASSWORD: 'short' },
+      category: 'WAVELENGTH_WALLET_PASSWORD_TOO_SHORT',
+    },
+    {
+      name: 'control token containing a newline',
+      change: { CONTAINER_CONTROL_TOKEN: 'bad\ntoken' },
+      category: 'CONTAINER_CONTROL_TOKEN_INVALID',
+    },
+  ])('rejects $name before opening the runtime listener', ({
+    change,
+    category,
+  }) => {
+    const env = {
+      CONTAINER_CONTROL_TOKEN: 'runtime-token',
+      OPENSTAYS_RELEASE: 'test-release',
+      WALLET_BACKUP_KEY_BASE64: Buffer.alloc(32, 1).toString('base64'),
+      WAVELENGTH_WALLET_PASSWORD: 'test-password',
+      ...change,
+    };
+
+    expect(() => createSynologyRuntime({ env })).toThrow(category);
+  });
+
+  it('packages a private bridge-mode container with exact durable roots', async () => {
+    const compose = await readFile(
+      join(process.cwd(), '../synology/docker-compose.yml'),
+      'utf8',
+    );
+    const dockerfile = await readFile(
+      join(process.cwd(), 'container/Dockerfile'),
+      'utf8',
+    );
+
+    expect(compose).not.toMatch(/^\s*ports\s*:/mu);
+    expect(compose).toContain('network_mode: bridge');
+    expect(compose).toContain('restart: unless-stopped');
+    expect(compose).toContain('mem_limit: 2g');
+    expect(compose).toContain('healthcheck:');
+    expect(compose).toContain(
+      '/volume1/docker/openstays-merchant/state:/var/lib/openstays',
+    );
+    expect(compose).toContain(
+      '/volume2/openstays-wallet-backups:/var/backups/openstays',
+    );
+    expect(dockerfile).toContain(
+      'COPY --chown=node:node ops/synology/*.mjs /app/synology/',
+    );
+    expect(dockerfile).not.toMatch(/^\s*EXPOSE\s+/mu);
+  });
+
+  it('routes authenticated loopback control requests through the supervisor', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-runtime-routing-')));
+    temporaryDirectories.push(root);
+    process.env.WALLET_BACKUP_OUTPUT_PATH = join(root, 'wallet.archive');
+    const bytes = Buffer.from('verified-supervisor-backup');
+    const supervisor = {
+      start: vi.fn(),
+      health: vi.fn(() => ({
+        status: 'awaiting_bootstrap',
+        release: 'test-release',
+      })),
+      bootstrap: vi.fn(async () => ({
+        mnemonic: Array.from({ length: 24 }, () => 'word'),
+      })),
+      backup: vi.fn(async () => ({
+        bytes,
+        sha256: sha256(bytes),
+        byteLength: bytes.byteLength,
+      })),
+      stop: vi.fn(),
+    };
+    const runtime = createSynologyRuntime({
+      env: { CONTAINER_CONTROL_TOKEN: 'runtime-token' },
+      port: 0,
+      supervisor,
+    });
+    const address = await runtime.start();
+
+    try {
+      expect(address.address).toBe('127.0.0.1');
+      const headers = { Authorization: 'Bearer runtime-token' };
+      const unauthorized = await fetch(
+        `http://127.0.0.1:${address.port}/health`,
+      );
+      expect(unauthorized.status).toBe(401);
+      const health = await fetch(
+        `http://127.0.0.1:${address.port}/health`,
+        { headers },
+      );
+      expect(await health.json()).toMatchObject({
+        status: 'awaiting_bootstrap',
+      });
+      const bootstrap = await fetch(
+        `http://127.0.0.1:${address.port}/bootstrap`,
+        { method: 'POST', headers },
+      );
+      expect(bootstrap.status).toBe(201);
+      const backup = await fetch(
+        `http://127.0.0.1:${address.port}/backup`,
+        { method: 'POST', headers },
+      );
+      expect(backup.status).toBe(201);
+      expect(Buffer.from(await backup.arrayBuffer())).toEqual(bytes);
+      expect(supervisor.start).toHaveBeenCalledOnce();
+      expect(supervisor.bootstrap).toHaveBeenCalledOnce();
+      expect(supervisor.backup).toHaveBeenCalledOnce();
+    } finally {
+      await runtime.stop();
+    }
+    expect(supervisor.stop).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the packaged supervisor entrypoint alive on authenticated loopback health', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-runtime-entrypoint-')));
+    temporaryDirectories.push(root);
+    const probe = await import('node:http').then(({ createServer }) =>
+      createServer());
+    await new Promise<void>((resolve) =>
+      probe.listen(0, '127.0.0.1', resolve));
+    const probeAddress = probe.address();
+    if (!probeAddress || typeof probeAddress === 'string') {
+      throw new Error('TEST_SERVER_ADDRESS_UNAVAILABLE');
+    }
+    const port = probeAddress.port;
+    await new Promise<void>((resolve, reject) =>
+      probe.close((error) => error ? reject(error) : resolve()));
+    const token = 'spawned-runtime-token';
+    const stderr: string[] = [];
+    const child = spawn(
+      process.execPath,
+      [join(process.cwd(), '../synology/supervisor.mjs')],
+      {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        env: {
+          ...process.env,
+          CONTAINER_CONTROL_TOKEN: token,
+          CONTROL_PORT: String(port),
+          OPENSTAYS_RELEASE: 'test-release',
+          OPENSTAYS_BACKUP_ROOT: join(root, 'backups'),
+          OPENSTAYS_QUARANTINE_ROOT: join(root, 'quarantine'),
+          WAVELENGTH_WALLET_DIRECTORY: join(root, 'state', 'wavelength'),
+          WALLET_BACKUP_KEY_BASE64: Buffer.alloc(32, 1).toString('base64'),
+          WAVELENGTH_WALLET_PASSWORD: 'test-password',
+        },
+      },
+    );
+    child.stderr!.setEncoding('utf8');
+    child.stderr!.on('data', (value) => stderr.push(String(value)));
+
+    try {
+      let response: Response | undefined;
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (child.exitCode !== null) break;
+        try {
+          response = await fetch(`http://127.0.0.1:${port}/health`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      }
+      expect(child.exitCode).toBeNull();
+      expect(response?.status).toBe(200);
+      expect(await response!.json()).toMatchObject({
+        status: 'awaiting_bootstrap',
+        release: 'test-release',
+      });
+      expect(stderr.join('')).not.toContain(token);
+    } finally {
+      child.kill('SIGTERM');
+      await new Promise<void>((resolve) => {
+        if (child.exitCode !== null) return resolve();
+        child.once('exit', () => resolve());
+      });
+    }
+  });
 });
