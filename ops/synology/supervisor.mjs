@@ -720,7 +720,6 @@ function defaultRuntimeSupervisor(env) {
     env.OPENSTAYS_BACKUP_ROOT
       ?? '/var/backups/openstays',
   );
-  ensureWritableStorage(walletDirectory, quarantineRoot, backupRoot);
   const walletPassword = requiredValue(
     env,
     'WAVELENGTH_WALLET_PASSWORD',
@@ -730,6 +729,7 @@ function defaultRuntimeSupervisor(env) {
   }
   const release = requiredValue(env, 'OPENSTAYS_RELEASE');
   const backupKeyBase64 = validBackupKey(env);
+  ensureWritableStorage(walletDirectory, quarantineRoot, backupRoot);
   const cli = '/app/cli/dist/index.js';
   const childEnv = {
     ...env,
