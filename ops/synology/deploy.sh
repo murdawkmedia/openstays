@@ -299,6 +299,11 @@ done
 require_disabled_flag ZAPRITE_ENABLED
 require_disabled_flag WAVELENGTH_ENABLED
 require_disabled_flag WAVELENGTH_REWARDS_ENABLED
+if test "$root_task" = "true"; then
+  test "$(env_value OPENSTAYS_RELEASE)" \
+    = "${OPENSTAYS_DSM_SOURCE_COMMIT:-}" \
+    || fail OPENSTAYS_RELEASE_MISMATCH
+fi
 
 docker compose --project-name openstays-merchant \
   --env-file "$ENV_FILE" \
@@ -317,8 +322,23 @@ docker compose --project-name openstays-merchant \
   up -d --build merchant
 
 verify_container_identity
-docker exec openstays-merchant \
-  node /app/synology/operator.mjs health >/dev/null
+health_status=1
+for ((health_attempt = 1; health_attempt <= 30; health_attempt += 1)); do
+  if docker exec openstays-merchant \
+    node /app/synology/operator.mjs health >/dev/null 2>&1
+  then
+    health_status=0
+    break
+  else
+    health_status=$?
+  fi
+  if (( health_attempt < 30 )); then
+    sleep 1
+  fi
+done
+if (( health_status != 0 )); then
+  exit "$health_status"
+fi
 
 trap - EXIT INT TERM
 printf '%s\n' 'OpenStays merchant deployed with public rails disabled.'
