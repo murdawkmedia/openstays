@@ -59,10 +59,12 @@ npx --prefix ops/cloudflare wrangler deploy `
 ```
 
 The dry run must contain no container image build. The checked-in Compose
-contract has no published ports, but native Docker build, Compose rendering,
-container health, and forced recovery remain explicitly pending until they are
-run on the Synology host. A local workstation without a compatible Docker
-engine cannot satisfy that host gate.
+contract has no published ports. The native Docker build, Compose rendering,
+container identity/mount/port checks, restored-wallet health, and forced
+recovery gate passed on the Synology for release
+`ade31aaadaccb33f2e93978a15522e48180e8fb8` on 2026-07-28. Repeat that host
+gate for any release that changes the merchant runtime or recovery path; a
+local workstation without a compatible Docker engine cannot satisfy it.
 
 ## 3. Create the eligibility edge
 
@@ -163,19 +165,21 @@ flags, empty published-port bindings, and post-start health. They never prune
 Docker or target an unrelated container. Disable or remove the one-shot task
 after its successful result is recorded.
 
-The 2026-07-27 first live attempt stopped before deployment because this DSM
-host did not yet have `/usr/local/sbin`. No launcher, application root, backup
-root, or container was created. The current documented task safely handles
-that discovered host shape: it first validates `/usr/local` as a canonical
-root-owned mode-`0755` directory, creates only an absent `/usr/local/sbin`,
-and then validates that child before reading the staged launcher. Existing
-symlinks or owner/mode drift are hard failures and are not repaired.
+Earlier live attempts exposed three fail-closed host/runtime edges now covered
+by regressions: an absent `/usr/local/sbin`, root extraction permissions that
+hid `/app` from runtime user `1026:100`, and backup staleness during a restored
+wallet's bounded readiness window. The current task validates or safely
+creates only the exact launcher directory, makes image source readable but
+not writable, stages restore publication on the wallet filesystem, and
+commits one fresh verified generation after an otherwise-ready restore.
+Symlinks, owner/mode drift, corrupt or missing recovery, unexpected identity,
+mounts, ports, or any other health failure remain hard failures.
 
-For the retry, replace the complete DSM task body with the current
-`ops/synology/README.md` block and reuse the same independently recorded
-literal inputs. Do not manually create the directory or loosen permissions.
-An `invalid launcher parent` or `invalid launcher directory` result requires
-inspection and a new operator decision rather than another blind retry.
+For a later release, replace the complete DSM task body with the current
+`ops/synology/README.md` block and use newly recorded literal commit, archive
+size, and SHA-256 inputs. Do not manually create trusted paths or loosen
+permissions. Any launcher, attestation, identity, or recovery error requires
+inspection and a new operator decision rather than a blind retry.
 
 ## 6. Bootstrap and prove recovery
 
@@ -204,6 +208,12 @@ The drill quarantines the live wallet, restores the newest verified
 `/volume2` generation, compares a redacted wallet identity/activity
 commitment, commits a fresh generation, and preserves the quarantine. Never
 delete a generation or quarantine to make the drill pass.
+
+The 2026-07-28 acceptance preserved
+`wavelength-20260728T234223Z`, restored the signet wallet, and returned
+redacted operator health `ready` at release
+`ade31aaadaccb33f2e93978a15522e48180e8fb8`. This records recovery capability;
+it does not authorize either public payment rail.
 
 ## 7. Fund a capped signet budget
 

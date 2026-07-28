@@ -289,6 +289,12 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   manifest commitment only: no archive, secret, recovery, wallet, guest,
   invoice, payment-hash, host, or path data. Bitcoin anchoring is not required
   for restore, startup, reconciliation, or payment availability.
+- 2026-07-28 (restored-wallet readiness): restore staging and final publication
+  must remain on the wallet destination filesystem so atomic rename cannot
+  cross mounts. A restored wallet that is otherwise ready may commit one fresh
+  verified generation during the bounded deploy health loop when its only
+  failing condition is backup staleness. This does not relax corrupt/missing
+  recovery, identity, mount, port, control-readiness, or other health failures.
 - 2026-07-22 (OpenStays Mail): Convex is authoritative for rendered email,
   idempotency, leases, retries, and audit state. `mail_bridge` exposes only
   bearer-authenticated bounded claims and acknowledgements; the local worker

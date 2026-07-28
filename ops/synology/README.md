@@ -155,13 +155,12 @@ mode `0755` only when that exact child is absent, then validates the child with
 the same canonical-path, ownership, and mode checks. An existing symlink or a
 directory with different ownership or permissions is rejected without repair.
 
-To retry that stopped first run, replace the DSM task body with the complete
-current block above and rerun it with the same locally recorded, literal
-commit, source-archive size/digest, and launcher size/digest. Do not manually
-create `/usr/local/sbin`, loosen permissions, or run a checkout script
-directly. If the task reports `invalid launcher parent` or
-`invalid launcher directory`, stop and inspect that exact path before any
-further attempt.
+For a later release, replace the DSM task body with the complete current block
+above and use newly recorded literal commit, source-archive size/digest, and
+launcher size/digest values. Do not manually create `/usr/local/sbin`, loosen
+permissions, or run a checkout script directly. If the task reports
+`invalid launcher parent` or `invalid launcher directory`, stop and inspect
+that exact path before any further attempt.
 
 The installed launcher is root-owned mode `0700` outside the checkout. It
 re-executes itself through `env -i`, accepts only `deploy` or `recovery`, an
@@ -185,6 +184,9 @@ alternate path, or unrelated container/volume commands to the task.
 The deploy script renders Compose, builds and starts only `merchant`, then
 re-attests its identity and polls authenticated loopback health for at most
 30 seconds so Docker's started state cannot race the control listener. A
+restored wallet whose only failing condition is backup staleness commits one
+fresh verified generation inside that window; failed attempts continue until
+control is ready, while a successful refresh happens at most once. A
 terminal failure or signal after startup stops only that Compose service
 through the same fixed configuration. Root-launched deployment also requires
 `OPENSTAYS_RELEASE` to match the pinned source commit. Public rails remain
@@ -244,6 +246,11 @@ The quarantine is always preserved. On failure, leave quarantine and backup
 generations untouched, keep public flags disabled, and investigate. Never
 copy quarantine over a restored wallet or delete generations to make a test
 pass.
+
+The native 2026-07-28 acceptance passed at release
+`ade31aaadaccb33f2e93978a15522e48180e8fb8`. It preserved quarantine
+`wavelength-20260728T234223Z`, restored the signet wallet, returned redacted
+health `ready`, and left all public rails disabled.
 
 ## Recovery authority and optional timestamping
 

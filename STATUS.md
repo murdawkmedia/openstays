@@ -1,6 +1,6 @@
 # OpenStays status
 
-**Updated: 2026-07-27 - Synology native startup was proven through awaiting-bootstrap; bounded readiness and release-pinning fixes await the final pinned redeploy.**
+**Updated: 2026-07-28 - The Synology merchant passed its pinned native deploy and forced encrypted-wallet restore drill; public payment rails remain disabled pending provider-specific acceptance.**
 
 ## Current branch
 
@@ -20,27 +20,25 @@
   `0755` Linux-mode parents without ACLs. The active application root is
   `/volume1/openstays-merchant`; writable `/volume1/docker` is excluded from
   privileged trust.
-- The first live DSM task attempt stopped safely because `/usr/local/sbin` was
-  absent. It created no launcher, application root, backup root, or container.
-  The current task validates `/usr/local`, creates that exact child only when
-  absent, and rejects a symlink or ownership/mode drift before staging.
-- The corrected task installed the root-owned launcher, rendered Compose, and
-  completed the native image build. The first container start then failed
-  closed because root's archive-extraction umask left `/app` source readable
-  only by image user `1000`, while the attested Synology runtime is
-  `1026:100`. The image now explicitly makes application source
-  world-readable/traversable without making it writable, and a regression
-  contract covers that boundary. The disabled merchant redeploy is pending.
-- The corrected image subsequently reached `awaiting_bootstrap` on the native
-  Synology. That run exposed a deterministic operator race: the deploy script
-  queried the loopback control listener immediately after Docker reported the
-  container started. A bounded 30-second retry now accepts delayed listener
-  readiness while preserving project-scoped rollback on terminal failure.
-  Root-launched deployments also require `OPENSTAYS_RELEASE` to equal the
-  pinned source commit so health cannot advertise stale release provenance.
-- No wallet bootstrap, Turnstile widget, eligibility Worker deployment,
-  credential rotation, Zaprite resource, or rail enablement has been
-  completed by this branch.
+- The root-owned DSM launcher published and attested release
+  `ade31aaadaccb33f2e93978a15522e48180e8fb8` from a 4,126,720-byte archive
+  with SHA-256
+  `062b8854527e11bca0324c71eac904967afb090322306c2eaed670a6526e25fb`.
+- The existing signet wallet restored and unlocked successfully. The deploy
+  path now commits one fresh verified generation when an otherwise-ready
+  restored wallet reports only `backup_stale`; unrelated unhealthy states
+  still fail closed within the same bounded health window.
+- The forced recovery drill stopped only the OpenStays merchant, preserved the
+  live state as `wavelength-20260728T234223Z`, recreated the container without
+  a stale writable layer, restored from the encrypted generation, and
+  committed a fresh verified backup.
+- Live post-recovery health is `ready` at the pinned release. The container is
+  healthy with zero restarts, runs as `1026:100`, exposes no published ports,
+  and mounts only `/volume1/openstays-merchant/state` and
+  `/volume2/openstays-wallet-backups`.
+- No Turnstile widget, eligibility Worker deployment, credential rotation,
+  Zaprite resource, or public rail enablement has been completed by this
+  branch.
 
 ## Implemented
 
@@ -98,6 +96,9 @@
 - A stale Wavelength service hides only Wavelength. Zaprite and the simulated
   tour remain independent.
 - Missing, corrupt, or stale wallet recovery fails closed.
+- A valid restored wallet may refresh exactly one verified generation during
+  bounded deploy readiness so backup staleness alone cannot stop an otherwise
+  healthy runtime.
 - Bootstrap, backup, and health are interactive only through an authenticated
   DSM Container Manager terminal; recovery words never enter task/log output,
   and the required second bootstrap rejects.
@@ -114,21 +115,26 @@
   - desktop and mobile public showcase smoke checks passed;
   - credential-dependent live payment browser checks remained correctly
     skipped.
-- Tasks 1-6 of the Synology plan are complete locally.
-- Cloudflare/Synology operations pass 172 tests, typecheck, the generic Worker
-  dry-run build, and the eligibility-only dry run with no Container, Durable
-  Object, or R2 binding.
+- Tasks 1-6 of the Synology plan are complete locally and the native
+  deploy/recovery acceptance has passed on the Synology.
+- Cloudflare/Synology operations pass 176 tests, typecheck, and the generic
+  Worker dry-run build.
 - The native Synology startup failure was reproduced as
   `EACCES` on `/app/synology/supervisor.mjs`; the focused test failed before
   the Dockerfile permission correction and all 172 operations tests pass
   afterwards.
 - A live three-second delayed health probe reproduced the post-start race.
-  The new regression fails its first two health calls, succeeds on the third,
-  and proves no rollback occurs. Operations now contain 174 tests.
-- The current full local gate passed:
+  The regression fails its first two health calls, succeeds on the third, and
+  proves no rollback occurs.
+- The live restore then reproduced a second deterministic readiness edge:
+  wallet control became ready before the first 60-second periodic backup, so
+  the 30-second deploy health loop saw only `backup_stale`. The new regression
+  fails health until a verified backup refresh succeeds and proves the deploy
+  neither rolls back nor weakens other health failures.
+- The current full local gate passed on 2026-07-28:
   - root: 469 tests, typecheck, production build, docs build, and runtime audit;
   - CLI: 72 tests, typecheck, and build;
-  - operations: 172 tests, typecheck, and build;
+  - operations: 176 tests, typecheck, and build;
   - `git diff --check`.
 - GitHub CI run
   [30233083376](https://github.com/murdawkmedia/openstays/actions/runs/30233083376)
@@ -143,9 +149,9 @@
 - Focused public refund, simulated-tour, receipt-timeline, disclosure, wallet
   bootstrap, heartbeat, backup, and forced-restore tests pass.
 - The earlier Cloudflare-targeted Linux container and recovery drill passed on
-  an amd64 GitHub-hosted runner. The new Synology Compose rendering, native
-  image build, container health, and recovery drill have not yet run on the
-  Synology and remain acceptance gates.
+  an amd64 GitHub-hosted runner. Synology Compose rendering, native image
+  build, restored wallet health, exact identity/mount/port attestation, and the
+  forced recovery drill now also pass on the approved native host.
 - Earlier Cloudflare-targeted release-candidate verification:
   - root: 469 tests, typecheck, production build, docs build, and the
     project-specific runtime audit passed;
@@ -168,20 +174,13 @@
 
 ## Remaining gates
 
-1. Publish a fresh archive of the source-read, bounded-readiness, and release
-   provenance fixes through the installed root-owned launcher and verify the
-   disabled merchant reaches healthy
-   `awaiting_bootstrap` state with the exact non-root identity, mounts, labels,
-   and zero published ports; keep the manual DSM task disabled.
-2. Bootstrap the signet wallet once, record recovery offline, and complete the
-   forced restore drill before enabling Wavelength.
-3. Create and verify the dedicated Turnstile widget and deploy the
+1. Create and verify the dedicated Turnstile widget and deploy the
    eligibility-only Worker.
-4. Rotate the exposed Zaprite key and run exact CA$1 authoritative acceptance
+2. Rotate the exposed Zaprite key and run exact CA$1 authoritative acceptance
    before enabling Zaprite independently.
-5. Fund the capped signet budget and run Wavelength booking/reward acceptance
+3. Fund the capped signet budget and run Wavelength booking/reward acceptance
    before enabling its booking rail and rewards.
-6. Complete desktop/mobile browser acceptance, stop-switch checks, interrupted
+4. Complete desktop/mobile browser acceptance, stop-switch checks, interrupted
    settlement reconciliation, and the 15-day retention check.
 
 See:
