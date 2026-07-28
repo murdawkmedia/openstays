@@ -10,7 +10,6 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -67,7 +66,9 @@ export class MerchantControl {
     if (sha256(ciphertext) !== expectedSha256) {
       throw new Error('BACKUP_DIGEST_MISMATCH');
     }
-    const staging = mkdtempSync(join(tmpdir(), 'openstays-wallet-'));
+    const walletParent = dirname(resolve(this.options.walletDirectory));
+    mkdirSync(walletParent, { recursive: true });
+    const staging = mkdtempSync(join(walletParent, '.openstays-wallet-'));
     const archivePath = join(staging, 'wallet.tar.gz.enc');
     const extracted = join(staging, 'wallet');
     try {
@@ -77,7 +78,6 @@ export class MerchantControl {
         extracted,
         this.options.backupKeyBase64,
       );
-      mkdirSync(dirname(this.options.walletDirectory), { recursive: true });
       renameSync(extracted, this.options.walletDirectory);
       chmodSync(this.options.walletDirectory, 0o700);
       this.restored = true;

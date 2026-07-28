@@ -1690,7 +1690,9 @@ printf 'mv %s %s\\n' "\${2:-}" "\${3:-}" >> "${calls.replaceAll('\\', '/')}"
     expect(recorded.some((line) =>
       line.includes(
         'compose --project-name openstays-merchant',
-      ) && line.endsWith('up -d merchant'))).toBe(true);
+      ) && line.endsWith(
+        'up -d --force-recreate --no-build merchant',
+      ))).toBe(true);
     expect(recorded.some((line) =>
       line.includes('operator.mjs backup'))).toBe(true);
     expect(recorded.join('\n')).not.toMatch(/\b(?:rm|prune)\b/u);

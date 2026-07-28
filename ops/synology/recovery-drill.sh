@@ -357,7 +357,7 @@ trap stop_failed_recovery EXIT
 docker compose --project-name openstays-merchant \
   --env-file "$ENV_FILE" \
   -f "$COMPOSE_FILE" \
-  up -d merchant
+  up -d --force-recreate --no-build merchant
 verify_container_identity
 wait_for_verified_restore
 
