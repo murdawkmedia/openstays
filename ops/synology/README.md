@@ -187,6 +187,12 @@ re-attests its identity and health. A failure or signal after startup stops
 only that Compose service through the same fixed configuration. Public rails
 remain disabled.
 
+The source archive is extracted by the root-owned launcher under a restrictive
+umask. The container image must therefore normalize copied application source
+to readable/traversable, but not writable, for the attested Synology runtime
+identity `1026:100`. Image ownership alone is not sufficient because the
+upstream image user has a different numeric UID.
+
 ## Bootstrap exactly once
 
 Bootstrap is the only command that returns the 24 recovery words. Sign in to
