@@ -1,11 +1,64 @@
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MerchantControl } from '../container/control.mjs';
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const {
+    dirname,
+    isAbsolute,
+    relative,
+    sep,
+  } = await import('node:path');
+  return {
+    ...actual,
+    renameSync(source: string, destination: string) {
+      const relationship = relative(dirname(destination), source);
+      if (
+        relationship === '..'
+        || relationship.startsWith(`..${sep}`)
+        || isAbsolute(relationship)
+      ) {
+        const error = new Error(
+          `EXDEV: cross-device link not permitted, rename '${source}' -> '${destination}'`,
+        ) as NodeJS.ErrnoException;
+        error.code = 'EXDEV';
+        throw error;
+      }
+      return actual.renameSync(source, destination);
+    },
+  };
+});
+
+vi.mock('../container/backup.mjs', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('../container/backup.mjs')
+  >();
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  return {
+    ...actual,
+    restoreWallet(
+      _inputPath: string,
+      outputDirectory: string,
+      _base64Key: string,
+    ) {
+      mkdirSync(outputDirectory, { recursive: true });
+      writeFileSync(join(outputDirectory, 'wallet.db'), 'restored-wallet');
+    },
+  };
+});
 
 const temporaryDirectories: string[] = [];
 
@@ -24,6 +77,28 @@ function fakeChild() {
 }
 
 describe('merchant wallet bootstrap control', () => {
+  it('stages a restored wallet on the destination filesystem before atomic rename', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'openstays-control-restore-'));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'state', 'wavelength');
+    const backupKeyBase64 = Buffer.alloc(32, 7).toString('base64');
+    mkdirSync(join(root, 'state'), { recursive: true });
+    const bytes = Buffer.from('valid-test-backup');
+    const control = new MerchantControl({
+      walletDirectory,
+      backupKeyBase64,
+    });
+
+    await control.restore(
+      bytes,
+      createHash('sha256').update(bytes).digest('hex'),
+    );
+
+    expect(readFileSync(join(walletDirectory, 'wallet.db'), 'utf8')).toBe(
+      'restored-wallet',
+    );
+  });
+
   it('creates one signet wallet without returning or logging its password', async () => {
     const root = mkdtempSync(join(tmpdir(), 'openstays-control-'));
     temporaryDirectories.push(root);
