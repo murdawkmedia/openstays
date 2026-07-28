@@ -1,6 +1,6 @@
 # OpenStays status
 
-**Updated: 2026-07-27 - Synology launcher bootstrap updated for the discovered host shape; host deployment and live acceptance remain pending.**
+**Updated: 2026-07-27 - Synology native build reached container startup; a non-root source-read failure is fixed and the pinned redeploy remains pending.**
 
 ## Current branch
 
@@ -24,9 +24,16 @@
   absent. It created no launcher, application root, backup root, or container.
   The current task validates `/usr/local`, creates that exact child only when
   absent, and rejects a symlink or ownership/mode drift before staging.
-- No Synology deployment, wallet bootstrap, Turnstile widget, eligibility
-  Worker deployment, credential rotation, Zaprite resource, or rail enablement
-  has been completed by this branch.
+- The corrected task installed the root-owned launcher, rendered Compose, and
+  completed the native image build. The first container start then failed
+  closed because root's archive-extraction umask left `/app` source readable
+  only by image user `1000`, while the attested Synology runtime is
+  `1026:100`. The image now explicitly makes application source
+  world-readable/traversable without making it writable, and a regression
+  contract covers that boundary. The disabled merchant redeploy is pending.
+- No wallet bootstrap, Turnstile widget, eligibility Worker deployment,
+  credential rotation, Zaprite resource, or rail enablement has been
+  completed by this branch.
 
 ## Implemented
 
@@ -104,6 +111,10 @@
 - Cloudflare/Synology operations pass 172 tests, typecheck, the generic Worker
   dry-run build, and the eligibility-only dry run with no Container, Durable
   Object, or R2 binding.
+- The native Synology startup failure was reproduced as
+  `EACCES` on `/app/synology/supervisor.mjs`; the focused test failed before
+  the Dockerfile permission correction and all 172 operations tests pass
+  afterwards.
 - The current full local gate passed:
   - root: 469 tests, typecheck, production build, docs build, and runtime audit;
   - CLI: 72 tests, typecheck, and build;
@@ -147,10 +158,10 @@
 
 ## Remaining gates
 
-1. Replace the stopped DSM task body with the current documented block, reuse
-   the same pinned inputs, and retry it to render Compose, build the image, and
-   deploy the disabled merchant on the approved Synology roots; remove or
-   disable the task after the one-shot run.
+1. Publish a fresh archive of the source-read fix through the installed
+   root-owned launcher and verify the disabled merchant reaches healthy
+   `awaiting_bootstrap` state with the exact non-root identity, mounts, labels,
+   and zero published ports; keep the manual DSM task disabled.
 2. Bootstrap the signet wallet once, record recovery offline, and complete the
    forced restore drill before enabling Wavelength.
 3. Create and verify the dedicated Turnstile widget and deploy the

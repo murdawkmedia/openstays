@@ -61,7 +61,8 @@ COPY --chown=node:node ops/cloudflare/container/control.mjs ops/cloudflare/conta
 COPY --chown=node:node ops/synology/*.mjs /app/synology/
 
 RUN mkdir -p /var/lib/openstays /run/openstays \
-  && chown -R node:node /var/lib/openstays /run/openstays /app
+  && chown -R node:node /var/lib/openstays /run/openstays /app \
+  && chmod -R a+rX /app
 
 ENV NODE_ENV=production \
   CONTROL_PORT=8080 \

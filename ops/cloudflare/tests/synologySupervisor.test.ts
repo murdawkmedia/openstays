@@ -1512,6 +1512,7 @@ describe('Synology operator and container binding contract', () => {
     expect(dockerfile).toContain(
       '/app/cloudflare/container/',
     );
+    expect(dockerfile).toContain('&& chmod -R a+rX /app');
     expect(dockerfile).not.toMatch(/^\s*EXPOSE\s+/mu);
   });
 
