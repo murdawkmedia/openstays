@@ -183,9 +183,12 @@ Never change the Docker socket, DSM users or groups. Never add `sudo`, an
 alternate path, or unrelated container/volume commands to the task.
 
 The deploy script renders Compose, builds and starts only `merchant`, then
-re-attests its identity and health. A failure or signal after startup stops
-only that Compose service through the same fixed configuration. Public rails
-remain disabled.
+re-attests its identity and polls authenticated loopback health for at most
+30 seconds so Docker's started state cannot race the control listener. A
+terminal failure or signal after startup stops only that Compose service
+through the same fixed configuration. Root-launched deployment also requires
+`OPENSTAYS_RELEASE` to match the pinned source commit. Public rails remain
+disabled.
 
 The source archive is extracted by the root-owned launcher under a restrictive
 umask. The container image must therefore normalize copied application source

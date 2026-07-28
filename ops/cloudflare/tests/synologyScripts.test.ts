@@ -682,6 +682,13 @@ exec /usr/bin/head "$@"
     }
   });
 
+  it('binds the merchant release label to the pinned root source commit', () => {
+    const body = script(deployPath);
+    expect(body).toContain('test "$(env_value OPENSTAYS_RELEASE)" \\');
+    expect(body).toContain('= "${OPENSTAYS_DSM_SOURCE_COMMIT:-}" \\');
+    expect(body).toContain('OPENSTAYS_RELEASE_MISMATCH');
+  });
+
   it('quarantines atomically, syncs metadata, verifies restore, and removes nothing', () => {
     const body = script(recoveryPath);
     expect(body).toMatch(/QUARANTINE_PATH=.*timestamp/u);
@@ -1032,6 +1039,7 @@ esac
     writeFileSync(
       `${appRoot}/config/merchant.env`,
       [
+        `OPENSTAYS_RELEASE=${'0'.repeat(40)}`,
         'OPENSTAYS_UID=1026',
         'OPENSTAYS_GID=100',
         'ZAPRITE_ENABLED=false',
@@ -1506,6 +1514,54 @@ esac
     expect(recorded).not.toContain('stop openstays-merchant');
   });
 
+  it('retries bounded post-up health while the control listener starts', () => {
+    const root = temporaryRoot();
+    const placeholderApp = gitBashPath(
+      join(root, 'volume1', 'openstays-merchant'),
+    );
+    const placeholderBackup = gitBashPath(
+      join(root, 'volume2', 'openstays-wallet-backups'),
+    );
+    const calls = join(root, 'calls');
+    const attempts = join(root, 'health-attempts');
+    const prepared = prepareDeploySandbox(
+      root,
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
+case "$*" in
+  "container inspect"*) exit 1 ;;
+  inspect*) ${identityOutput(placeholderApp, placeholderBackup)} ;;
+  *"operator.mjs health"*)
+    count=0
+    test ! -f "${attempts.replaceAll('\\', '/')}" \
+      || read -r count < "${attempts.replaceAll('\\', '/')}"
+    count=$((count + 1))
+    printf '%s\\n' "$count" > "${attempts.replaceAll('\\', '/')}"
+    if (( count < 3 )); then
+      exit 42
+    fi
+    printf '{"status":"awaiting_bootstrap"}\\n'
+    ;;
+esac
+`,
+    );
+    executable(
+      join(prepared.bin, 'sleep'),
+      '#!/usr/bin/env bash\nexit 0\n',
+    );
+
+    const result = run(prepared.destination, {
+      ...process.env,
+      PATH: `${gitBashPath(prepared.bin)}:/usr/bin:/bin`,
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(attempts, 'utf8').trim()).toBe('3');
+    expect(readFileSync(prepared.calls, 'utf8')).not.toMatch(
+      /\bstop merchant\b/u,
+    );
+  });
+
   it('scoped-stops the project when post-up health fails', () => {
     const root = temporaryRoot();
     const placeholderApp = gitBashPath(
@@ -1525,6 +1581,10 @@ case "$*" in
   *"operator.mjs health"*) exit 42 ;;
 esac
 `,
+    );
+    executable(
+      join(prepared.bin, 'sleep'),
+      '#!/usr/bin/env bash\nexit 0\n',
     );
 
     const result = run(prepared.destination, {

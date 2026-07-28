@@ -1,6 +1,6 @@
 # OpenStays status
 
-**Updated: 2026-07-27 - Synology native build reached container startup; a non-root source-read failure is fixed and the pinned redeploy remains pending.**
+**Updated: 2026-07-27 - Synology native startup was proven through awaiting-bootstrap; bounded readiness and release-pinning fixes await the final pinned redeploy.**
 
 ## Current branch
 
@@ -31,6 +31,13 @@
   `1026:100`. The image now explicitly makes application source
   world-readable/traversable without making it writable, and a regression
   contract covers that boundary. The disabled merchant redeploy is pending.
+- The corrected image subsequently reached `awaiting_bootstrap` on the native
+  Synology. That run exposed a deterministic operator race: the deploy script
+  queried the loopback control listener immediately after Docker reported the
+  container started. A bounded 30-second retry now accepts delayed listener
+  readiness while preserving project-scoped rollback on terminal failure.
+  Root-launched deployments also require `OPENSTAYS_RELEASE` to equal the
+  pinned source commit so health cannot advertise stale release provenance.
 - No wallet bootstrap, Turnstile widget, eligibility Worker deployment,
   credential rotation, Zaprite resource, or rail enablement has been
   completed by this branch.
@@ -115,6 +122,9 @@
   `EACCES` on `/app/synology/supervisor.mjs`; the focused test failed before
   the Dockerfile permission correction and all 172 operations tests pass
   afterwards.
+- A live three-second delayed health probe reproduced the post-start race.
+  The new regression fails its first two health calls, succeeds on the third,
+  and proves no rollback occurs. Operations now contain 174 tests.
 - The current full local gate passed:
   - root: 469 tests, typecheck, production build, docs build, and runtime audit;
   - CLI: 72 tests, typecheck, and build;
@@ -158,8 +168,9 @@
 
 ## Remaining gates
 
-1. Publish a fresh archive of the source-read fix through the installed
-   root-owned launcher and verify the disabled merchant reaches healthy
+1. Publish a fresh archive of the source-read, bounded-readiness, and release
+   provenance fixes through the installed root-owned launcher and verify the
+   disabled merchant reaches healthy
    `awaiting_bootstrap` state with the exact non-root identity, mounts, labels,
    and zero published ports; keep the manual DSM task disabled.
 2. Bootstrap the signet wallet once, record recovery offline, and complete the
