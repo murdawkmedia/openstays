@@ -1482,6 +1482,28 @@ describe('Synology operator and container binding contract', () => {
     expect(() => createSynologyRuntime({ env })).toThrow(category);
   });
 
+  it('rejects invalid configuration before touching durable storage', async () => {
+    const root = await import('node:fs/promises').then(({ mkdtemp }) =>
+      mkdtemp(join(tmpdir(), 'openstays-runtime-validation-')));
+    temporaryDirectories.push(root);
+    const blockedStorageRoot = join(root, 'blocked');
+    await writeFile(blockedStorageRoot, 'not a directory');
+
+    expect(() => createSynologyRuntime({
+      env: {
+        CONTAINER_CONTROL_TOKEN: 'runtime-token',
+        OPENSTAYS_RELEASE: 'test-release',
+        OPENSTAYS_UID: String(process.getuid?.() ?? 1_000),
+        OPENSTAYS_GID: String(process.getgid?.() ?? 1_000),
+        WALLET_BACKUP_KEY_BASE64: undefined,
+        WAVELENGTH_WALLET_PASSWORD: 'test-password',
+        WAVELENGTH_WALLET_DIRECTORY: join(blockedStorageRoot, 'wallet'),
+        OPENSTAYS_QUARANTINE_ROOT: join(root, 'quarantine'),
+        OPENSTAYS_BACKUP_ROOT: join(root, 'backups'),
+      },
+    })).toThrow('WALLET_BACKUP_KEY_BASE64_REQUIRED');
+  });
+
   it('packages a private bridge-mode container with exact durable roots', async () => {
     const compose = await readFile(
       join(process.cwd(), '../synology/docker-compose.yml'),
