@@ -323,6 +323,7 @@ docker compose --project-name openstays-merchant \
 
 verify_container_identity
 health_status=1
+backup_refresh_status=1
 for ((health_attempt = 1; health_attempt <= 30; health_attempt += 1)); do
   if docker exec openstays-merchant \
     node /app/synology/operator.mjs health >/dev/null 2>&1
@@ -331,6 +332,12 @@ for ((health_attempt = 1; health_attempt <= 30; health_attempt += 1)); do
     break
   else
     health_status=$?
+  fi
+  if (( backup_refresh_status != 0 )) \
+    && docker exec openstays-merchant \
+      node /app/synology/operator.mjs backup >/dev/null 2>&1
+  then
+    backup_refresh_status=0
   fi
   if (( health_attempt < 30 )); then
     sleep 1
