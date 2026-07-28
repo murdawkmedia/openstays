@@ -1562,6 +1562,49 @@ esac
     );
   });
 
+  it('refreshes a stale verified backup before declaring a restored deploy healthy', () => {
+    const root = temporaryRoot();
+    const placeholderApp = gitBashPath(
+      join(root, 'volume1', 'openstays-merchant'),
+    );
+    const placeholderBackup = gitBashPath(
+      join(root, 'volume2', 'openstays-wallet-backups'),
+    );
+    const calls = join(root, 'calls');
+    const refreshedBackup = join(root, 'refreshed-backup');
+    const prepared = prepareDeploySandbox(
+      root,
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${calls.replaceAll('\\', '/')}"
+case "$*" in
+  "container inspect"*) exit 1 ;;
+  inspect*) ${identityOutput(placeholderApp, placeholderBackup)} ;;
+  *"operator.mjs health"*)
+    test -f "${refreshedBackup.replaceAll('\\', '/')}" || exit 42
+    printf '{"status":"ready"}\\n'
+    ;;
+  *"operator.mjs backup"*)
+    : > "${refreshedBackup.replaceAll('\\', '/')}"
+    ;;
+esac
+`,
+    );
+    executable(
+      join(prepared.bin, 'sleep'),
+      '#!/usr/bin/env bash\nexit 0\n',
+    );
+
+    const result = run(prepared.destination, {
+      ...process.env,
+      PATH: `${gitBashPath(prepared.bin)}:/usr/bin:/bin`,
+    });
+    const recorded = readFileSync(prepared.calls, 'utf8');
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(recorded).toContain('operator.mjs backup');
+    expect(recorded).not.toMatch(/\bstop merchant\b/u);
+  });
+
   it('scoped-stops the project when post-up health fails', () => {
     const root = temporaryRoot();
     const placeholderApp = gitBashPath(
