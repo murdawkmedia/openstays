@@ -17,6 +17,8 @@
 > fail closed and remain disabled until deployment-specific acceptance passes.
 > See [Public live payments](./docs/public-live-payments.md) and the
 > [operator runbook](./docs/operations/public-live-payments-runbook.md).
+> Visitors can explore a source-controlled, no-login backend simulation at
+> `/tour/operations`; it never queries live bookings or exposes guest data.
 
 **Open-source booking engine and property-management system for independent
 lodging — campgrounds, cabins, glamping, yurts, small resorts.**
@@ -72,6 +74,15 @@ Shipped in the source tree; operator configuration and live acceptance remain de
   alongside the existing per-unit export, so a direct Airbnb listing and
   this deployment stay in sync in both directions. Imports never override an
   internal booking; conflicts are flagged for staff, not auto-resolved.
+- **Public operations tour** — a curated fictional booking tape, payments,
+  messages, refunds, receipts, rewards, channel state, and treasury preview
+  that is interactive but entirely read-only. Public staff routes remain
+  excluded unless a showcase build explicitly sets `VITE_PUBLIC_STAFF=true`.
+- **Two Wavelength checkout paths** — the embedded self-custodial signet
+  wallet remains primary; a valid merchant BOLT11 also offers **Pay using
+  Wavelength’s official demo wallet** at
+  <https://wavelength.lightning.engineering/demo/>. Both paths pay the same
+  invoice, and only the authenticated merchant receive confirms the booking.
 
 ## What it is NOT (yet)
 

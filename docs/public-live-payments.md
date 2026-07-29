@@ -37,6 +37,38 @@ The browser never decides that money moved.
 The simulated tour exercises the booking ledger and receipt UI without
 creating a provider charge or a signet reward.
 
+## Public tour and private operations
+
+`/tour/operations` is a no-login, read-only backend tour built entirely from a
+source-controlled fictional fixture. Filtering, record selection, view
+switching, and detail expansion use local React state. It has no production
+booking query or mutation hook, and every write control is disabled with
+**Sign in to perform this action**.
+
+The real `/admin/*` routes remain separate. Public showcase builds exclude them
+by default; `VITE_PUBLIC_STAFF=true` must be set exactly to include the private
+sign-in-only console. Live staff queries and mutations always pass through
+`requireStaff()`. Never combine `DEMO_MODE=true` with live payment rails.
+
+## Two Wavelength wallet paths
+
+OpenStays’ embedded self-custodial wallet remains the primary payment path. As
+soon as a valid, unexpired merchant BOLT11 is available, the invoice card also
+offers **Pay using Wavelength’s official demo wallet** and opens
+<https://wavelength.lightning.engineering/demo/> in a new tab. The visitor
+copies the same invoice, chooses Send in the reference wallet, reviews its
+quote, and pays there.
+
+The external path remains available if the embedded browser wallet cannot open
+its OPFS/SQLite database. Both wallet paths pay the same invoice; neither can
+confirm the booking from client-side send success. Only the authenticated
+merchant bridge’s exact completed receive advances authoritative state.
+
+OpenStays does not accept recovery words. Visitors who need recovery use
+Wavelength’s
+[official restore flow](https://wavelength.lightning.engineering/guides/restore-a-wallet/)
+and must never enter a mainnet recovery phrase into a signet demo.
+
 ## Deployment and recovery boundary
 
 For this showcase, the signet merchant runtime is hosted on the Synology NAS.
@@ -129,6 +161,7 @@ the relevant provider's secret store and must never use a `VITE_` prefix.
 | `VITE_PUBLIC_ZAPRITE` | `false` until accepted |
 | `VITE_PUBLIC_WAVELENGTH` | `false` until accepted |
 | `VITE_PUBLIC_SIMULATED` | `true` |
+| `VITE_PUBLIC_STAFF` | `false`; exact `true` includes private admin routes |
 | `VITE_TURNSTILE_SITE_KEY` | `public-site-key` |
 | `VITE_PAYMENT_EDGE_URL` | `https://openstays-eligibility-edge.<account-subdomain>.workers.dev` until deployment provides the actual URL |
 
