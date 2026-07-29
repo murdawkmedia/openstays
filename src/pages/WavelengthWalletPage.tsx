@@ -28,6 +28,7 @@ import {
   canConfirmPreparedPayment,
   explainWavelengthError,
   WAVELENGTH_BOOKING_MAX_FEE_SATS,
+  wavelengthRuntimeDiagnostic,
   validateBookingQuote,
 } from '../lib/wavelengthPayment';
 import {
@@ -324,6 +325,10 @@ function WalletPayment() {
               <div role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
                 <p className="font-medium">This browser wallet is already open elsewhere</p>
                 <p className="mt-1 text-sm">Close any other OpenStays wallet tab, then reload this payment page. Your wallet and booking remain safe.</p>
+                <details className="mt-3 text-sm">
+                  <summary className="cursor-pointer font-medium">Technical detail</summary>
+                  <p className="mt-2 break-words font-mono text-xs">{wavelengthRuntimeDiagnostic(walletError)}</p>
+                </details>
                 <button type="button" className="btn-secondary mt-3" onClick={() => window.location.reload()}>Reload wallet in this tab</button>
               </div>
             ) : null}

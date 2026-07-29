@@ -84,6 +84,12 @@ describe('bridgeBearerAuthorized', () => {
       eligibilityToken,
     });
     expect(request).toMatchObject({ satsAmount: 1_000, quotedAmountCents: 50_000, network: 'signet' });
+    const resumedRequest = await t.mutation((api as any).wavelength.createRequest, {
+      bookingId: seeded.bookingId, confirmationCode: 'OS-PUBLIC-WAVE',
+      email: 'guest@example.test',
+      consent: { version: PUBLIC_CONSENT_VERSION, accepted: true },
+    });
+    expect(resumedRequest?._id).toBe(request?._id);
     const booking = await t.run((ctx) => ctx.db.get(seeded.bookingId));
     expect(booking?.publicPaymentConsent).toMatchObject({
       version: PUBLIC_CONSENT_VERSION,

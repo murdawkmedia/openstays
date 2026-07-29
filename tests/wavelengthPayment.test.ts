@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canConfirmPreparedPayment,
   explainWavelengthError,
+  wavelengthRuntimeDiagnostic,
   validateBookingQuote,
 } from '../src/lib/wavelengthPayment';
 
@@ -69,5 +70,13 @@ describe('explainWavelengthError', () => {
     expect(explainWavelengthError(new Error('rpc code ResourceExhausted insufficient balance'))).toBe(
       'This wallet needs more signet test sats before it can pay.',
     );
+  });
+});
+
+describe('wavelengthRuntimeDiagnostic', () => {
+  it('normalizes and bounds fatal startup details without dumping arbitrary objects', () => {
+    expect(wavelengthRuntimeDiagnostic(new Error('  sqlite\nworker   failed  '))).toBe('sqlite worker failed');
+    expect(wavelengthRuntimeDiagnostic({ password: 'must-not-render' })).toBe('Wavelength runtime failed');
+    expect(wavelengthRuntimeDiagnostic(new Error('x'.repeat(500)))).toHaveLength(240);
   });
 });

@@ -100,6 +100,15 @@ export const createRequest = mutation({
     if (!guest || guest.normalizedEmail !== args.email.trim().toLowerCase()) {
       throw new ConvexError('BOOKING_NOT_FOUND');
     }
+    if (booking.status !== 'hold' || !booking.priceBreakdown || !booking.holdExpiresAt) {
+      throw new ConvexError('NOT_A_PAYABLE_HOLD');
+    }
+    const existing = await ctx.db
+      .query('wavelengthRequests')
+      .withIndex('by_booking', (q) => q.eq('bookingId', booking._id))
+      .order('desc')
+      .first();
+    if (existing && ['requested', 'claimed', 'invoice_ready'].includes(existing.status)) return existing;
     if (policy.liveMode) {
       const health = await ctx.db.query('bridgeHealth')
         .withIndex('by_service', (q) => q.eq('service', 'wavelength'))
@@ -140,15 +149,6 @@ export const createRequest = mutation({
         throw new ConvexError('WAVELENGTH_ELIGIBILITY_INVALID');
       }
     }
-    if (booking.status !== 'hold' || !booking.priceBreakdown || !booking.holdExpiresAt) {
-      throw new ConvexError('NOT_A_PAYABLE_HOLD');
-    }
-    const existing = await ctx.db
-      .query('wavelengthRequests')
-      .withIndex('by_booking', (q) => q.eq('bookingId', booking._id))
-      .order('desc')
-      .first();
-    if (existing && ['requested', 'claimed', 'invoice_ready'].includes(existing.status)) return existing;
 
     const property = await ctx.db.get(booking.propertyId);
     if (!property) throw new ConvexError('PROPERTY_NOT_FOUND');
