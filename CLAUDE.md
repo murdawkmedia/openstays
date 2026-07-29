@@ -295,6 +295,25 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   verified generation during the bounded deploy health loop when its only
   failing condition is backup staleness. This does not relax corrupt/missing
   recovery, identity, mount, port, control-readiness, or other health failures.
+- 2026-07-29 (public operations boundary): `/tour/operations` is exclusively a
+  source-controlled fictional fixture with local UI state and no live query or
+  mutation hooks. Public showcase builds exclude authenticated `/admin/*`
+  routes unless `VITE_PUBLIC_STAFF=true` exactly; including those routes never
+  relaxes `requireStaff()` or permits account creation in the public UI.
+- 2026-07-29 (external Wavelength checkout): the official hosted signet demo is
+  a second wallet UI for the same OpenStays BOLT11, not a second payment rail.
+  It remains available when the embedded OPFS wallet fails. Browser send
+  success never confirms or redirects; only the exact completed merchant
+  receive may advance the request to `settled`.
+- 2026-07-29 (Signet treasury): treasury is disabled and dry-running by
+  default, applies only to operator-controlled wallets, and rejects mainnet.
+  Required reserve is `max(14520, active reward liabilities including fee
+  allowance) + unresolved Wavelength refunds`. Every send is bounded and will
+  never `sweepAll`; the worker writes a durable journal before dispatch.
+  Ambiguous post-dispatch state becomes `reconciliation_required`, blocks new
+  sweeps, and may be resolved only by an authenticated owner using exact
+  activity evidence. Live enablement and the first transfer require explicit
+  approval.
 - 2026-07-22 (OpenStays Mail): Convex is authoritative for rendered email,
   idempotency, leases, retries, and audit state. `mail_bridge` exposes only
   bearer-authenticated bounded claims and acknowledgements; the local worker

@@ -2,7 +2,28 @@
 
 **Updated: 2026-07-29 — the public Consensus Commons showcase is live, its
 Turnstile payment check is operational, and the browser Wavelength wallet now
-starts from an isolated OpenStays-owned storage path.**
+starts from an isolated OpenStays-owned storage path. A separate local
+public-operations and Signet-treasury candidate is not yet deployed.**
+
+## Local candidate — not deployed
+
+- Branch: `codex/public-ops-wavelength-treasury`
+- The public no-login `/tour/operations` uses only curated fictional fixture
+  data and local UI state. It exposes no production query or mutation.
+- Public showcase builds include private `/admin/*` routes only when
+  `VITE_PUBLIC_STAFF=true`; staff access remains `requireStaff()`-gated and the
+  public login is sign-in-only.
+- A valid Wavelength invoice can be paid by either the embedded OpenStays
+  wallet or Wavelength’s official signet demo. Both use the same BOLT11, and
+  only authoritative merchant settlement confirms the booking.
+- The optional merchant treasury is disabled and dry-running by default. It
+  snapshots reward and refund liabilities, protects the 14,520-sat floor,
+  uses bounded on-chain sends, records a durable pre-dispatch journal, and
+  blocks on `reconciliation_required`.
+- No Convex environment, Synology service, Cloudflare Pages project, wallet,
+  credential, or Signet balance was changed for this candidate. Live
+  configuration, deployment, and the first bounded transfer still require
+  explicit approval.
 
 ## Current release
 
@@ -109,7 +130,22 @@ starts from an isolated OpenStays-owned storage path.**
 
 ## Verification
 
-Fresh release gates passed on 2026-07-29:
+Fresh local-candidate gates passed on 2026-07-29:
+
+- root: 516 tests, typecheck, production build, docs build, runtime audit, and
+  `git diff --check`;
+- CLI: 79 tests, typecheck, and build;
+- Synology/Cloudflare operations: 187 tests, typecheck, and dry-run build;
+- public-showcase builds passed with staff routes both excluded by default and
+  included by the exact `VITE_PUBLIC_STAFF=true` flag;
+- the fictional operations tour passed desktop (1440 px) and mobile (390 px)
+  browser checks with functional filters/search/selection, three disabled
+  writes, no console errors, and no horizontal overflow;
+- the changed public surface passed an exact-path privacy scan, and the
+  bearer-authenticated treasury path passed a STRIDE-style adversarial review
+  with no release-blocking finding.
+
+The previously deployed release gates also passed on 2026-07-29:
 
 - root: 480 tests, typecheck, production build, docs build, runtime audit, and
   `git diff --check`;

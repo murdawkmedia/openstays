@@ -24,6 +24,7 @@ export default defineConfig({
           { text: 'Self-hosting & deployment', link: '/self-hosting' },
           { text: 'Automation (API / CLI / MCP)', link: '/automation' },
           { text: 'Public live payments', link: '/public-live-payments' },
+          { text: 'Signet treasury operations', link: '/operations/signet-treasury' },
           { text: 'Channel manager (Channex)', link: '/channels' },
         ],
       },

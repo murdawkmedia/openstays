@@ -393,11 +393,9 @@ function WalletPayment() {
             <div className="flex justify-between gap-3"><h2 className="font-semibold">Merchant invoice</h2><span className="text-sm">{request?.status ?? 'requesting'}</span></div>
             {request ? <p className="mt-3 text-sm text-stone-600">Fixed demo quote: {request.satsAmount.toLocaleString()} signet sats for {(request.quotedAmountCents / 100).toFixed(2)} {request.currency}.</p> : null}
             {!request?.bolt11 ? <p role="status" className="mt-3 text-sm">Waiting for the local merchant bridge…</p> : null}
-            {bookingInvoiceActive ? (
-              <div className="mt-4 space-y-4">
-                <Bolt11Invoice invoice={request.bolt11} amountSats={request.satsAmount} expiresAt={request.expiresAt} label="Booking invoice" />
+            {bookingInvoiceActive ? <div className="mt-4"><Bolt11Invoice invoice={request.bolt11} amountSats={request.satsAmount} expiresAt={request.expiresAt} label="Booking invoice" />
                 {officialDemoUrl ? (
-                  <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+                  <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4">
                     <p className="font-medium text-sky-950">Use another self-custodial Wavelength wallet</p>
                     <p className="mt-1 text-sm text-sky-900">
                       Copy the BOLT11 above, open Wavelength’s official signet demo, choose Send,
@@ -425,8 +423,7 @@ function WalletPayment() {
                     </p>
                   </div>
                 ) : null}
-              </div>
-            ) : null}
+              </div> : null}
             {bookingInvoiceExpired ? <p role="status" className="mt-4 text-sm text-stone-600">Invoice expired; waiting for authoritative reconciliation</p> : null}
             {request?.status === 'failed' || request?.status === 'expired' ? (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
