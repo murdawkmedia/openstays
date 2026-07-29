@@ -10,6 +10,29 @@ import { useStaffGate } from '../lib/useStaff';
 
 type ThreadSummary = { bookingId: Id<'bookings'>; confirmationCode: string; guestName: string; lastMessage: string };
 type Message = { _id: string; authorRole: 'guest' | 'staff'; authorName: string; text: string };
+type TreasurySweep = {
+  _id: Id<'treasurySweeps'>;
+  status: 'prepared' | 'dispatched' | 'completed' | 'failed' | 'reconciliation_required';
+  destinationAddress: string;
+  authorizedAmountSats: number;
+  actualAmountSats?: number;
+  actualFeeSats?: number;
+  transactionId?: string;
+  failureReason?: string;
+  updatedAt: number;
+};
+type TreasuryOverview = {
+  enabled: boolean;
+  dryRun: boolean;
+  destinationAddress?: string;
+  spendableSats: number;
+  baseReserveSats: number;
+  requiredReserveSats: number;
+  rewardLiabilitySats: number;
+  refundLiabilitySats: number;
+  sweepableBalanceSats: number;
+  sweeps: TreasurySweep[];
+};
 
 export function AdminOperationsPage() {
   const gate = useStaffGate();
@@ -17,13 +40,17 @@ export function AdminOperationsPage() {
   const threads = useQuery((api as any).messages.staffThreads, gate.status === 'staff' ? {} : 'skip') as ThreadSummary[] | undefined;
   const refunds = useQuery((api as any).refunds.listOpen, gate.status === 'staff' ? {} : 'skip') as any[] | undefined;
   const receipts = useQuery((api as any).consensusReceipts.staffOverview, gate.status === 'staff' ? {} : 'skip') as any[] | undefined;
+  const treasury = useQuery((api as any).treasury.staffOverview, gate.status === 'staff' ? {} : 'skip') as TreasuryOverview | undefined;
   const selected = params.get('booking') as Id<'bookings'> | null;
   const messages = useQuery((api as any).messages.listStaff, gate.status === 'staff' && selected ? { bookingId: selected } : 'skip') as Message[] | undefined;
   const postStaff = useMutation((api as any).messages.postStaff);
   const completeRefund = useMutation((api as any).refunds.complete);
   const retryReceipt = useMutation((api as any).consensusReceipts.retry);
+  const resolveTreasuryReconciliation = useMutation((api as any).treasury.resolveReconciliation);
   const [draft, setDraft] = useState('');
   const [references, setReferences] = useState<Record<string, string>>({});
+  const [treasuryNotes, setTreasuryNotes] = useState<Record<string, string>>({});
+  const [treasuryTxids, setTreasuryTxids] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,6 +76,21 @@ export function AdminOperationsPage() {
     } catch (err) { setError(extractErrorMessage(err)); }
   }
 
+  async function resolveTreasury(
+    sweepId: Id<'treasurySweeps'>,
+    resolution: 'failed' | 'completed',
+  ) {
+    try {
+      setError(null);
+      await resolveTreasuryReconciliation({
+        sweepId,
+        resolution,
+        note: treasuryNotes[sweepId] ?? '',
+        transactionId: treasuryTxids[sweepId]?.trim() || undefined,
+      });
+    } catch (err) { setError(extractErrorMessage(err)); }
+  }
+
   return (
     <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -56,6 +98,78 @@ export function AdminOperationsPage() {
         <Link to="/admin" className="text-sm text-stone-500 hover:text-stone-800">← Booking tape</Link>
       </header>
       {error ? <ErrorMessage message={error} /> : null}
+      <section className="card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-stone-900">Signet treasury</h2>
+            <p className="mt-1 text-sm text-stone-500">Operator-controlled funds only. Visitor wallets and promised rewards are never swept.</p>
+          </div>
+          {treasury ? (
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${treasury.dryRun ? 'bg-amber-100 text-amber-900' : treasury.enabled ? 'bg-emerald-100 text-emerald-900' : 'bg-stone-100 text-stone-700'}`}>
+              {treasury.dryRun ? 'Dry-run' : treasury.enabled ? 'Enabled' : 'Disabled'}
+            </span>
+          ) : null}
+        </div>
+        {treasury === undefined ? <Spinner label="Loading treasury…" /> : (
+          <>
+            <dl className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              {[
+                ['Spendable', treasury.spendableSats],
+                ['Protected reserve', treasury.requiredReserveSats],
+                ['Reward liability', treasury.rewardLiabilitySats],
+                ['Refund liability', treasury.refundLiabilitySats],
+                ['Sweepable balance', treasury.sweepableBalanceSats],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl bg-stone-50 p-3">
+                  <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">{label}</dt>
+                  <dd className="mt-1 text-lg font-semibold text-stone-900">{Number(value).toLocaleString()} sats</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 break-all text-xs text-stone-500">
+              Base reserve {treasury.baseReserveSats.toLocaleString()} sats
+              {treasury.destinationAddress ? ` · Destination ${treasury.destinationAddress}` : ' · No destination configured'}
+            </p>
+            <div className="mt-5 space-y-3">
+              <h3 className="text-sm font-semibold text-stone-900">Recent transfers</h3>
+              {treasury.sweeps.length === 0 ? <p className="text-sm text-stone-500">No treasury transfers recorded.</p> : treasury.sweeps.map((sweep) => (
+                <article key={sweep._id} className={`rounded-xl border p-4 ${sweep.status === 'reconciliation_required' || sweep.status === 'failed' ? 'border-red-200 bg-red-50' : 'border-stone-200'}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong className="text-sm">{sweep.status.replaceAll('_', ' ')}</strong>
+                    <span className="text-sm text-stone-600">{(sweep.actualAmountSats ?? sweep.authorizedAmountSats).toLocaleString()} sats</span>
+                  </div>
+                  <p className="mt-1 text-xs text-stone-500">{new Date(sweep.updatedAt).toLocaleString()}</p>
+                  {sweep.transactionId ? <p className="mt-2 break-all font-mono text-xs text-stone-600">Transaction: {sweep.transactionId}</p> : null}
+                  {sweep.failureReason ? <p role="alert" className="mt-2 text-sm text-red-800">{sweep.failureReason}</p> : null}
+                  {sweep.status === 'reconciliation_required' ? (
+                    gate.role === 'owner' ? (
+                      <div className="mt-3 space-y-2 border-t border-red-200 pt-3">
+                        <p className="text-sm font-semibold text-red-900">Owner reconciliation required</p>
+                        <textarea
+                          className="field-input min-h-20"
+                          value={treasuryNotes[sweep._id] ?? ''}
+                          onChange={(event) => setTreasuryNotes((current) => ({ ...current, [sweep._id]: event.target.value }))}
+                          placeholder="Describe the daemon activity evidence you reviewed"
+                        />
+                        <input
+                          className="field-input"
+                          value={treasuryTxids[sweep._id] ?? ''}
+                          onChange={(event) => setTreasuryTxids((current) => ({ ...current, [sweep._id]: event.target.value }))}
+                          placeholder="Signet transaction ID (required only if completed)"
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" className="btn-secondary" disabled={!treasuryNotes[sweep._id]?.trim()} onClick={() => void resolveTreasury(sweep._id, 'failed')}>Confirm no transfer</button>
+                          <button type="button" className="btn-primary" disabled={!treasuryNotes[sweep._id]?.trim() || !treasuryTxids[sweep._id]?.trim()} onClick={() => void resolveTreasury(sweep._id, 'completed')}>Record completed transfer</button>
+                        </div>
+                      </div>
+                    ) : <p className="mt-3 text-sm font-medium text-red-900">Owner reconciliation required</p>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
       <section className="card p-5">
         <h2 className="text-lg font-semibold text-stone-900">Open refund cases</h2>
         <p className="mt-1 text-sm text-stone-500">Zaprite and Wavelength remain paid until a human records the external refund.</p>

@@ -39,6 +39,8 @@ import {
   DEMO_WALLET_TARGET_SATS,
   demoWalletAttemptsFunded,
   isLocalDemoWalletSetup,
+  localDemoConsolidationPreview,
+  validateLocalDemoConsolidationQuote,
 } from '../lib/wavelengthDemoWallet';
 import {
   clearEligibilityToken,
@@ -54,6 +56,8 @@ import {
 
 const wavelengthApi = (api as any).wavelength;
 const DEMO_FUNDING_DISPLAY_WINDOW_MS = 10 * 60_000;
+const LOCAL_TREASURY_ADDRESS =
+  import.meta.env.VITE_WAVELENGTH_LOCAL_TREASURY_ADDRESS?.trim();
 const wavelengthEngine = createWebWalletEngine({
   ...wavelengthRuntimeOptions(window.location.href, wavelengthWorkerUrl),
   config: defaultConfig('signet', {
@@ -79,6 +83,9 @@ function WalletPayment() {
   const [autoRefreshStopped, setAutoRefreshStopped] = useState(false);
   const [demoFundingInvoice, setDemoFundingInvoice] = useState('');
   const [demoFundingDisplayDeadline, setDemoFundingDisplayDeadline] = useState<number>();
+  const [consolidationConfirmed, setConsolidationConfirmed] = useState(false);
+  const [consolidationQuoteReady, setConsolidationQuoteReady] = useState(false);
+  const [consolidationComplete, setConsolidationComplete] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const refreshInFlight = useRef(false);
   const settledRedirected = useRef(false);
@@ -116,6 +123,13 @@ function WalletPayment() {
     DEMO_WALLET_TARGET_ATTEMPTS,
     demoWalletAttemptsFunded(spendableSats),
   );
+  const localConsolidation = localDemoConsolidationPreview({
+    hostname: window.location.hostname,
+    setupFlag: searchParams.get('demoSetup'),
+    publicShowcase: PUBLIC_SHOWCASE.enabled,
+    destinationAddress: LOCAL_TREASURY_ADDRESS,
+    spendableSats,
+  });
 
   useEffect(() => {
     prepare.resetPrepare();
@@ -257,6 +271,72 @@ function WalletPayment() {
       setDemoFundingInvoice(result.invoice);
       setDemoFundingDisplayDeadline(Date.now() + DEMO_FUNDING_DISPLAY_WINDOW_MS);
     } catch (err) {
+      setError(explainWavelengthError(err));
+    }
+  }
+
+  function validateConsolidationQuote(quote: NonNullable<typeof prepare.prepareData>) {
+    if (!localConsolidation.allowed || !LOCAL_TREASURY_ADDRESS) {
+      return { ok: false as const, reason: 'Local consolidation is unavailable.' };
+    }
+    return validateLocalDemoConsolidationQuote(
+      { ...quote, network: 'signet' },
+      {
+        destinationAddress: LOCAL_TREASURY_ADDRESS,
+        spendableSats,
+        amountSats: localConsolidation.amountSats,
+        reserveSats: localConsolidation.reserveSats,
+        maxFeeSats: localConsolidation.maxFeeSats,
+        now: Date.now(),
+      },
+    );
+  }
+
+  async function prepareConsolidation() {
+    if (!localConsolidation.allowed || !LOCAL_TREASURY_ADDRESS) return;
+    setError('');
+    setConsolidationQuoteReady(false);
+    setConsolidationComplete(false);
+    prepare.resetPrepare();
+    send.resetSend();
+    try {
+      const quote = await prepare.prepare({
+        onchainAddress: LOCAL_TREASURY_ADDRESS,
+        amountSat: localConsolidation.amountSats,
+        sweepAll: false,
+        maxFeeSat: localConsolidation.maxFeeSats,
+        note: 'OpenStays disposable Signet wallet consolidation',
+      });
+      const validation = validateConsolidationQuote(quote);
+      if (!validation.ok) {
+        prepare.resetPrepare();
+        setError(validation.reason);
+        return;
+      }
+      setConsolidationQuoteReady(true);
+    } catch (err) {
+      setError(explainWavelengthError(err));
+    }
+  }
+
+  async function consolidateTestFunds() {
+    if (!consolidationConfirmed || !consolidationQuoteReady || !prepare.prepareData) return;
+    const validation = validateConsolidationQuote(prepare.prepareData);
+    if (!validation.ok) {
+      setConsolidationQuoteReady(false);
+      prepare.resetPrepare();
+      setError(validation.reason);
+      return;
+    }
+    setError('');
+    try {
+      await send.sendPrepared(prepare.prepareData);
+      setConsolidationComplete(true);
+      setConsolidationConfirmed(false);
+      await refreshBalance('manual');
+    } catch (err) {
+      setConsolidationQuoteReady(false);
+      prepare.resetPrepare();
       setError(explainWavelengthError(err));
     }
   }
@@ -459,6 +539,37 @@ function WalletPayment() {
                     ) : (
                       <p role="status" className="mt-3 text-sm text-amber-900">Setup window ended. Confirm no merchant send or inbound activity before reloading to create a replacement.</p>
                     )}
+                  </div>
+                ) : null}
+                {demoSetup && !PUBLIC_SHOWCASE.enabled && localConsolidation.allowed ? (
+                  <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50 p-4">
+                    <p className="font-medium text-violet-950">Disposable-wallet cleanup</p>
+                    <p className="mt-1 text-sm text-violet-900">
+                      Move only the bounded excess to the configured Signet treasury. This keeps
+                      {` ${localConsolidation.reserveSats.toLocaleString()} sats`} plus up to
+                      {` ${localConsolidation.maxFeeSats.toLocaleString()} fee sats`} protected.
+                    </p>
+                    <p className="mt-2 break-all rounded-lg bg-white p-3 font-mono text-xs text-violet-950">{LOCAL_TREASURY_ADDRESS}</p>
+                    {!consolidationQuoteReady ? (
+                      <button type="button" className="btn-secondary mt-3" disabled={prepare.preparePending} onClick={() => void prepareConsolidation()}>
+                        {prepare.preparePending ? 'Preparing bounded quote…' : `Review ${localConsolidation.amountSats.toLocaleString()}-sat consolidation`}
+                      </button>
+                    ) : (
+                      <div className="mt-3">
+                        <p className="text-sm text-violet-900">
+                          Quote: {prepare.prepareData?.amountSat.toLocaleString()} sats +
+                          {` ${prepare.prepareData?.expectedFeeSat.toLocaleString()} sat fee`} via on-chain Signet.
+                        </p>
+                        <label className="mt-3 flex items-start gap-2 text-sm text-violet-950">
+                          <input type="checkbox" className="mt-1" checked={consolidationConfirmed} onChange={(event) => setConsolidationConfirmed(event.target.checked)} />
+                          <span>I reviewed the destination and protected reserve.</span>
+                        </label>
+                        <button type="button" className="btn-primary mt-3" disabled={!consolidationConfirmed || send.sendPending} onClick={() => void consolidateTestFunds()}>
+                          {send.sendPending ? 'Consolidating…' : 'Consolidate test funds'}
+                        </button>
+                      </div>
+                    )}
+                    {consolidationComplete ? <p role="status" className="mt-3 text-sm font-semibold text-violet-950">Transfer dispatched. Refresh and verify the destination activity before closing this wallet.</p> : null}
                   </div>
                 ) : null}
                 {!demoSetup && spendableSats < (request?.satsAmount ?? 1) ? (

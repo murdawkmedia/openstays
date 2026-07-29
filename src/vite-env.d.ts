@@ -9,6 +9,7 @@ interface ImportMetaEnv {
   readonly VITE_PUBLIC_STAFF?: string;
   readonly VITE_TURNSTILE_SITE_KEY?: string;
   readonly VITE_PAYMENT_EDGE_URL?: string;
+  readonly VITE_WAVELENGTH_LOCAL_TREASURY_ADDRESS?: string;
 }
 
 interface ImportMeta {
