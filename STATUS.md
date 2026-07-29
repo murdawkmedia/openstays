@@ -1,9 +1,9 @@
 # OpenStays status
 
 **Updated: 2026-07-29 — the public Consensus Commons showcase, fictional
-operations tour, private staff route, and dual-path Wavelength checkout are
-live from `main`. The optional Signet treasury remains disabled and
-dry-running; no treasury funds were moved.**
+operations tour, private staff route, dual-path Wavelength checkout, and
+Zaprite sandbox checkout are live from `main`. The optional Signet treasury
+remains disabled and dry-running; no treasury funds were moved.**
 
 ## Public operations and treasury release
 
@@ -60,6 +60,18 @@ dry-running; no treasury funds were moved.**
 
 - Consensus Commons remains clearly disclosed as a fictional property. A
   payment is a contribution to the OpenStays project, not a lodging purchase.
+- A dedicated Zaprite sandbox CA$1 order completed and reconciled
+  authoritatively. The payment row advanced from `pending` to `paid` and the
+  linked booking advanced from `hold` to `confirmed`.
+- Zaprite did not deliver an observable webhook nudge for that order. The
+  reconciliation worker itself succeeded immediately when invoked, isolating
+  the delay to the trigger rather than order verification or booking
+  confirmation.
+- Commit `4ccbb7a` adds a bounded one-minute Zaprite reconciliation backstop.
+  It fetches pending orders through the server-held API key and applies the
+  existing exact order, booking, checkout, amount, currency, consent, expiry,
+  and reconciliation-ID checks. Browser success and webhook content remain
+  non-authoritative.
 - The stable, immutable-production, and named preview URLs serve the same
   byte-identical frontend entry artifact.
 - A fresh fictional one-night hold completed the public simulated flow through
@@ -210,8 +222,9 @@ The previously deployed release gates also passed on 2026-07-29:
    generations.
 2. Fund at least the fee reserve or obtain a fresh quote and explicit
    confirmation before testing the 1,000-sat reward payout.
-3. Run a dedicated CA$1 Zaprite paid-order acceptance if public Zaprite
-   payment testing is still desired.
+3. Investigate why Zaprite's sandbox did not deliver an observable webhook
+   nudge. The deployed one-minute authoritative polling backstop prevents this
+   from blocking guests.
 4. Configure and dry-run the Synology treasury worker before considering one
    explicitly approved bounded Signet transfer. Automatic sweeps remain off.
 5. Perform the scheduled 15-day retention check.
