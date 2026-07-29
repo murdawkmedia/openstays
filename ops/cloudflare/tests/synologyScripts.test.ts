@@ -338,6 +338,12 @@ printf safe > "${safeMarker.replaceAll('\\', '/')}"
 }
 
 describe('Synology script contracts', () => {
+  it('bounds every Wavelength request used by the recovery snapshot', () => {
+    const body = script(recoveryPath);
+
+    expect(body).toContain('signal: AbortSignal.timeout(5_000)');
+  });
+
   it('bounds transient live-wallet backup retries in the container drill', () => {
     const body = script(containerRecoveryDrillPath);
 

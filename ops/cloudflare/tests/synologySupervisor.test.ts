@@ -1444,6 +1444,16 @@ describe('Synology operator and container binding contract', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it('bounds a stalled operator request', async () => {
+    await expect(runOperator(['health'], {
+      env: { CONTAINER_CONTROL_TOKEN: 'test-control-token' },
+      fetchImpl: vi.fn(async () =>
+        await new Promise<Response>(() => {})),
+      write: vi.fn(),
+      requestTimeoutMs: 5,
+    })).rejects.toThrow('OPERATOR_REQUEST_TIMEOUT');
+  }, 100);
+
   it.each([
     {
       name: 'missing backup key',

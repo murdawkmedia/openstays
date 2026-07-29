@@ -243,6 +243,7 @@ wallet_snapshot() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(5_000),
       });
       if (!response.ok) throw new Error(`snapshot request failed: ${path}`);
       return response.json();

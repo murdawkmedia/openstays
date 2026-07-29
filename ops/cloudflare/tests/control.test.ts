@@ -53,6 +53,21 @@ vi.mock('../container/backup.mjs', async (importOriginal) => {
   const { join } = await import('node:path');
   return {
     ...actual,
+    backupWallet(
+      _walletDirectory: string,
+      outputPath: string,
+      base64Key: string,
+    ) {
+      if (Buffer.from(base64Key, 'base64').byteLength !== 32) {
+        throw new Error('BACKUP_KEY_MUST_BE_32_BYTES');
+      }
+      const bytes = Buffer.from('encrypted-wallet');
+      writeFileSync(outputPath, bytes);
+      return {
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        byteLength: bytes.byteLength,
+      };
+    },
     restoreWallet(
       _inputPath: string,
       outputDirectory: string,
@@ -204,4 +219,101 @@ describe('merchant wallet bootstrap control', () => {
     control.stop();
   });
 
+  it('quiesces only the daemon while archiving a live wallet', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'openstays-control-backup-'));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    const daemon = fakeChild();
+    const worker = fakeChild();
+    const children = [daemon, worker];
+    const control = new MerchantControl({
+      walletDirectory,
+      backupKeyBase64: Buffer.alloc(32, 9).toString('base64'),
+      walletPassword: 'merchant-test-password',
+      release: 'test',
+      daemonCommand: { file: 'waved', args: [], env: {} },
+      workerCommands: [{ file: 'bridge', args: [], env: {} }],
+      spawnCommand: vi.fn(() => children.shift()!),
+      fetchDaemon: vi.fn(async (url: string | URL | Request) => (
+        String(url).endsWith('/create')
+          ? new Response(JSON.stringify({
+              mnemonic: Array.from({ length: 24 }, () => 'word'),
+            }))
+          : new Response('{}')
+      )),
+      wait: vi.fn(),
+    });
+
+    await control.bootstrap();
+    writeFileSync(join(walletDirectory, 'wallet.db'), 'live-wallet');
+    control.backup(join(root, 'wallet.tar.gz.enc'));
+
+    expect(daemon.kill).toHaveBeenNthCalledWith(1, 'SIGSTOP');
+    expect(daemon.kill).toHaveBeenNthCalledWith(2, 'SIGCONT');
+    expect(worker.kill).not.toHaveBeenCalled();
+    control.stop();
+  });
+
+  it('always resumes the daemon when live-wallet archiving fails', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'openstays-control-backup-fail-'));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    const daemon = fakeChild();
+    const control = new MerchantControl({
+      walletDirectory,
+      backupKeyBase64: Buffer.alloc(31, 9).toString('base64'),
+      walletPassword: 'merchant-test-password',
+      release: 'test',
+      daemonCommand: { file: 'waved', args: [], env: {} },
+      workerCommands: [],
+      spawnCommand: vi.fn(() => daemon),
+      fetchDaemon: vi.fn(async (url: string | URL | Request) => (
+        String(url).endsWith('/create')
+          ? new Response(JSON.stringify({
+              mnemonic: Array.from({ length: 24 }, () => 'word'),
+            }))
+          : new Response('{}')
+      )),
+      wait: vi.fn(),
+    });
+
+    await control.bootstrap();
+    writeFileSync(join(walletDirectory, 'wallet.db'), 'live-wallet');
+
+    expect(() => control.backup(join(root, 'wallet.tar.gz.enc')))
+      .toThrow('BACKUP_KEY_MUST_BE_32_BYTES');
+    expect(daemon.kill).toHaveBeenNthCalledWith(1, 'SIGSTOP');
+    expect(daemon.kill).toHaveBeenNthCalledWith(2, 'SIGCONT');
+    control.stop();
+  });
+
+  it('bounds a stalled wallet unlock request', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'openstays-control-unlock-timeout-'));
+    temporaryDirectories.push(root);
+    const walletDirectory = join(root, 'wallet');
+    const control = new MerchantControl({
+      walletDirectory,
+      backupKeyBase64: Buffer.alloc(32, 9).toString('base64'),
+      walletPassword: 'merchant-test-password',
+      release: 'test',
+      daemonCommand: { file: 'waved', args: [], env: {} },
+      workerCommands: [],
+      spawnCommand: vi.fn(() => fakeChild()),
+      requestTimeoutMs: 5,
+      fetchDaemon: vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith('/v1/daemon/get-info')) {
+          return new Response('{}');
+        }
+        return await new Promise<Response>(() => {});
+      }),
+      wait: vi.fn(),
+    });
+    const bytes = Buffer.from('valid-test-backup');
+    await control.restore(bytes, createHash('sha256').update(bytes).digest('hex'));
+
+    await expect(control.start()).rejects.toThrow(
+      'WAVELENGTH_WALLET_UNLOCK_TIMEOUT',
+    );
+    control.stop();
+  }, 100);
 });
