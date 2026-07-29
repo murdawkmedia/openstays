@@ -243,4 +243,36 @@ describe('runWaveBridgeOnce', () => {
     }, fetchFn as typeof fetch)).rejects.toThrow('INVALID_WAVELENGTH_DAEMON_NETWORK');
     expect(fetchFn.mock.calls.some(([url]) => String(url).includes('/wavelength-bridge/pending'))).toBe(false);
   });
+
+  it('runs the configured treasury dry-run after booking and reward reconciliation', async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/daemon/get-info')) return Response.json({ network: 'signet' });
+      if (url.endsWith('/wavelength-bridge/pending')) return Response.json({ requests: [] });
+      if (url.endsWith('/wavelength-bridge/rewards/pending')) return Response.json({ rewards: [] });
+      if (url.endsWith('/v1/wallet/balance')) return Response.json({ confirmed_sat: '40000' });
+      if (url.includes('/wavelength-bridge/treasury/preview?')) {
+        return Response.json({ status: 'dry_run', canClaim: false, authorizedAmountSats: 24_480 });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    await expect(runWaveBridgeOnce({
+      openStaysUrl: 'https://openstays.example',
+      bridgeToken: 'bridge-token',
+      daemonUrl: 'http://127.0.0.1:10031',
+      expectedNetwork: 'signet',
+      treasuryRuntime: {
+        enabled: true,
+        dryRun: true,
+        destinationAddress: 'tb1pytpd7rg5nf08ty0mn7wscvplgztnggzhz4kgr7c32dy2cs9r6mqst883u6',
+        reserveSats: 14_520,
+        minSweepSats: 5_000,
+        cooldownMs: 86_400_000,
+        maxFeeSats: 1_000,
+        rewardMaxFeeSats: 210,
+      },
+      treasuryJournalDir: 'unused-in-dry-run',
+    } as any, fetchFn as typeof fetch)).resolves.toMatchObject({
+      treasuryStatus: 'dry_run',
+    });
+  });
 });

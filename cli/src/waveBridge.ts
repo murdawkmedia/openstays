@@ -3,6 +3,10 @@ import {
   waitForAbortableDelay,
   type OperationsHeartbeatSnapshot,
 } from './operationsHeartbeat.js';
+import {
+  runTreasuryOnce,
+  type TreasuryRuntimeConfig,
+} from './waveTreasury.js';
 
 export type WaveBridgeConfig = {
   openStaysUrl: string;
@@ -16,6 +20,8 @@ export type WaveBridgeConfig = {
   signal?: AbortSignal;
   heartbeatToken?: string;
   release?: string;
+  treasuryRuntime?: TreasuryRuntimeConfig;
+  treasuryJournalDir?: string;
 };
 
 export type WavelengthNetwork = 'signet';
@@ -97,7 +103,14 @@ async function jsonRequest<T>(
 export async function runWaveBridgeOnce(
   config: WaveBridgeConfig,
   fetchFn: typeof fetch = fetch,
-): Promise<{ claimed: number; invoices: number; settlements: number; rewardsPaid: number; rewardsFailed: number }> {
+): Promise<{
+  claimed: number;
+  invoices: number;
+  settlements: number;
+  rewardsPaid: number;
+  rewardsFailed: number;
+  treasuryStatus?: string;
+}> {
   const openStaysUrl = config.openStaysUrl.replace(/\/$/, '');
   const daemonUrl = config.daemonUrl.replace(/\/$/, '');
   const authHeaders = { Authorization: `Bearer ${config.bridgeToken}` };
@@ -264,7 +277,28 @@ export async function runWaveBridgeOnce(
       rewardsFailed += 1;
     }
   }
-  return { claimed: pending.requests.length, invoices, settlements, rewardsPaid, rewardsFailed };
+  let treasuryStatus: string | undefined;
+  if (config.treasuryRuntime) {
+    const treasuryResult = await runTreasuryOnce({
+      openStaysUrl: config.openStaysUrl,
+      bridgeToken: config.bridgeToken,
+      daemonUrl: config.daemonUrl,
+      daemonMacaroonHex: config.daemonMacaroonHex,
+      runtime: config.treasuryRuntime,
+      journalDir: config.treasuryJournalDir ?? '.openstays/treasury-journal',
+    }, fetchFn);
+    treasuryStatus = typeof treasuryResult.status === 'string'
+      ? treasuryResult.status
+      : 'unknown';
+  }
+  return {
+    claimed: pending.requests.length,
+    invoices,
+    settlements,
+    rewardsPaid,
+    rewardsFailed,
+    ...(treasuryStatus ? { treasuryStatus } : {}),
+  };
 }
 
 export async function runWaveBridge(config: WaveBridgeConfig): Promise<void> {
@@ -303,8 +337,8 @@ export async function runWaveBridge(config: WaveBridgeConfig): Promise<void> {
     try {
       const result = await runWaveBridgeOnce(config);
       heartbeatStatus = { status: 'ready' };
-      if (result.invoices > 0 || result.settlements > 0 || result.rewardsPaid > 0 || result.rewardsFailed > 0) {
-        process.stdout.write(`${new Date().toISOString()} invoices=${result.invoices} settlements=${result.settlements} rewards_paid=${result.rewardsPaid} rewards_failed=${result.rewardsFailed}\n`);
+      if (result.invoices > 0 || result.settlements > 0 || result.rewardsPaid > 0 || result.rewardsFailed > 0 || result.treasuryStatus) {
+        process.stdout.write(`${new Date().toISOString()} invoices=${result.invoices} settlements=${result.settlements} rewards_paid=${result.rewardsPaid} rewards_failed=${result.rewardsFailed}${result.treasuryStatus ? ` treasury=${result.treasuryStatus}` : ''}\n`);
       }
     } catch (error) {
       heartbeatStatus = { status: 'degraded', failureCategory: 'processing' };
