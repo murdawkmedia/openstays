@@ -24,6 +24,13 @@ const recoveryPath = join(
   'synology',
   'recovery-drill.sh',
 );
+const containerRecoveryDrillPath = join(
+  repositoryRoot,
+  'ops',
+  'cloudflare',
+  'tests',
+  'container-recovery-drill.sh',
+);
 const rootLauncherPath = join(
   repositoryRoot,
   'ops',
@@ -331,6 +338,18 @@ printf safe > "${safeMarker.replaceAll('\\', '/')}"
 }
 
 describe('Synology script contracts', () => {
+  it('bounds transient live-wallet backup retries in the container drill', () => {
+    const body = script(containerRecoveryDrillPath);
+
+    expect(body).toContain('const backupAttempts = 20;');
+    expect(body).toContain(
+      'for (let attempt = 1; attempt <= backupAttempts; attempt += 1)',
+    );
+    expect(body).toContain(
+      'await new Promise((resolve) => setTimeout(resolve, 500));',
+    );
+  });
+
   it('uses a root-owned launcher rather than executing a writable checkout from DSM', () => {
     const body = script(rootLauncherPath);
     expect(body).toContain(
@@ -1640,7 +1659,7 @@ esac
     expect(recorded).toContain('operator.mjs health');
     expect(recorded).toMatch(/\bstop merchant\b/u);
     expect(recorded).not.toContain('stop openstays-merchant');
-  }, 10_000);
+  });
 
   it('recovery stops only the merchant, preserves quarantine, and verifies snapshots', () => {
     const root = temporaryRoot();

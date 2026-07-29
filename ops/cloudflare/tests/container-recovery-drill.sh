@@ -98,12 +98,26 @@ backup_digest="$(
     "$first_container" \
     node --input-type=module --eval '
       const { writeFile } = await import("node:fs/promises");
-      const response = await fetch("http://127.0.0.1:8080/backup", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${process.env.CONTROL_TOKEN}` },
-      });
-      if (response.status !== 201) {
-        throw new Error(`backup failed with status ${response.status}`);
+      const backupAttempts = 20;
+      let response;
+      for (let attempt = 1; attempt <= backupAttempts; attempt += 1) {
+        response = await fetch("http://127.0.0.1:8080/backup", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${process.env.CONTROL_TOKEN}` },
+        });
+        if (response.status === 201) break;
+        const status = response.status;
+        await response.arrayBuffer();
+        if (attempt === backupAttempts) {
+          const healthResponse = await fetch("http://127.0.0.1:8080/health", {
+            headers: { Authorization: `Bearer ${process.env.CONTROL_TOKEN}` },
+          });
+          const health = await healthResponse.json();
+          throw new Error(
+            `backup failed with status ${status}; health=${health.status}; category=${health.failureCategory ?? "none"}`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
       const digest = response.headers.get("x-backup-sha256");
       if (!/^[a-f0-9]{64}$/.test(digest ?? "")) {
