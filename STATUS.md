@@ -22,10 +22,9 @@ OpenTimestamps receipt has been submitted to four public calendars.**
 - The Synology image built and started from the same commit, size, and digest.
   Its encrypted wallet restored with four existing activities and Container
   Manager reports it healthy.
-- Wavelength booking and reward stop switches are temporarily `false` in
-  Convex and the Synology merchant while the final enable-task save awaits an
-  interactive DSM password confirmation. Zaprite and the simulated tour are
-  unaffected.
+- Wavelength booking and reward flags are `true` in Convex and the Synology
+  merchant. Wavelength, OpenTimestamps, and mail heartbeats are all `ready`
+  and advertise exact release `e05c391`.
 - The post-deploy forced recovery verifier stopped after a strict container
   identity mismatch. Its fail-closed cleanup preserved the quarantined wallet
   and encrypted backup generations. A normal container start restored the
@@ -49,6 +48,9 @@ OpenTimestamps receipt has been submitted to four public calendars.**
   lower the guard or attempt the payout without a fresh quote and explicit
   confirmation.
 - No additional signet funds were moved during the release-hardening pass.
+- Public Wavelength availability is live. Reward availability remains
+  intentionally `false` until the merchant has the 1,000-sat principal plus
+  its configured 210-sat maximum fee reserve.
 
 ## Implemented
 
@@ -120,22 +122,26 @@ Fresh release gates passed on 2026-07-29:
 - GitHub CI run
   [30429909632](https://github.com/murdawkmedia/openstays/actions/runs/30429909632)
   passed the application, Cloudflare operations, reproducible merchant-image,
-  wallet bootstrap/backup/restore, and blocking vulnerability gates.
+  wallet bootstrap/backup/restore, and blocking vulnerability gates;
+- the final Synology enable task completed `Normal (0)` with
+  `OPENSTAYS_WAVELENGTH_ENABLED_OK`;
+- live `mail`, `ots`, and `wavelength` heartbeats are `ready` and pinned to
+  `e05c391334f1376c98bd5cc8dc945d593db1165b`;
+- production `WAVELENGTH_ENABLED` and `WAVELENGTH_REWARDS_ENABLED` are both
+  `true`, while public reward availability correctly remains `false` because
+  the fee reserve is not funded.
 
 ## Remaining work
 
-1. Submit the visible DSM password prompt, run the restored Wavelength enable
-   task, require a healthy container/heartbeat, then set the two production
-   Convex Wavelength flags back to `true`.
-2. Diagnose the strict post-deploy recovery-drill container identity mismatch
+1. Diagnose the strict post-deploy recovery-drill container identity mismatch
    before running another forced recovery. Preserve all quarantine and backup
    generations.
-3. Fund at least the fee reserve or obtain a fresh quote and explicit
+2. Fund at least the fee reserve or obtain a fresh quote and explicit
    confirmation before testing the 1,000-sat reward payout.
-4. Run a dedicated CA$1 Zaprite paid-order acceptance if public Zaprite
+3. Run a dedicated CA$1 Zaprite paid-order acceptance if public Zaprite
    payment testing is still desired.
-5. Perform the scheduled 15-day retention check.
-6. Rotate the merchant/container bridge, wallet password, SMTP, backup, and
+4. Perform the scheduled 15-day retention check.
+5. Rotate the merchant/container bridge, wallet password, SMTP, backup, and
    provider credentials after acceptance because the DSM environment view was
    exposed during interactive setup. Do not print the current values.
 
