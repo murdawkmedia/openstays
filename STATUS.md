@@ -63,10 +63,11 @@ remains disabled and dry-running; no treasury funds were moved.**
 - A dedicated Zaprite sandbox CA$1 order completed and reconciled
   authoritatively. The payment row advanced from `pending` to `paid` and the
   linked booking advanced from `hold` to `confirmed`.
-- Zaprite did not deliver an observable webhook nudge for that order. The
-  reconciliation worker itself succeeded immediately when invoked, isolating
-  the delay to the trigger rather than order verification or booking
-  confirmation.
+- Zaprite delivered the order-change webhook four times, but Convex returned
+  HTTP 400 because the runtime secret contained one hidden trailing carriage
+  return from its original environment-variable write. Rewriting the same
+  value exactly reduced the runtime value from 65 to 64 characters; a direct
+  live replay of the identical webhook URL then returned HTTP 200.
 - Commit `4ccbb7a` adds a bounded one-minute Zaprite reconciliation backstop.
   It fetches pending orders through the server-held API key and applies the
   existing exact order, booking, checkout, amount, currency, consent, expiry,
@@ -222,13 +223,11 @@ The previously deployed release gates also passed on 2026-07-29:
    generations.
 2. Fund at least the fee reserve or obtain a fresh quote and explicit
    confirmation before testing the 1,000-sat reward payout.
-3. Investigate why Zaprite's sandbox did not deliver an observable webhook
-   nudge. The deployed one-minute authoritative polling backstop prevents this
-   from blocking guests.
-4. Configure and dry-run the Synology treasury worker before considering one
+3. Configure and dry-run the Synology treasury worker before considering one
    explicitly approved bounded Signet transfer. Automatic sweeps remain off.
-5. Perform the scheduled 15-day retention check.
-6. Rotate the merchant/container bridge, wallet password, SMTP, backup, and
+4. Perform the scheduled 15-day retention check.
+5. Rotate the Zaprite webhook secret because it was pasted into chat, and
+   rotate the merchant/container bridge, wallet password, SMTP, backup, and
    provider credentials after acceptance because the DSM environment view was
    exposed during interactive setup. Do not print the current values.
 
