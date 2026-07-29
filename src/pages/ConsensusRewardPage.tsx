@@ -6,7 +6,10 @@ import wavelengthWorkerUrl from '@lightninglabs/wavelength-web/wavewalletdk-work
 import { WavelengthProvider, useWallet, useWalletBalance, useWalletCreate, useWalletReceive, useWalletUnlock } from '@lightninglabs/wavelength-react';
 import { api } from '../../convex/_generated/api';
 import { Bolt11Invoice } from '../components/Bolt11Invoice';
-import { wavelengthRuntimeOptions } from '../lib/wavelengthRuntime';
+import {
+  OPENSTAYS_WAVELENGTH_DATA_DIR,
+  wavelengthRuntimeOptions,
+} from '../lib/wavelengthRuntime';
 import { CONSENSUS_REWARD_LABEL, CONSENSUS_REWARD_SATS } from '../lib/consensusReward';
 import {
   clearEligibilityToken,
@@ -17,7 +20,9 @@ import { FictionalBookingNotice } from '../components/FictionalBookingNotice';
 
 const wavelengthEngine = createWebWalletEngine({
   ...wavelengthRuntimeOptions(window.location.href, wavelengthWorkerUrl),
-  config: defaultConfig('signet'),
+  config: defaultConfig('signet', {
+    dataDir: OPENSTAYS_WAVELENGTH_DATA_DIR,
+  }),
   autoStart: true,
 });
 

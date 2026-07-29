@@ -71,6 +71,19 @@ describe('explainWavelengthError', () => {
       'This wallet needs more signet test sats before it can pay.',
     );
   });
+
+  it('distinguishes local database failures from a wallet open in another tab', () => {
+    expect(explainWavelengthError(new Error(
+      'SQLITE_CANTOPEN: sqlite asset unavailable: unable to open database',
+    ))).toBe(
+      'This browser could not open its local wallet storage. Reload once; if it persists, create or restore the wallet in the refreshed OpenStays wallet.',
+    );
+    expect(explainWavelengthError(new Error(
+      'OPFS database already open in this worker',
+    ))).toBe(
+      'This browser wallet is already open in another tab. Close the other OpenStays wallet tab, then reload this one.',
+    );
+  });
 });
 
 describe('wavelengthRuntimeDiagnostic', () => {

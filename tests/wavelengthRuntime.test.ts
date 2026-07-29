@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { wavelengthRuntimeOptions, wavelengthRuntimeUrl } from '../src/lib/wavelengthRuntime.js';
+import {
+  OPENSTAYS_WAVELENGTH_DATA_DIR,
+  wavelengthRuntimeOptions,
+  wavelengthRuntimeUrl,
+} from '../src/lib/wavelengthRuntime.js';
 
 describe('wavelengthRuntimeUrl', () => {
   it('anchors runtime assets at the site root from nested wallet routes', () => {
@@ -39,6 +43,28 @@ describe('wavelengthRuntimeUrl', () => {
       expect(source).toMatch(/const wavelengthEngine = createWebWalletEngine/);
     },
   );
+
+  it('pins both browser-wallet surfaces to an app-owned data directory', () => {
+    expect(OPENSTAYS_WAVELENGTH_DATA_DIR).toBe(
+      '/openstays/consensus-wallet-v2',
+    );
+
+    for (const page of [
+      'WavelengthWalletPage.tsx',
+      'ConsensusRewardPage.tsx',
+    ]) {
+      const source = readFileSync(
+        new URL(`../src/pages/${page}`, import.meta.url),
+        'utf8',
+      );
+      expect(source).toContain('OPENSTAYS_WAVELENGTH_DATA_DIR');
+      const normalizedSource = source.replace(/\s+/gu, ' ');
+      expect(normalizedSource).toContain("defaultConfig('signet', {");
+      expect(normalizedSource).toContain(
+        'dataDir: OPENSTAYS_WAVELENGTH_DATA_DIR',
+      );
+    }
+  });
 
   it('keeps wallet operation diagnostics available behind a collapsed disclosure', () => {
     const payment = readFileSync(

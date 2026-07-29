@@ -1,3 +1,6 @@
+export const OPENSTAYS_WAVELENGTH_DATA_DIR =
+  '/openstays/consensus-wallet-v2';
+
 export function wavelengthRuntimeUrl(
   pageUrl: string,
   versioned = import.meta.env.PROD
