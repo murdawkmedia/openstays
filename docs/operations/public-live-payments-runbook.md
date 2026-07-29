@@ -257,8 +257,11 @@ spendable signet balance.
 
 Reconcile in this order:
 
-1. **Zaprite:** fetch the pending order through the server-held API credential;
-   confirm only exact amount, currency, and authoritative paid state.
+1. **Zaprite:** a valid webhook schedules immediate reconciliation, while the
+   one-minute bounded poll is the delivery backstop. Fetch the pending order
+   through the server-held API credential; confirm only the exact checkout,
+   booking metadata, amount, currency, expiry, consent, reconciliation ID,
+   and authoritative paid state.
 2. **Wavelength booking:** match request, signet network, invoice, exact
    1,000-sat amount, merchant receive activity, and payment identifier.
 3. **Reward:** verify the prepared send, fee ceiling, single-use intent, exact

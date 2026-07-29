@@ -209,7 +209,9 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
 
 - 2026-07-22 (Consensus Commons): Zaprite webhooks are authenticated nudges,
   never settlement authority. The server-held API key fetches exact
-  amount/currency/status; deterministic event IDs make retries harmless.
+  amount/currency/status; deterministic event IDs make retries harmless. A
+  bounded one-minute reconciliation poll is mandatory as a delivery backstop
+  when the webhook is delayed or omitted.
 - 2026-07-22 (Consensus Commons): refund mode is binding. Stripe/Square remain
   automatic. Zaprite/Wavelength remain paid while an idempotent refund case is
   open; only staff completion with an external reference appends the ledger or

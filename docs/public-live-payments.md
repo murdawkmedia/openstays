@@ -22,9 +22,11 @@ The browser never decides that money moved.
    network address.
 3. OpenStays creates either an exact CA$1 Zaprite order or an exact 1,000-sat
    Wavelength request.
-4. A Zaprite webhook or redirect is only a nudge. Convex fetches the order
-   through the server-held API credential and confirms only an exact
-   authoritative state.
+4. A Zaprite webhook or redirect is never settlement authority. A valid
+   webhook schedules an immediate reconciliation, and a bounded one-minute
+   poll is the delivery backstop. Convex fetches each pending order through
+   the server-held API credential and confirms only an exact authoritative
+   state.
 5. Wavelength settlement is reported only by the authenticated merchant
    bridge after a completed receive activity matches the request, invoice,
    network, amount, and payment identifier.
