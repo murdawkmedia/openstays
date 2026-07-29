@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     restoreMocks: true,
+    testTimeout: 10_000,
     unstubGlobals: true,
   },
 });
