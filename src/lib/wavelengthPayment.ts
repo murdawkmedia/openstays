@@ -79,5 +79,5 @@ export function explainWavelengthError(error: unknown): string {
 
 export function wavelengthRuntimeDiagnostic(error: unknown): string {
   if (!(error instanceof Error)) return 'Wavelength runtime failed';
-  return error.message.replace(/\s+/g, ' ').trim().slice(0, 240) || 'Wavelength runtime failed';
+  return error.message.replace(/\s+/g, ' ').trim().slice(0, 640) || 'Wavelength runtime failed';
 }

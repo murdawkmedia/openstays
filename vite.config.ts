@@ -1,4 +1,4 @@
-import { rmSync } from 'node:fs';
+import { cpSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -14,6 +14,13 @@ const walletIsolation = () => (
   if (request.url?.startsWith('/wallet/')) {
     response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  }
+  if (
+    request.url?.startsWith('/wavewalletdk/')
+    || request.url?.includes('wavewalletdk-worker')
+  ) {
+    response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+    response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   }
   next();
 };
@@ -37,6 +44,18 @@ export default defineConfig({
         if (publicShowcaseBuild && includeWavelengthWallet) {
           rmSync(resolve('dist', 'wavewalletdk', 'wavewalletdk.wasm'), {
             force: true,
+          });
+        }
+      },
+    },
+    {
+      name: 'public-showcase-version-wallet-runtime',
+      closeBundle() {
+        if (publicShowcaseBuild && includeWavelengthWallet) {
+          const versionedRuntime = resolve('dist', 'wavewalletdk-isolated-v1');
+          rmSync(versionedRuntime, { recursive: true, force: true });
+          cpSync(resolve('dist', 'wavewalletdk'), versionedRuntime, {
+            recursive: true,
           });
         }
       },

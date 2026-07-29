@@ -3,8 +3,21 @@
   Cross-Origin-Embedder-Policy: require-corp
 
 /wavewalletdk/*
+  Cross-Origin-Embedder-Policy: require-corp
   Cross-Origin-Resource-Policy: same-origin
   Cache-Control: public, max-age=31536000, immutable
 
+/wavewalletdk-isolated-v1/*
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: same-origin
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/wavewalletdk-worker-*
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: same-origin
+
 /wavewalletdk/wavewalletdk.wasm.gz
+  Content-Type: application/gzip
+
+/wavewalletdk-isolated-v1/wavewalletdk.wasm.gz
   Content-Type: application/gzip

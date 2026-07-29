@@ -77,6 +77,6 @@ describe('wavelengthRuntimeDiagnostic', () => {
   it('normalizes and bounds fatal startup details without dumping arbitrary objects', () => {
     expect(wavelengthRuntimeDiagnostic(new Error('  sqlite\nworker   failed  '))).toBe('sqlite worker failed');
     expect(wavelengthRuntimeDiagnostic({ password: 'must-not-render' })).toBe('Wavelength runtime failed');
-    expect(wavelengthRuntimeDiagnostic(new Error('x'.repeat(500)))).toHaveLength(240);
+    expect(wavelengthRuntimeDiagnostic(new Error('x'.repeat(1_000)))).toHaveLength(640);
   });
 });

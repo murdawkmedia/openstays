@@ -8,9 +8,27 @@ describe('wavelengthRuntimeUrl', () => {
       .toBe('http://127.0.0.1:5173/wavewalletdk/');
   });
 
+  it('uses one versioned runtime directory for production worker assets', () => {
+    expect(wavelengthRuntimeUrl(
+      'https://openstays-consensus.pages.dev/wallet/pay/booking_1',
+      true,
+    )).toBe('https://openstays-consensus.pages.dev/wavewalletdk-isolated-v1/');
+  });
+
   it('uses the worker URL emitted by the app bundler', () => {
     expect(wavelengthRuntimeOptions('http://127.0.0.1:5173/wallet/pay/booking_1', '/assets/wave-worker.js'))
-      .toEqual({ runtimeBaseUrl: 'http://127.0.0.1:5173/wavewalletdk/', workerURL: '/assets/wave-worker.js' });
+      .toEqual({
+        runtimeBaseUrl: 'http://127.0.0.1:5173/wavewalletdk/',
+        workerURL: '/assets/wave-worker.js?openstays-isolation=1',
+      });
+  });
+
+  it('preserves bundler query parameters while versioning the isolated worker response', () => {
+    expect(wavelengthRuntimeOptions('http://127.0.0.1:5173/wallet/pay/booking_1', '/wave-worker.js?url'))
+      .toEqual({
+        runtimeBaseUrl: 'http://127.0.0.1:5173/wavewalletdk/',
+        workerURL: '/wave-worker.js?url&openstays-isolation=1',
+      });
   });
 
   it.each(['WavelengthWalletPage.tsx', 'ConsensusRewardPage.tsx'])(
@@ -21,6 +39,16 @@ describe('wavelengthRuntimeUrl', () => {
       expect(source).toMatch(/const wavelengthEngine = createWebWalletEngine/);
     },
   );
+
+  it('keeps wallet operation diagnostics available behind a collapsed disclosure', () => {
+    const payment = readFileSync(
+      new URL('../src/pages/WavelengthWalletPage.tsx', import.meta.url),
+      'utf8',
+    );
+
+    expect(payment).toContain('wavelengthRuntimeDiagnostic(operationError)');
+    expect(payment).toContain('Technical detail');
+  });
 
   it('passes scoped eligibility tokens without placing them in wallet URLs', () => {
     const payment = readFileSync(
