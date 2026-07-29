@@ -76,3 +76,8 @@ export function explainWavelengthError(error: unknown): string {
   if (normalized.includes('network')) return 'The wallet and merchant must both be connected to Bitcoin signet.';
   return 'The wallet could not complete that step. No booking payment was recorded; try again or request a fresh invoice.';
 }
+
+export function wavelengthRuntimeDiagnostic(error: unknown): string {
+  if (!(error instanceof Error)) return 'Wavelength runtime failed';
+  return error.message.replace(/\s+/g, ' ').trim().slice(0, 240) || 'Wavelength runtime failed';
+}
