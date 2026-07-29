@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values';
 import { internalMutation, internalQuery, mutation, query } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
-import type { MutationCtx } from './_generated/server';
+import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internal } from './_generated/api';
 import { markPropertyDirtyInline } from './channel/ari';
 import {
@@ -681,7 +681,38 @@ export const cancelByGuest = mutation({
   },
 });
 
-/** Reactive booking lookup for the confirmation page (never trust the redirect). */
+async function publicBookingView(ctx: QueryCtx, booking: Doc<'bookings'>) {
+  const unit = await ctx.db.get(booking.unitId);
+  const unitType = await ctx.db.get(booking.unitTypeId);
+  const property = await ctx.db.get(booking.propertyId);
+  const addOns = await ctx.db
+    .query('bookingAddOns')
+    .withIndex('by_booking', (q) => q.eq('bookingId', booking._id))
+    .collect();
+  return {
+    currency: property?.currency ?? 'CAD',
+    taxLabel: property?.taxLabel,
+    status: booking.status,
+    confirmationCode: booking.confirmationCode,
+    checkIn: booking.checkIn,
+    checkOut: booking.checkOut,
+    nights: booking.nights,
+    adults: booking.adults,
+    children: booking.children,
+    holdExpiresAt: booking.holdExpiresAt,
+    priceBreakdown: booking.priceBreakdown,
+    promoCode: booking.promoCodeSnapshot,
+    unitName: unit?.name ?? '',
+    unitTypeName: unitType?.name ?? '',
+    addOns: addOns.map((a) => ({
+      name: a.nameSnapshot,
+      quantity: a.quantity,
+      unitPriceCents: a.unitPriceCents,
+    })),
+  };
+}
+
+/** Reactive booking lookup for confirmation/manage pages (never trust redirects). */
 export const byConfirmationCode = query({
   args: { code: v.string() },
   handler: async (ctx, args) => {
@@ -689,35 +720,31 @@ export const byConfirmationCode = query({
       .query('bookings')
       .withIndex('by_confirmationCode', (q) => q.eq('confirmationCode', args.code.trim().toUpperCase()))
       .first();
-    if (!booking) return null;
-    const unit = await ctx.db.get(booking.unitId);
-    const unitType = await ctx.db.get(booking.unitTypeId);
-    const property = await ctx.db.get(booking.propertyId);
+    return booking ? await publicBookingView(ctx, booking) : null;
+  },
+});
+
+/**
+ * Checkout-only view. Guest email is needed for payment anti-abuse binding,
+ * so require both opaque URL components instead of exposing it anywhere a
+ * confirmation code alone is sufficient.
+ */
+export const forCheckout = query({
+  args: {
+    bookingId: v.id('bookings'),
+    code: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.bookingId);
+    if (
+      !booking
+      || booking.confirmationCode !== args.code.trim().toUpperCase()
+    ) {
+      return null;
+    }
     const guest = booking.guestId ? await ctx.db.get(booking.guestId) : null;
-    const addOns = await ctx.db
-      .query('bookingAddOns')
-      .withIndex('by_booking', (q) => q.eq('bookingId', booking._id))
-      .collect();
     return {
-      currency: property?.currency ?? 'CAD',
-      taxLabel: property?.taxLabel,
-      status: booking.status,
-      confirmationCode: booking.confirmationCode,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
-      nights: booking.nights,
-      adults: booking.adults,
-      children: booking.children,
-      holdExpiresAt: booking.holdExpiresAt,
-      priceBreakdown: booking.priceBreakdown,
-      promoCode: booking.promoCodeSnapshot,
-      unitName: unit?.name ?? '',
-      unitTypeName: unitType?.name ?? '',
-      addOns: addOns.map((a) => ({
-        name: a.nameSnapshot,
-        quantity: a.quantity,
-        unitPriceCents: a.unitPriceCents,
-      })),
+      ...await publicBookingView(ctx, booking),
       guestEmail: guest?.normalizedEmail ?? '',
     };
   },

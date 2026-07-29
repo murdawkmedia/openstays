@@ -77,6 +77,20 @@ describe('ConsensusReceiptSummary', () => {
     expect(html).toContain('Download .ots proof');
   });
 
+  it('explains that a queued receipt unlocks its reward after submission', () => {
+    const html = renderToStaticMarkup(createElement(ConsensusReceiptSummary, {
+      receipt: {
+        publicId: 'cr_demo', status: 'queued', sha256: 'a'.repeat(64),
+        canonicalJson, schemaVersion: 'openstays.consensus-receipt.v1',
+      },
+      reward: null, rewardUrl: '/wallet/reward/OS-DEMO',
+      onDownloadJson: () => undefined, onDownloadProof: () => undefined,
+    }));
+
+    expect(html).toContain('Reward unlocks after timestamp submission.');
+    expect(html).not.toContain('Simulated tours do not issue a signet reward.');
+  });
+
   it('does not throw for an out-of-range receipt creation time', () => {
     const outOfRangeJson = JSON.stringify({ ...JSON.parse(canonicalJson), createdAt: 8_640_000_000_000_001 });
     const render = () => renderToStaticMarkup(createElement(ConsensusReceiptSummary, {

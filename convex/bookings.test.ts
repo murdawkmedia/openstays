@@ -272,6 +272,33 @@ describe('simulated confirmation (demo path)', () => {
   });
 });
 
+describe('public booking views', () => {
+  it('keeps guest email out of confirmation pages and binds checkout access to booking id plus code', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    const hold = await t.mutation(
+      api.bookings.createHold,
+      holdArgs(fx, D(10), D(12)),
+    );
+
+    const confirmation = await t.query(api.bookings.byConfirmationCode, {
+      code: hold.confirmationCode,
+    });
+    expect(confirmation).not.toHaveProperty('guestEmail');
+
+    const checkout = await t.query((api as any).bookings.forCheckout, {
+      bookingId: hold.bookingId,
+      code: hold.confirmationCode,
+    });
+    expect(checkout?.guestEmail).toBe('guest@example.com');
+
+    expect(await t.query((api as any).bookings.forCheckout, {
+      bookingId: hold.bookingId,
+      code: 'OS-WRONG',
+    })).toBeNull();
+  });
+});
+
 describe('guest cancellation', () => {
   it('cancels with matching code+email, frees nights, computes policy refund', async () => {
     vi.stubEnv('DEMO_MODE', 'true');
