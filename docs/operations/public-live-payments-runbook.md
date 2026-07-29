@@ -51,6 +51,23 @@ npm --prefix ops/cloudflare run build
 git diff --check
 ```
 
+For a Pages build with the browser wallet enabled, also verify the packaged
+runtime:
+
+```powershell
+$env:VITE_PUBLIC_SHOWCASE = 'true'
+$env:VITE_PUBLIC_WAVELENGTH = 'true'
+npm run build
+Test-Path dist/wavewalletdk/wavewalletdk.wasm
+(Get-Item dist/wavewalletdk/wavewalletdk.wasm.gz).Length
+```
+
+The first command must report `False`; the compressed runtime must be below
+Cloudflare Pages' 25 MiB per-file limit. After deployment, the fixed SDK URL
+`/wavewalletdk/wavewalletdk.wasm` must return HTTP 200 with
+`Content-Type: application/wasm`, `Content-Encoding: gzip`, and
+`Cross-Origin-Resource-Policy: same-origin`.
+
 Render the eligibility-only Worker without deploying it:
 
 ```powershell

@@ -32,6 +32,16 @@ export default defineConfig({
       },
     },
     {
+      name: 'public-showcase-compress-wallet-runtime',
+      closeBundle() {
+        if (publicShowcaseBuild && includeWavelengthWallet) {
+          rmSync(resolve('dist', 'wavewalletdk', 'wavewalletdk.wasm'), {
+            force: true,
+          });
+        }
+      },
+    },
+    {
       name: 'wallet-route-cross-origin-isolation',
       configureServer(server) {
         server.middlewares.use(walletIsolation());

@@ -5,3 +5,11 @@
 /wavewalletdk/*
   Cross-Origin-Resource-Policy: same-origin
   Cache-Control: public, max-age=31536000, immutable
+
+/wavewalletdk/wavewalletdk.wasm
+  Content-Type: application/wasm
+  Content-Encoding: gzip
+
+/wavewalletdk/wavewalletdk.wasm.gz
+  Content-Type: application/wasm
+  Content-Encoding: gzip
