@@ -132,6 +132,15 @@ the relevant provider's secret store and must never use a `VITE_` prefix.
 | `VITE_TURNSTILE_SITE_KEY` | `public-site-key` |
 | `VITE_PAYMENT_EDGE_URL` | `https://openstays-eligibility-edge.<account-subdomain>.workers.dev` until deployment provides the actual URL |
 
+Public showcase builds that include Wavelength keep the pinned SDK runtime
+under `/wavewalletdk/`, but Cloudflare Pages cannot accept the raw
+`wavewalletdk.wasm` because it exceeds Pages' per-file size limit. The build
+therefore publishes the version-matched `wavewalletdk.wasm.gz` artifact and
+ships a `_redirects` rewrite plus `Content-Type: application/wasm` and
+`Content-Encoding: gzip` response headers at the SDK's fixed `.wasm` URL.
+Before deployment, verify that the raw `.wasm` is absent, the compressed file
+is below 25 MiB, and the live fixed URL returns those headers.
+
 ### Convex non-secret policy
 
 | Name | Required value |

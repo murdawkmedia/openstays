@@ -3,9 +3,21 @@ import { describe, expect, it } from "vitest";
 
 describe("Cloudflare Pages public showcase contract", () => {
   it("serves application deep links through the SPA entry point", () => {
-    expect(readFileSync("public/_redirects", "utf8").trim()).toBe(
-      "/* /index.html 200",
+    const redirects = readFileSync("public/_redirects", "utf8");
+
+    expect(redirects).toContain("/* /index.html 200");
+  });
+
+  it("serves the compressed Wavelength runtime at the SDK's fixed wasm URL", () => {
+    const redirects = readFileSync("public/_redirects", "utf8");
+    const headers = readFileSync("public/_headers", "utf8");
+
+    expect(redirects).toContain(
+      "/wavewalletdk/wavewalletdk.wasm /wavewalletdk/wavewalletdk.wasm.gz 200",
     );
+    expect(headers).toContain("/wavewalletdk/wavewalletdk.wasm");
+    expect(headers).toContain("Content-Type: application/wasm");
+    expect(headers).toContain("Content-Encoding: gzip");
   });
 
   it("scopes cross-origin isolation to wallet routes", () => {
@@ -31,6 +43,10 @@ describe("Cloudflare Pages public showcase contract", () => {
     expect(viteConfig).toContain("process.env.VITE_PUBLIC_WAVELENGTH === 'true'");
     expect(viteConfig).toContain("if (!includeWavelengthWallet)");
     expect(viteConfig).toContain("resolve('dist', 'wavewalletdk')");
+    expect(viteConfig).toContain("public-showcase-compress-wallet-runtime");
+    expect(viteConfig).toContain(
+      "resolve('dist', 'wavewalletdk', 'wavewalletdk.wasm')",
+    );
     expect(viteConfig).toContain("request.url?.startsWith('/wallet/')");
     expect(viteConfig).not.toContain("server: {\n    headers:");
   });
