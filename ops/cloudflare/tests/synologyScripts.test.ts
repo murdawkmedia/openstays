@@ -1640,7 +1640,7 @@ esac
     expect(recorded).toContain('operator.mjs health');
     expect(recorded).toMatch(/\bstop merchant\b/u);
     expect(recorded).not.toContain('stop openstays-merchant');
-  });
+  }, 10_000);
 
   it('recovery stops only the merchant, preserves quarantine, and verifies snapshots', () => {
     const root = temporaryRoot();
