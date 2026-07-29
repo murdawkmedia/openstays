@@ -6,6 +6,16 @@ const crons = cronJobs();
 // Release stale pre-payment holds (35-min TTL; see bookings.HOLD_TTL_MS).
 crons.interval('expire stale holds', { minutes: 2 }, internal.bookings.expireHolds, {});
 
+// Zaprite webhooks are authenticated nudges, not settlement authority. Poll
+// pending orders as a bounded backstop so a delayed or omitted nudge cannot
+// strand a paid guest on the finalization screen.
+crons.interval(
+  'zaprite payment reconciliation',
+  { minutes: 1 },
+  internal.payments.webhooks.reconcileZapritePending,
+  { limit: 25 },
+);
+
 // Pull external calendars (Airbnb etc.) into unitNights. No-op until a unit
 // has icalImports entries; per-feed failures are isolated inside syncAll.
 crons.interval('ical import sync', { minutes: 15 }, internal.icalImport.syncAll, {});
