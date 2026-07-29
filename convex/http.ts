@@ -56,6 +56,7 @@ const wavelengthInternal = (internal as unknown as {
 }).wavelength as Record<string, any>;
 const receiptInternal = (internal as any).consensusReceipts as Record<string, any>;
 const rewardInternal = (internal as any).wavelengthRewards as Record<string, any>;
+const treasuryInternal = (internal as any).treasury as Record<string, any>;
 const operationsHealthInternal = (internal as any).operationsHealth as Record<string, any>;
 
 function wavelengthAuthorized(request: Request): boolean {
@@ -77,6 +78,31 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+function treasuryPreviewArgs(request: Request) {
+  const params = new URL(request.url).searchParams;
+  const integer = (key: string, fallback?: number): number => {
+    const raw = params.get(key);
+    if (raw === null && fallback !== undefined) return fallback;
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) {
+      throw new Error(`INVALID_TREASURY_${key.toUpperCase()}`);
+    }
+    return parsed;
+  };
+  return {
+    enabled: params.get('enabled') === 'true',
+    dryRun: params.get('dryRun') !== 'false',
+    network: params.get('network') ?? '',
+    destinationAddress: params.get('destinationAddress') ?? '',
+    spendableSats: integer('spendableSats'),
+    baseReserveSats: integer('baseReserveSats', 14_520),
+    minSweepSats: integer('minSweepSats', 5_000),
+    cooldownMs: integer('cooldownMs', 86_400_000),
+    treasuryFeeAllowanceSats: integer('treasuryFeeAllowanceSats', 1_000),
+    rewardFeeAllowanceSats: integer('rewardFeeAllowanceSats', 210),
+  };
 }
 
 const heartbeatServices = ['wavelength', 'ots', 'mail', 'backup'] as const;
@@ -251,6 +277,37 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     if (!wavelengthAuthorized(request)) return json({ error: 'unauthorized' }, 401);
     return json({ rewards: await ctx.runMutation(rewardInternal.claimPending, { limit: 10 }) });
+  }),
+});
+
+http.route({
+  path: '/wavelength-bridge/treasury/preview',
+  method: 'GET',
+  handler: httpAction(async (ctx, request) => {
+    if (!wavelengthAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    try {
+      return json(await ctx.runQuery(treasuryInternal.preview, treasuryPreviewArgs(request)));
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  }),
+});
+
+for (const route of [
+  { path: '/wavelength-bridge/treasury/claim', fn: 'claim' },
+  { path: '/wavelength-bridge/treasury/dispatched', fn: 'markDispatched' },
+  { path: '/wavelength-bridge/treasury/completed', fn: 'markCompleted' },
+  { path: '/wavelength-bridge/treasury/failed', fn: 'markFailed' },
+] as const) http.route({
+  path: route.path,
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    if (!wavelengthAuthorized(request)) return json({ error: 'unauthorized' }, 401);
+    try {
+      return json(await ctx.runMutation(treasuryInternal[route.fn], await request.json()));
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
   }),
 });
 

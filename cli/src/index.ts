@@ -9,6 +9,7 @@
 // one runtime dep (the MCP SDK, needed for `openstays mcp`).
 
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ApiError, OpenStaysClient } from './client.js';
 import type {
   BookingStatus,
@@ -17,6 +18,7 @@ import type {
 } from './client.js';
 import { runMcpServer } from './mcp.js';
 import { runWaveBridge } from './waveBridge.js';
+import { loadTreasuryRuntimeConfig } from './waveTreasury.js';
 import { runMailBridge } from './mailBridge.js';
 import { runOtsBridge } from './otsBridge.js';
 
@@ -182,6 +184,9 @@ Env vars:
   MAIL_BRIDGE_TOKEN        Shared secret for authenticated mail bridge endpoints
   OTS_BRIDGE_TOKEN         Separate shared secret for OpenTimestamps bridge endpoints
   WAVELENGTH_HEARTBEAT_TOKEN  Service-scoped operations heartbeat secret
+  WAVELENGTH_TREASURY_ENABLED Enable guarded Signet treasury processing (default false)
+  WAVELENGTH_TREASURY_DRY_RUN Preview only until explicitly set false
+  WAVELENGTH_TREASURY_ADDRESS Signet taproot boarding destination
   OTS_HEARTBEAT_TOKEN         Service-scoped operations heartbeat secret
   MAIL_HEARTBEAT_TOKEN        Service-scoped operations heartbeat secret
   OPENSTAYS_RELEASE           Public release identifier included in heartbeats
@@ -438,6 +443,7 @@ async function main(): Promise<void> {
       ? readFileSync(macaroonPath).toString('hex')
       : undefined;
     const controller = processSignalController();
+    const treasuryRuntime = loadTreasuryRuntimeConfig(process.env);
     await runWaveBridge({
       openStaysUrl,
       bridgeToken,
@@ -450,6 +456,11 @@ async function main(): Promise<void> {
       signal: controller.signal,
       heartbeatToken: process.env.WAVELENGTH_HEARTBEAT_TOKEN,
       release: process.env.OPENSTAYS_RELEASE,
+      treasuryRuntime: treasuryRuntime.enabled ? treasuryRuntime : undefined,
+      treasuryJournalDir: treasuryRuntime.enabled
+        ? process.env.WAVELENGTH_TREASURY_JOURNAL_DIR
+          ?? join(process.env.OPENSTAYS_STATE_DIR ?? '.openstays', 'treasury-journal')
+        : undefined,
     });
     return;
   }

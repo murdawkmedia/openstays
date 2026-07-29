@@ -421,6 +421,43 @@ export default defineSchema({
     .index('by_receipt', ['receiptId'])
     .index('by_status_createdAt', ['status', 'createdAt']),
 
+  treasurySweeps: defineTable({
+    network: v.literal('signet'),
+    destinationAddress: v.string(),
+    balanceSnapshotSats: v.number(),
+    baseReserveSats: v.number(),
+    rewardLiabilitySats: v.number(),
+    refundLiabilitySats: v.number(),
+    requiredReserveSats: v.number(),
+    feeAllowanceSats: v.number(),
+    authorizedAmountSats: v.number(),
+    preparedAmountSats: v.optional(v.number()),
+    preparedFeeSats: v.optional(v.number()),
+    preparedTotalOutflowSats: v.optional(v.number()),
+    actualAmountSats: v.optional(v.number()),
+    actualFeeSats: v.optional(v.number()),
+    actualTotalOutflowSats: v.optional(v.number()),
+    status: v.union(
+      v.literal('prepared'),
+      v.literal('dispatched'),
+      v.literal('completed'),
+      v.literal('failed'),
+      v.literal('reconciliation_required'),
+    ),
+    leaseToken: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    sendIntentId: v.optional(v.string()),
+    merchantActivityId: v.optional(v.string()),
+    transactionId: v.optional(v.string()),
+    failureReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    dispatchedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  })
+    .index('by_status_createdAt', ['status', 'createdAt'])
+    .index('by_destination_createdAt', ['destinationAddress', 'createdAt']),
+
   publicRewardClaims: defineTable({
     propertyId: v.id('properties'),
     bookingId: v.id('bookings'),
