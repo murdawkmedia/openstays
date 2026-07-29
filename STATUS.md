@@ -1,16 +1,17 @@
 # OpenStays status
 
-**Updated: 2026-07-29 — the public Consensus Commons showcase is live, its
-Turnstile payment check is operational, and the browser Wavelength wallet now
-starts from an isolated OpenStays-owned storage path. A separate local
-public-operations and Signet-treasury candidate is not yet deployed.**
+**Updated: 2026-07-29 — the public Consensus Commons showcase, fictional
+operations tour, private staff route, and dual-path Wavelength checkout are
+live from `main`. The optional Signet treasury remains disabled and
+dry-running; no treasury funds were moved.**
 
-## Local candidate — not deployed
+## Public operations and treasury release
 
-- Branch: `codex/public-ops-wavelength-treasury`
+- Source release: `5efa62bb67fcf99e9e11aacb338ebb889bbd04b1`
+- Merged branch: `codex/public-ops-wavelength-treasury`
 - The public no-login `/tour/operations` uses only curated fictional fixture
   data and local UI state. It exposes no production query or mutation.
-- Public showcase builds include private `/admin/*` routes only when
+- The production public-showcase build includes private `/admin/*` routes with
   `VITE_PUBLIC_STAFF=true`; staff access remains `requireStaff()`-gated and the
   public login is sign-in-only.
 - A valid Wavelength invoice can be paid by either the embedded OpenStays
@@ -20,21 +21,22 @@ public-operations and Signet-treasury candidate is not yet deployed.**
   snapshots reward and refund liabilities, protects the 14,520-sat floor,
   uses bounded on-chain sends, records a durable pre-dispatch journal, and
   blocks on `reconciliation_required`.
-- No Convex environment, Synology service, Cloudflare Pages project, wallet,
-  credential, or Signet balance was changed for this candidate. Live
-  configuration, deployment, and the first bounded transfer still require
-  explicit approval.
+- Convex schema/functions and the public Cloudflare Pages frontend are
+  deployed. The existing Synology merchant was not replaced or reconfigured,
+  no credential value was opened, and no Signet balance was moved.
+- Enabling treasury processing, changing merchant-host configuration, and the
+  first bounded transfer remain separate explicit approval gates.
 
 ## Current release
 
 - Branch: `main`
 - Public frontend release:
-  `6ea526ec6a5461ea8a951f6543620491358ee991`
+  `5efa62bb67fcf99e9e11aacb338ebb889bbd04b1`
 - Synology merchant release:
   `e05c391334f1376c98bd5cc8dc945d593db1165b`
 - Public showcase: <https://openstays-consensus.pages.dev/>
 - Immutable Pages deployment:
-  <https://632903cb.openstays-consensus.pages.dev/>
+  <https://c2f17cbe.openstays-consensus.pages.dev/>
 - Production Convex deployment: dedicated `openstays-demo` project
   (`shiny-bison-351`).
 - Synology is the approved merchant host. SHC remains explicitly excluded.
@@ -58,6 +60,17 @@ public-operations and Signet-treasury candidate is not yet deployed.**
 
 - Consensus Commons remains clearly disclosed as a fictional property. A
   payment is a contribution to the OpenStays project, not a lodging purchase.
+- The stable, immutable-production, and named preview URLs serve the same
+  byte-identical frontend entry artifact.
+- A fresh fictional one-night hold completed the public simulated flow through
+  the live production backend and reached the confirmation page without a
+  console error or horizontal overflow.
+- The live checkout presents **Pay 1,000 signet sats with Wavelength** and
+  correctly keeps it behind explicit contribution consent and Turnstile. The
+  existing simulated tour remains independently available.
+- Production reports Wavelength and reward processing available on `signet`
+  with the immutable 1,000-sat quote. The treasury endpoint rejects an
+  unauthenticated request with HTTP 401.
 - One 1,000-sat Wavelength signet booking payment completed and reconciled
   authoritatively. It must not be sent again.
 - The confirmed booking has one immutable Consensus Receipt:
@@ -66,15 +79,11 @@ public-operations and Signet-treasury candidate is not yet deployed.**
   - a 702-byte downloadable `.ots` proof;
   - no Bitcoin block anchor yet, which is the honest expected state for a
     fresh timestamp.
-- Its one-time 1,000-sat signet reward is eligible but unpaid. The merchant
-  has 1,000 spendable sats while the fail-closed guard requires the
-  1,000-sat principal plus the configured 210-sat maximum fee reserve. Do not
-  lower the guard or attempt the payout without a fresh quote and explicit
-  confirmation.
+- Its one-time 1,000-sat signet reward is eligible but unpaid. No reward was
+  claimed during this release, and payout remains protected by the live fee,
+  amount, invoice, network, and completed-activity checks.
 - No additional signet funds were moved during the release-hardening pass.
-- Public Wavelength availability is live. Reward availability remains
-  intentionally `false` until the merchant has the 1,000-sat principal plus
-  its configured 210-sat maximum fee reserve.
+- Public Wavelength and reward availability both report `true`.
 
 ## Implemented
 
@@ -130,7 +139,7 @@ public-operations and Signet-treasury candidate is not yet deployed.**
 
 ## Verification
 
-Fresh local-candidate gates passed on 2026-07-29:
+Fresh release gates passed on 2026-07-29:
 
 - root: 516 tests, typecheck, production build, docs build, runtime audit, and
   `git diff --check`;
@@ -144,6 +153,17 @@ Fresh local-candidate gates passed on 2026-07-29:
 - the changed public surface passed an exact-path privacy scan, and the
   bearer-authenticated treasury path passed a STRIDE-style adversarial review
   with no release-blocking finding.
+- GitHub CI run
+  [30482311290](https://github.com/murdawkmedia/openstays/actions/runs/30482311290)
+  passed the application, Cloudflare operations, reproducible merchant-image,
+  wallet bootstrap/backup/restore, and blocking vulnerability gates.
+- Convex deployed to `shiny-bison-351` with the two additive treasury indexes
+  and no index deletion.
+- Stable production browser acceptance passed the home, fictional operations
+  tour, sign-in-only staff page, property page, and simulated confirmation
+  flow. Desktop and 390-pixel layouts had no horizontal overflow.
+- The compressed Wavelength runtime is 19,881,193 bytes, serves as
+  `application/gzip`, and carries same-origin CORP plus required COEP headers.
 
 The previously deployed release gates also passed on 2026-07-29:
 
@@ -192,8 +212,10 @@ The previously deployed release gates also passed on 2026-07-29:
    confirmation before testing the 1,000-sat reward payout.
 3. Run a dedicated CA$1 Zaprite paid-order acceptance if public Zaprite
    payment testing is still desired.
-4. Perform the scheduled 15-day retention check.
-5. Rotate the merchant/container bridge, wallet password, SMTP, backup, and
+4. Configure and dry-run the Synology treasury worker before considering one
+   explicitly approved bounded Signet transfer. Automatic sweeps remain off.
+5. Perform the scheduled 15-day retention check.
+6. Rotate the merchant/container bridge, wallet password, SMTP, backup, and
    provider credentials after acceptance because the DSM environment view was
    exposed during interactive setup. Do not print the current values.
 
