@@ -8,16 +8,14 @@ describe("Cloudflare Pages public showcase contract", () => {
     expect(redirects).toContain("/* /index.html 200");
   });
 
-  it("serves the compressed Wavelength runtime at the SDK's fixed wasm URL", () => {
+  it("serves the SDK's compressed Wavelength runtime without HTTP content decoding", () => {
     const redirects = readFileSync("public/_redirects", "utf8");
     const headers = readFileSync("public/_headers", "utf8");
 
-    expect(redirects).toContain(
-      "/wavewalletdk/wavewalletdk.wasm /wavewalletdk/wavewalletdk.wasm.gz 200",
-    );
-    expect(headers).toContain("/wavewalletdk/wavewalletdk.wasm");
-    expect(headers).toContain("Content-Type: application/wasm");
-    expect(headers).toContain("Content-Encoding: gzip");
+    expect(redirects).not.toContain("wavewalletdk.wasm");
+    expect(headers).toContain("/wavewalletdk/wavewalletdk.wasm.gz");
+    expect(headers).toContain("Content-Type: application/gzip");
+    expect(headers).not.toContain("Content-Encoding: gzip");
   });
 
   it("scopes cross-origin isolation to wallet routes", () => {

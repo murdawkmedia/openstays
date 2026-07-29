@@ -135,11 +135,14 @@ the relevant provider's secret store and must never use a `VITE_` prefix.
 Public showcase builds that include Wavelength keep the pinned SDK runtime
 under `/wavewalletdk/`, but Cloudflare Pages cannot accept the raw
 `wavewalletdk.wasm` because it exceeds Pages' per-file size limit. The build
-therefore publishes the version-matched `wavewalletdk.wasm.gz` artifact and
-ships a `_redirects` rewrite plus `Content-Type: application/wasm` and
-`Content-Encoding: gzip` response headers at the SDK's fixed `.wasm` URL.
-Before deployment, verify that the raw `.wasm` is absent, the compressed file
-is below 25 MiB, and the live fixed URL returns those headers.
+therefore publishes only the version-matched `wavewalletdk.wasm.gz` artifact.
+Wavelength v0.1.0 fetches that file directly and decompresses it with the
+browser's `DecompressionStream`; the server must not attach
+`Content-Encoding: gzip`, which would cause transparent HTTP decompression and
+then an invalid second decompression in the SDK. Before deployment, verify
+that the raw `.wasm` is absent, the compressed file is below 25 MiB, and the
+live `.wasm.gz` URL returns `Content-Type: application/gzip` without a
+`Content-Encoding` header.
 
 ### Convex non-secret policy
 

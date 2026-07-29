@@ -63,10 +63,11 @@ Test-Path dist/wavewalletdk/wavewalletdk.wasm
 ```
 
 The first command must report `False`; the compressed runtime must be below
-Cloudflare Pages' 25 MiB per-file limit. After deployment, the fixed SDK URL
-`/wavewalletdk/wavewalletdk.wasm` must return HTTP 200 with
-`Content-Type: application/wasm`, `Content-Encoding: gzip`, and
-`Cross-Origin-Resource-Policy: same-origin`.
+Cloudflare Pages' 25 MiB per-file limit. After deployment,
+`/wavewalletdk/wavewalletdk.wasm.gz` must return HTTP 200 with
+`Content-Type: application/gzip`,
+`Cross-Origin-Resource-Policy: same-origin`, and no `Content-Encoding` header.
+The SDK performs the gzip decompression itself.
 
 Render the eligibility-only Worker without deploying it:
 
