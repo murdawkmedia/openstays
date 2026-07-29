@@ -16,9 +16,12 @@ import { AboutPage } from './pages/AboutPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { PublicShowcasePage } from './pages/PublicShowcasePage';
 import { PublicShowcaseBoundaryPage } from './pages/PublicShowcaseBoundaryPage';
+import { PublicOperationsTourPage } from './pages/PublicOperationsTourPage';
 import { PUBLIC_SHOWCASE } from './lib/publicShowcase';
 
 const IS_PUBLIC_SHOWCASE_BUILD = import.meta.env.VITE_PUBLIC_SHOWCASE === 'true';
+const INCLUDE_PUBLIC_STAFF = !IS_PUBLIC_SHOWCASE_BUILD
+  || import.meta.env.VITE_PUBLIC_STAFF === 'true';
 const INCLUDE_WAVELENGTH_WALLET = !IS_PUBLIC_SHOWCASE_BUILD
   || import.meta.env.VITE_PUBLIC_WAVELENGTH === 'true';
 const WavelengthWalletPage =
@@ -26,13 +29,13 @@ const WavelengthWalletPage =
 const ConsensusRewardPage =
   INCLUDE_WAVELENGTH_WALLET ? lazy(() => import('./pages/ConsensusRewardPage')) : null;
 const AdminTapePage =
-  IS_PUBLIC_SHOWCASE_BUILD ? null : lazy(() => import('./pages/AdminTapePage').then((module) => ({ default: module.AdminTapePage })));
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminTapePage').then((module) => ({ default: module.AdminTapePage }))) : null;
 const AdminOperationsPage =
-  IS_PUBLIC_SHOWCASE_BUILD ? null : lazy(() => import('./pages/AdminOperationsPage').then((module) => ({ default: module.AdminOperationsPage })));
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminOperationsPage').then((module) => ({ default: module.AdminOperationsPage }))) : null;
 const AdminSettingsPage =
-  IS_PUBLIC_SHOWCASE_BUILD ? null : lazy(() => import('./pages/AdminSettingsPage').then((module) => ({ default: module.AdminSettingsPage })));
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminSettingsPage').then((module) => ({ default: module.AdminSettingsPage }))) : null;
 const AdminLoginPage =
-  IS_PUBLIC_SHOWCASE_BUILD ? null : lazy(() => import('./pages/AdminLoginPage').then((module) => ({ default: module.AdminLoginPage })));
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminLoginPage').then((module) => ({ default: module.AdminLoginPage }))) : null;
 
 const walletPaymentElement = PUBLIC_SHOWCASE.allowLiveWavelength && WavelengthWalletPage ? (
   <Suspense fallback={<p className="p-8">Loading signet wallet…</p>}>
@@ -84,6 +87,7 @@ createRoot(rootElement).render(
             <Route path="/wallet/pay/:bookingId" element={walletPaymentElement} />
             <Route path="/wallet/:bookingId" element={walletPaymentElement} />
             <Route path="/wallet/reward/:code" element={rewardWalletElement} />
+            <Route path="/tour/operations" element={<PublicOperationsTourPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/admin" element={staffTapeElement} />
             <Route path="/admin/operations" element={staffOperationsElement} />

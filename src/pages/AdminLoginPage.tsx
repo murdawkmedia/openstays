@@ -7,6 +7,7 @@ import { LogIn, ShieldCheck, UserPlus } from 'lucide-react';
 import { api } from '../../convex/_generated/api';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
 import { OAuthButtons } from '../components/OAuthButtons';
+import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 
 type Flow = 'signIn' | 'signUp';
 
@@ -25,7 +26,8 @@ export function AdminLoginPage() {
   // password). `undefined` while loading — render password-only until it
   // resolves so the OAuth buttons never flash then disappear.
   const methods = useQuery(api.auth.availableAuthMethods, {});
-  const hasOAuth = Boolean(methods && (methods.github || methods.google || methods.microsoft));
+  const hasOAuth = !PUBLIC_SHOWCASE.enabled
+    && Boolean(methods && (methods.github || methods.google || methods.microsoft));
 
   const [flow, setFlow] = useState<Flow>('signIn');
   const [name, setName] = useState('');
@@ -34,14 +36,19 @@ export function AdminLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isSignUp = flow === 'signUp';
+  const isSignUp = !PUBLIC_SHOWCASE.enabled && flow === 'signUp';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await signIn('password', { email, password, name, flow });
+      await signIn('password', {
+        email,
+        password,
+        name,
+        flow: PUBLIC_SHOWCASE.enabled ? 'signIn' : flow,
+      });
       navigate('/admin');
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -69,26 +76,32 @@ export function AdminLoginPage() {
           </>
         ) : null}
 
-        <div className="mb-5 flex rounded-lg bg-stone-100 p-1 text-sm font-medium">
-          <button
-            type="button"
-            className={`flex-1 rounded-md py-1.5 transition ${
-              flow === 'signIn' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'
-            }`}
-            onClick={() => setFlow('signIn')}
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            className={`flex-1 rounded-md py-1.5 transition ${
-              flow === 'signUp' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'
-            }`}
-            onClick={() => setFlow('signUp')}
-          >
-            Create account
-          </button>
-        </div>
+        {PUBLIC_SHOWCASE.enabled ? (
+          <p className="mb-5 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600">
+            Existing staff may sign in. Account creation is disabled on the public showcase.
+          </p>
+        ) : (
+          <div className="mb-5 flex rounded-lg bg-stone-100 p-1 text-sm font-medium">
+            <button
+              type="button"
+              className={`flex-1 rounded-md py-1.5 transition ${
+                flow === 'signIn' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'
+              }`}
+              onClick={() => setFlow('signIn')}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              className={`flex-1 rounded-md py-1.5 transition ${
+                flow === 'signUp' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'
+              }`}
+              onClick={() => setFlow('signUp')}
+            >
+              Create account
+            </button>
+          </div>
+        )}
 
         <form className="space-y-4" onSubmit={handleSubmit}>
           {isSignUp ? (

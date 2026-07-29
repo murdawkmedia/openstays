@@ -15,13 +15,19 @@ describe('publicShowcasePolicy', () => {
   });
 
   it('keeps staff closed while independently enabling public rails', () => {
-    expect(publicShowcasePolicy('true', 'true', 'false', 'true')).toEqual({
+    expect(publicShowcasePolicy('true', 'true', 'false', 'true', 'false')).toEqual({
       enabled: true,
       allowLiveWavelength: true,
       allowLiveZaprite: false,
       allowSimulated: true,
       allowStaffRoutes: false,
     });
+  });
+
+  it('includes staff routes in a showcase build only for the exact staff flag', () => {
+    expect(publicShowcasePolicy('true', 'true', 'false', 'true', 'true').allowStaffRoutes).toBe(true);
+    expect(publicShowcasePolicy('true', 'true', 'false', 'true', 'TRUE').allowStaffRoutes).toBe(false);
+    expect(publicShowcasePolicy('true', 'true', 'false', 'true', '1').allowStaffRoutes).toBe(false);
   });
 
   it('does not accept truthy misspellings', () => {
@@ -49,6 +55,10 @@ describe('public showcase copy and routing', () => {
       "const IS_PUBLIC_SHOWCASE_BUILD = import.meta.env.VITE_PUBLIC_SHOWCASE === 'true'",
     );
     expect(main).toContain(
+      "const INCLUDE_PUBLIC_STAFF = !IS_PUBLIC_SHOWCASE_BUILD",
+    );
+    expect(main).toContain("import.meta.env.VITE_PUBLIC_STAFF === 'true'");
+    expect(main).toContain(
       "const INCLUDE_WAVELENGTH_WALLET = !IS_PUBLIC_SHOWCASE_BUILD",
     );
     expect(main).toContain("import.meta.env.VITE_PUBLIC_WAVELENGTH === 'true'");
@@ -57,6 +67,7 @@ describe('public showcase copy and routing', () => {
     );
     expect(main).toContain('path="/wallet/pay/:bookingId"');
     expect(main).toContain('path="/wallet/reward/:code"');
+    expect(main).toContain('path="/tour/operations"');
   });
 
   it('requires a scoped eligibility handoff before public Wavelength checkout', () => {

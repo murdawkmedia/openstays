@@ -18,17 +18,28 @@ export function AppLayout() {
             <span className="font-display text-lg font-semibold">OpenStays</span>
             <span className="hidden rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-800 sm:inline">Consensus Commons</span>
           </Link>
-          {PUBLIC_SHOWCASE.allowStaffRoutes ? (
-            <nav className="text-sm text-stone-500">
-              <Link to="/admin" className="hover:text-stone-800">
-                Staff
+          <nav className="flex items-center gap-3 text-sm">
+            {PUBLIC_SHOWCASE.enabled ? (
+              <Link
+                to="/tour/operations"
+                className="rounded-full bg-emerald-700 px-3 py-2 font-semibold text-white hover:bg-emerald-800"
+              >
+                Explore the backend
               </Link>
-            </nav>
-          ) : (
-            <Link to="/" className="text-sm font-medium text-emerald-700 hover:text-emerald-800">
-              How it works
-            </Link>
-          )}
+            ) : null}
+            {PUBLIC_SHOWCASE.allowStaffRoutes ? (
+              <Link
+                to={PUBLIC_SHOWCASE.enabled ? '/admin/login' : '/admin'}
+                className="hidden text-xs text-stone-500 hover:text-stone-800 sm:inline"
+              >
+                {PUBLIC_SHOWCASE.enabled ? 'Staff sign in' : 'Staff'}
+              </Link>
+            ) : (
+              <Link to="/" className="text-sm font-medium text-emerald-700 hover:text-emerald-800">
+                How it works
+              </Link>
+            )}
+          </nav>
         </div>
       </header>
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
