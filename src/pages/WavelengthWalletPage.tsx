@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
 import { createWebWalletEngine, defaultConfig } from '@lightninglabs/wavelength-web';
 import wavelengthWorkerUrl from '@lightninglabs/wavelength-web/wavewalletdk-worker.js?url';
@@ -46,6 +46,11 @@ import {
   readEligibilityToken,
 } from '../lib/livePayments';
 import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
+import {
+  confirmationPathForAuthoritativeSettlement,
+  OFFICIAL_WAVELENGTH_RECOVERY_URL,
+  officialWavelengthDemoPaymentLink,
+} from '../lib/wavelengthExternalCheckout';
 
 const wavelengthApi = (api as any).wavelength;
 const DEMO_FUNDING_DISPLAY_WINDOW_MS = 10 * 60_000;
@@ -59,6 +64,7 @@ const wavelengthEngine = createWebWalletEngine({
 
 function WalletPayment() {
   const { bookingId = '' } = useParams();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const demoSetup = isLocalDemoWalletSetup(window.location.hostname, searchParams.get('demoSetup'));
   const [confirmationCode] = useState(() => readGuestConfirmation(searchParams));
@@ -75,6 +81,7 @@ function WalletPayment() {
   const [demoFundingDisplayDeadline, setDemoFundingDisplayDeadline] = useState<number>();
   const [now, setNow] = useState(() => Date.now());
   const refreshInFlight = useRef(false);
+  const settledRedirected = useRef(false);
   const createRequest = useMutation(wavelengthApi.createRequest);
   const request = useQuery(
     wavelengthApi.forGuest,
@@ -82,6 +89,7 @@ function WalletPayment() {
   ) as any;
   const bookingInvoiceActive = Boolean(request?.bolt11 && request.status === 'invoice_ready' && request.expiresAt > now);
   const bookingInvoiceExpired = Boolean(request?.bolt11 && request.status === 'invoice_ready' && request.expiresAt <= now);
+  const officialDemoUrl = officialWavelengthDemoPaymentLink(request, now);
   const demoFundingInvoiceActive = Boolean(demoFundingInvoice && demoFundingDisplayDeadline && demoFundingDisplayDeadline > now);
   const { phase, error: walletError } = useWallet();
   const balance = useWalletBalance();
@@ -137,6 +145,20 @@ function WalletPayment() {
     const interval = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(interval);
   }, [bookingInvoiceActive, demoFundingInvoiceActive]);
+
+  useEffect(() => {
+    const confirmationPath = confirmationPathForAuthoritativeSettlement(
+      request?.status,
+      confirmationCode,
+    );
+    if (!confirmationPath || settledRedirected.current) return;
+    const redirectTimer = window.setTimeout(() => {
+      if (settledRedirected.current) return;
+      settledRedirected.current = true;
+      navigate(confirmationPath, { replace: true });
+    }, 2_000);
+    return () => window.clearTimeout(redirectTimer);
+  }, [request?.status, confirmationCode, navigate]);
 
   async function begin() {
     setError('');
@@ -291,7 +313,40 @@ function WalletPayment() {
             <div className="flex justify-between gap-3"><h2 className="font-semibold">Merchant invoice</h2><span className="text-sm">{request?.status ?? 'requesting'}</span></div>
             {request ? <p className="mt-3 text-sm text-stone-600">Fixed demo quote: {request.satsAmount.toLocaleString()} signet sats for {(request.quotedAmountCents / 100).toFixed(2)} {request.currency}.</p> : null}
             {!request?.bolt11 ? <p role="status" className="mt-3 text-sm">Waiting for the local merchant bridge…</p> : null}
-            {bookingInvoiceActive ? <div className="mt-4"><Bolt11Invoice invoice={request.bolt11} amountSats={request.satsAmount} expiresAt={request.expiresAt} label="Booking invoice" /></div> : null}
+            {bookingInvoiceActive ? (
+              <div className="mt-4 space-y-4">
+                <Bolt11Invoice invoice={request.bolt11} amountSats={request.satsAmount} expiresAt={request.expiresAt} label="Booking invoice" />
+                {officialDemoUrl ? (
+                  <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+                    <p className="font-medium text-sky-950">Use another self-custodial Wavelength wallet</p>
+                    <p className="mt-1 text-sm text-sky-900">
+                      Copy the BOLT11 above, open Wavelength’s official signet demo, choose Send,
+                      paste the same invoice, and confirm it there.
+                    </p>
+                    <a
+                      className="btn-secondary mt-3"
+                      href={officialDemoUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Pay using Wavelength’s official demo wallet
+                    </a>
+                    <p className="mt-3 text-xs text-sky-900">
+                      Need to restore a signet demo wallet? Use the{' '}
+                      <a
+                        href={OFFICIAL_WAVELENGTH_RECOVERY_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold underline underline-offset-2"
+                      >
+                        official recovery flow
+                      </a>
+                      {' '}and never enter a mainnet recovery phrase into a signet demo.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {bookingInvoiceExpired ? <p role="status" className="mt-4 text-sm text-stone-600">Invoice expired; waiting for authoritative reconciliation</p> : null}
             {request?.status === 'failed' || request?.status === 'expired' ? (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -299,7 +354,21 @@ function WalletPayment() {
                 <button type="button" className="btn-secondary mt-3" onClick={() => void begin()}>Request fresh invoice</button>
               </div>
             ) : null}
-            {request?.status === 'settled' ? <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 font-medium text-emerald-800">Consensus reached: the authenticated bridge verified the completed receive.</p> : null}
+            {request?.status === 'settled' ? (
+              <div role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-emerald-900">
+                <p className="font-semibold">Consensus reached</p>
+                <p className="mt-1 text-sm">
+                  The authenticated bridge verified the completed merchant receive. Continuing to
+                  the authoritative booking confirmation…
+                </p>
+                <Link
+                  to={confirmationPathForAuthoritativeSettlement(request.status, confirmationCode) ?? '/'}
+                  className="mt-3 inline-flex text-sm font-semibold underline underline-offset-4"
+                >
+                  Continue to confirmation
+                </Link>
+              </div>
+            ) : null}
           </section> : (
             <section className="card p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
