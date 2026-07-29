@@ -1,25 +1,28 @@
 # OpenStays status
 
-**Updated: 2026-07-29 — the public Consensus Commons showcase is live, a
-Wavelength signet booking payment has settled, and its privacy-safe
-OpenTimestamps receipt has been submitted to four public calendars.**
+**Updated: 2026-07-29 — the public Consensus Commons showcase is live, its
+Turnstile payment check is operational, and the browser Wavelength wallet now
+starts from an isolated OpenStays-owned storage path.**
 
 ## Current release
 
 - Branch: `main`
-- Application release:
+- Public frontend release:
+  `6ea526ec6a5461ea8a951f6543620491358ee991`
+- Synology merchant release:
   `e05c391334f1376c98bd5cc8dc945d593db1165b`
 - Public showcase: <https://openstays-consensus.pages.dev/>
 - Immutable Pages deployment:
-  <https://1cd9eefa.openstays-consensus.pages.dev/>
+  <https://632903cb.openstays-consensus.pages.dev/>
 - Production Convex deployment: dedicated `openstays-demo` project
   (`shiny-bison-351`).
 - Synology is the approved merchant host. SHC remains explicitly excluded.
 - The exact Synology source archive for `e05c391` is 4,167,680 bytes with
   SHA-256
   `8aa298f457c6563765ae1c65eb2d16fc76ee8ab87907944d618923c085c44e0f`.
-- Cloudflare Pages is deployed from the exact release commit.
-- The Synology image built and started from the same commit, size, and digest.
+- Cloudflare Pages is deployed from the exact public frontend commit.
+- The Synology image built and started from its pinned merchant release commit,
+  size, and digest.
   Its encrypted wallet restored with four existing activities and Container
   Manager reports it healthy.
 - Wavelength booking and reward flags are `true` in Convex and the Synology
@@ -80,6 +83,14 @@ OpenTimestamps receipt has been submitted to four public calendars.**
   source deployment with bounded recovery checks.
 - Cloudflare eligibility configuration contains no Synology origin credential,
   wallet secret, recovery phrase, or merchant bridge token.
+- Public builds now reject a missing or placeholder Turnstile site key before
+  Vite can publish a disabled live-payment flow.
+- The booking-payment and reward pages share the explicit
+  `/openstays/consensus-wallet-v2` Wavelength data directory. The legacy
+  default OPFS wallet tree was not deleted or modified; restoring a wallet
+  from that older tree into the new path requires its recovery words.
+- Browser-wallet startup errors now distinguish local SQLite/OPFS failures
+  from a genuine concurrent-tab database lock.
 
 ## Binding decisions
 
@@ -100,7 +111,7 @@ OpenTimestamps receipt has been submitted to four public calendars.**
 
 Fresh release gates passed on 2026-07-29:
 
-- root: 476 tests, typecheck, production build, docs build, runtime audit, and
+- root: 480 tests, typecheck, production build, docs build, runtime audit, and
   `git diff --check`;
 - CLI: 72 tests, typecheck, and build;
 - Synology/Cloudflare operations: 187 tests, typecheck, build, and production
@@ -109,6 +120,11 @@ Fresh release gates passed on 2026-07-29:
   findings remain in the MCP dependency's unused Hono adapter;
 - public build contains the expected version-matched compressed Wavelength
   runtime, no raw WASM duplicate, and no repository credential;
+- clean-browser startup reached `needsWallet` on the new app-owned Wavelength
+  data directory without the prior SQLite migration-backup failure;
+- the stable and immutable Pages deployments serve the new wallet data
+  directory, accurate startup diagnostics, COOP/COEP wallet headers, and the
+  version-matched compressed runtime;
 - canonical home and property routes return HTTP 200;
 - the canonical production bundle contains the hardened checkout query,
   corrected receipt/reward copy, and signet-only messaging;
