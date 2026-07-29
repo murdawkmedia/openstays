@@ -62,6 +62,20 @@ export function canConfirmPreparedPayment(
 export function explainWavelengthError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
+  if (
+    normalized.includes('sqlite_cantopen') ||
+    normalized.includes('sqlite asset unavailable') ||
+    normalized.includes('unable to open database')
+  ) {
+    return 'This browser could not open its local wallet storage. Reload once; if it persists, create or restore the wallet in the refreshed OpenStays wallet.';
+  }
+  if (
+    normalized.includes('database already open') ||
+    normalized.includes('wallet is already open') ||
+    normalized.includes('database is locked')
+  ) {
+    return 'This browser wallet is already open in another tab. Close the other OpenStays wallet tab, then reload this one.';
+  }
   if (normalized.includes('alreadyexists') || normalized.includes('already used')) {
     return 'That invoice was already used. OpenStays is reconciling it with the merchant before offering a safe replacement.';
   }

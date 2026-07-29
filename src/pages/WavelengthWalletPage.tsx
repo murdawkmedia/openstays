@@ -19,7 +19,10 @@ import {
 import { readGuestConfirmation } from '../../shared/bookingLinks';
 import { Bolt11Invoice } from '../components/Bolt11Invoice';
 import { FictionalBookingNotice } from '../components/FictionalBookingNotice';
-import { wavelengthRuntimeOptions } from '../lib/wavelengthRuntime';
+import {
+  OPENSTAYS_WAVELENGTH_DATA_DIR,
+  wavelengthRuntimeOptions,
+} from '../lib/wavelengthRuntime';
 import {
   shouldAutoRefreshWavelengthBalance,
   WAVELENGTH_BALANCE_REFRESH_INTERVAL_MS,
@@ -48,7 +51,9 @@ const wavelengthApi = (api as any).wavelength;
 const DEMO_FUNDING_DISPLAY_WINDOW_MS = 10 * 60_000;
 const wavelengthEngine = createWebWalletEngine({
   ...wavelengthRuntimeOptions(window.location.href, wavelengthWorkerUrl),
-  config: defaultConfig('signet'),
+  config: defaultConfig('signet', {
+    dataDir: OPENSTAYS_WAVELENGTH_DATA_DIR,
+  }),
   autoStart: true,
 });
 
@@ -320,8 +325,10 @@ function WalletPayment() {
             <div className="flex justify-between gap-3"><h2 className="font-semibold">Your self-custodial wallet</h2><span className="text-sm">{phase}</span></div>
             {phase === 'error' ? (
               <div role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
-                <p className="font-medium">This browser wallet is already open elsewhere</p>
-                <p className="mt-1 text-sm">Close any other OpenStays wallet tab, then reload this payment page. Your wallet and booking remain safe.</p>
+                <p className="font-medium">The browser wallet could not start</p>
+                <p className="mt-1 text-sm">
+                  {explainWavelengthError(walletError)}
+                </p>
                 <details className="mt-3 text-sm">
                   <summary className="cursor-pointer font-medium">Technical detail</summary>
                   <p className="mt-2 break-words font-mono text-xs">{wavelengthRuntimeDiagnostic(walletError)}</p>
