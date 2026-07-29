@@ -53,7 +53,6 @@ export class MerchantControl {
   constructor(options) {
     this.options = options;
     this.processes = [];
-    this.daemonProcess = undefined;
     this.status = 'starting';
     this.failureCategory = undefined;
     this.restored = false;
@@ -105,7 +104,6 @@ export class MerchantControl {
       if (code !== 0) failRequiredProcess();
     });
     this.processes.push(child);
-    return child;
   }
 
   async waitForDaemon() {
@@ -172,7 +170,7 @@ export class MerchantControl {
 
   async start() {
     if (!this.restored) throw new Error('RESTORE_REQUIRED');
-    this.daemonProcess = this.spawnRequired(this.options.daemonCommand);
+    this.spawnRequired(this.options.daemonCommand);
     await this.waitForDaemon();
     await this.walletLifecycle('unlock');
     this.startWorkers();
@@ -184,7 +182,7 @@ export class MerchantControl {
       throw new Error('BOOTSTRAP_ALREADY_ATTEMPTED');
     }
     mkdirSync(this.options.walletDirectory, { recursive: true, mode: 0o700 });
-    this.daemonProcess = this.spawnRequired(this.options.daemonCommand);
+    this.spawnRequired(this.options.daemonCommand);
     await this.waitForDaemon();
     const created = await this.walletLifecycle('create');
     if (
@@ -204,23 +202,11 @@ export class MerchantControl {
 
   backup(outputPath) {
     if (this.status !== 'ready') throw new Error('MERCHANT_NOT_READY');
-    const daemon = this.daemonProcess;
-    if (!daemon || !daemon.kill('SIGSTOP')) {
-      throw new Error('BACKUP_DAEMON_QUIESCE_FAILED');
-    }
-    try {
-      return backupWallet(
-        this.options.walletDirectory,
-        outputPath,
-        this.options.backupKeyBase64,
-      );
-    } finally {
-      if (!daemon.kill('SIGCONT')) {
-        this.status = 'failed';
-        this.failureCategory = 'backup_daemon_resume_failed';
-        throw new Error('BACKUP_DAEMON_RESUME_FAILED');
-      }
-    }
+    return backupWallet(
+      this.options.walletDirectory,
+      outputPath,
+      this.options.backupKeyBase64,
+    );
   }
 
   health() {
@@ -235,7 +221,6 @@ export class MerchantControl {
     this.stopping = true;
     for (const child of this.processes) child.kill('SIGTERM');
     this.processes = [];
-    this.daemonProcess = undefined;
   }
 }
 
@@ -293,8 +278,10 @@ export function createControlServer(control, token) {
           process.env.WALLET_BACKUP_OUTPUT_PATH
             ?? '/run/openstays/wallet.tar.gz.enc',
         );
+        const outputDirectory = dirname(configuredOutputPath);
+        mkdirSync(outputDirectory, { recursive: true, mode: 0o700 });
         const requestDirectory = mkdtempSync(join(
-          dirname(configuredOutputPath),
+          outputDirectory,
           `.${basename(configuredOutputPath)}-`,
         ));
         const outputPath = join(

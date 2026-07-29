@@ -1,4 +1,4 @@
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { createHash } from 'node:crypto';
 import {
   mkdtempSync,
@@ -8,11 +8,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { MerchantControl } from '../container/control.mjs';
+import {
+  createControlServer,
+  MerchantControl,
+} from '../container/control.mjs';
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
@@ -50,21 +53,6 @@ vi.mock('../container/backup.mjs', async (importOriginal) => {
   const { join } = await import('node:path');
   return {
     ...actual,
-    backupWallet(
-      _walletDirectory: string,
-      outputPath: string,
-      base64Key: string,
-    ) {
-      if (Buffer.from(base64Key, 'base64').byteLength !== 32) {
-        throw new Error('BACKUP_KEY_MUST_BE_32_BYTES');
-      }
-      const bytes = Buffer.from('encrypted-wallet');
-      writeFileSync(outputPath, bytes);
-      return {
-        sha256: createHash('sha256').update(bytes).digest('hex'),
-        byteLength: bytes.byteLength,
-      };
-    },
     restoreWallet(
       _inputPath: string,
       outputDirectory: string,
@@ -113,6 +101,58 @@ describe('merchant wallet bootstrap control', () => {
     expect(readFileSync(join(walletDirectory, 'wallet.db'), 'utf8')).toBe(
       'restored-wallet',
     );
+  });
+
+  it('creates a configured backup parent before staging the response', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'openstays-control-server-backup-'));
+    temporaryDirectories.push(root);
+    const outputPath = join(root, 'missing', 'runtime', 'wallet.tar.gz.enc');
+    const previousOutputPath = process.env.WALLET_BACKUP_OUTPUT_PATH;
+    process.env.WALLET_BACKUP_OUTPUT_PATH = outputPath;
+    const bytes = Buffer.from('encrypted-wallet');
+    const control = {
+      health: vi.fn(() => ({ status: 'ready' })),
+      bootstrap: vi.fn(),
+      backup: vi.fn(async (path: string) => {
+        writeFileSync(path, bytes);
+        return {
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+          byteLength: bytes.byteLength,
+        };
+      }),
+      stop: vi.fn(),
+    };
+    const server = createControlServer(control, 'control-token');
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('TEST_CONTROL_ADDRESS_INVALID');
+    }
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/backup`,
+        {
+          method: 'POST',
+          headers: { Authorization: 'Bearer control-token' },
+        },
+      );
+      expect(response.status).toBe(201);
+      expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+      expect(control.backup).toHaveBeenCalledOnce();
+      expect(dirname(control.backup.mock.calls[0]![0])).toContain(
+        join(root, 'missing', 'runtime'),
+      );
+    } finally {
+      server.close();
+      await once(server, 'close');
+      if (previousOutputPath === undefined) {
+        delete process.env.WALLET_BACKUP_OUTPUT_PATH;
+      } else {
+        process.env.WALLET_BACKUP_OUTPUT_PATH = previousOutputPath;
+      }
+    }
   });
 
   it('creates one signet wallet without returning or logging its password', async () => {
@@ -164,71 +204,4 @@ describe('merchant wallet bootstrap control', () => {
     control.stop();
   });
 
-  it('quiesces only the daemon while archiving a live wallet', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'openstays-control-backup-'));
-    temporaryDirectories.push(root);
-    const walletDirectory = join(root, 'wallet');
-    const daemon = fakeChild();
-    const worker = fakeChild();
-    const children = [daemon, worker];
-    const control = new MerchantControl({
-      walletDirectory,
-      backupKeyBase64: Buffer.alloc(32, 9).toString('base64'),
-      walletPassword: 'merchant-test-password',
-      release: 'test',
-      daemonCommand: { file: 'waved', args: [], env: {} },
-      workerCommands: [{ file: 'bridge', args: [], env: {} }],
-      spawnCommand: vi.fn(() => children.shift()!),
-      fetchDaemon: vi.fn(async (url: string | URL | Request) => (
-        String(url).endsWith('/create')
-          ? new Response(JSON.stringify({
-              mnemonic: Array.from({ length: 24 }, () => 'word'),
-            }))
-          : new Response('{}')
-      )),
-      wait: vi.fn(),
-    });
-
-    await control.bootstrap();
-    writeFileSync(join(walletDirectory, 'wallet.db'), 'live-wallet');
-    control.backup(join(root, 'wallet.tar.gz.enc'));
-
-    expect(daemon.kill).toHaveBeenNthCalledWith(1, 'SIGSTOP');
-    expect(daemon.kill).toHaveBeenNthCalledWith(2, 'SIGCONT');
-    expect(worker.kill).not.toHaveBeenCalled();
-    control.stop();
-  });
-
-  it('always resumes the daemon when live-wallet archiving fails', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'openstays-control-backup-fail-'));
-    temporaryDirectories.push(root);
-    const walletDirectory = join(root, 'wallet');
-    const daemon = fakeChild();
-    const control = new MerchantControl({
-      walletDirectory,
-      backupKeyBase64: Buffer.alloc(31, 9).toString('base64'),
-      walletPassword: 'merchant-test-password',
-      release: 'test',
-      daemonCommand: { file: 'waved', args: [], env: {} },
-      workerCommands: [],
-      spawnCommand: vi.fn(() => daemon),
-      fetchDaemon: vi.fn(async (url: string | URL | Request) => (
-        String(url).endsWith('/create')
-          ? new Response(JSON.stringify({
-              mnemonic: Array.from({ length: 24 }, () => 'word'),
-            }))
-          : new Response('{}')
-      )),
-      wait: vi.fn(),
-    });
-
-    await control.bootstrap();
-    writeFileSync(join(walletDirectory, 'wallet.db'), 'live-wallet');
-
-    expect(() => control.backup(join(root, 'wallet.tar.gz.enc')))
-      .toThrow('BACKUP_KEY_MUST_BE_32_BYTES');
-    expect(daemon.kill).toHaveBeenNthCalledWith(1, 'SIGSTOP');
-    expect(daemon.kill).toHaveBeenNthCalledWith(2, 'SIGCONT');
-    control.stop();
-  });
 });
