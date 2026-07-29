@@ -7,6 +7,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/check-public-showcase-env.mjs",
     "build": "vite build",
     "prepreview": "npm run wavelength:runtime:check -- dist/wavewalletdk",
     "preview": "vite preview",
