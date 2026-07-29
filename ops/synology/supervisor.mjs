@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   createControlServer,
+  createOtsWorkerEnvironment,
   MerchantControl,
 } from '../cloudflare/container/control.mjs';
 import { GenerationStore } from './generationStore.mjs';
@@ -737,6 +738,10 @@ function defaultRuntimeSupervisor(env) {
     WAVELENGTH_EXPECTED_NETWORK: 'signet',
     OTS_COMMAND: '/usr/local/bin/ots',
   };
+  const otsWorkerEnv = createOtsWorkerEnvironment(
+    childEnv,
+    dirname(walletDirectory),
+  );
   const merchant = new MerchantControl({
     walletDirectory,
     backupKeyBase64,
@@ -767,7 +772,7 @@ function defaultRuntimeSupervisor(env) {
       {
         file: process.execPath,
         args: [cli, 'ots-bridge'],
-        env: childEnv,
+        env: otsWorkerEnv,
       },
       {
         file: process.execPath,

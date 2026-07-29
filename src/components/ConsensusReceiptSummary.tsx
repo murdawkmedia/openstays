@@ -42,11 +42,15 @@ export function ConsensusReceiptSummary({ receipt, reward, rewardUrl, onDownload
       <p className="font-semibold text-stone-900">Consensus reward</p>
       {reward?.status === 'paid' ? (
         <p className="mt-1 text-sm text-emerald-700">{rewardLabel} received.</p>
+      ) : !submitted ? (
+        <p className="mt-1 text-sm text-stone-500">
+          Reward unlocks after timestamp submission.
+        </p>
       ) : !reward ? (
         <p className="mt-1 text-sm text-stone-500">
-          Simulated tours do not issue a signet reward.
+          This receipt does not include a signet reward.
         </p>
-      ) : submitted ? (
+      ) : (
         onClaimReward ? (
           <button type="button" onClick={onClaimReward} className="btn-primary mt-3 inline-flex">
             Claim {rewardLabel}
@@ -60,8 +64,6 @@ export function ConsensusReceiptSummary({ receipt, reward, rewardUrl, onDownload
             Reward claim is temporarily unavailable; eligibility remains recorded.
           </p>
         )
-      ) : (
-        <p className="mt-1 text-sm text-stone-500">Unlocks after timestamp submission.</p>
       )}
       <p className="mt-3 text-xs text-stone-500">OpenTimestamps anchors to Bitcoin mainnet. The Wavelength reward uses signet test sats; these are separate rails.</p>
     </div>

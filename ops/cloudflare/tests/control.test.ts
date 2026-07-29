@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  createOtsWorkerEnvironment,
   createControlServer,
   MerchantControl,
 } from '../container/control.mjs';
@@ -96,6 +97,26 @@ function fakeChild() {
 }
 
 describe('merchant wallet bootstrap control', () => {
+  it('places the OpenTimestamps cache under the writable state root', () => {
+    const stateRoot = join(tmpdir(), 'openstays-state');
+    const inherited = {
+      HOME: '/',
+      XDG_CACHE_HOME: '/unwritable-cache',
+      OTS_COMMAND: '/usr/local/bin/ots',
+    };
+
+    expect(createOtsWorkerEnvironment(inherited, stateRoot)).toEqual({
+      ...inherited,
+      HOME: stateRoot,
+      XDG_CACHE_HOME: join(stateRoot, '.cache'),
+    });
+    expect(inherited).toEqual({
+      HOME: '/',
+      XDG_CACHE_HOME: '/unwritable-cache',
+      OTS_COMMAND: '/usr/local/bin/ots',
+    });
+  });
+
   it('stages a restored wallet on the destination filesystem before atomic rename', async () => {
     const root = mkdtempSync(join(tmpdir(), 'openstays-control-restore-'));
     temporaryDirectories.push(root);

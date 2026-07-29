@@ -44,7 +44,12 @@ export function CheckoutPage() {
   const [code] = useState(() => readGuestConfirmation(searchParams));
   const navigate = useNavigate();
 
-  const booking = useQuery(api.bookings.byConfirmationCode, code ? { code } : 'skip');
+  const booking = useQuery(
+    api.bookings.forCheckout,
+    bookingId && code
+      ? { bookingId: bookingId as Id<'bookings'>, code }
+      : 'skip',
+  );
   const providerInfo = useQuery(api.payments.checkout.availableProviders);
   const wavelengthInfo = useQuery((api as any).wavelength.available);
   // Single-operator-per-deployment (CLAUDE.md #8): configList always

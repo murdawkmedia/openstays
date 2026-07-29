@@ -54,6 +54,15 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+export function createOtsWorkerEnvironment(env, stateRoot) {
+  const writableRoot = resolve(stateRoot);
+  return {
+    ...env,
+    HOME: writableRoot,
+    XDG_CACHE_HOME: join(writableRoot, '.cache'),
+  };
+}
+
 function json(response, status, body) {
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -382,6 +391,10 @@ if (process.argv[1]
     WAVELENGTH_EXPECTED_NETWORK: 'signet',
     OTS_COMMAND: '/usr/local/bin/ots',
   };
+  const otsWorkerEnv = createOtsWorkerEnvironment(
+    childEnv,
+    dirname(resolve(walletDirectory)),
+  );
   const control = new MerchantControl({
     walletDirectory,
     backupKeyBase64: process.env.WALLET_BACKUP_KEY_BASE64,
@@ -405,7 +418,7 @@ if (process.argv[1]
     },
     workerCommands: [
       { file: process.execPath, args: [cli, 'wave-bridge'], env: childEnv },
-      { file: process.execPath, args: [cli, 'ots-bridge'], env: childEnv },
+      { file: process.execPath, args: [cli, 'ots-bridge'], env: otsWorkerEnv },
       { file: process.execPath, args: [cli, 'mail-bridge'], env: childEnv },
     ],
   });
