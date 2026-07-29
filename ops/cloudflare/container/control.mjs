@@ -18,6 +18,30 @@ import { backupWallet, restoreWallet } from './backup.mjs';
 
 const HOST = '127.0.0.1';
 const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
+const DEFAULT_DAEMON_PROBE_TIMEOUT_MS = 1_000;
+const DEFAULT_DAEMON_REQUEST_TIMEOUT_MS = 30_000;
+
+async function boundedFetch(fetchImpl, url, options, timeoutMs, category) {
+  const controller = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(category));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => fetchImpl(url, {
+        ...options,
+        signal: controller.signal,
+      })),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function authorized(header, expected) {
   if (!header?.startsWith('Bearer ') || !expected) return false;
@@ -53,6 +77,7 @@ export class MerchantControl {
   constructor(options) {
     this.options = options;
     this.processes = [];
+    this.daemonProcess = undefined;
     this.status = 'starting';
     this.failureCategory = undefined;
     this.restored = false;
@@ -104,6 +129,7 @@ export class MerchantControl {
       if (code !== 0) failRequiredProcess();
     });
     this.processes.push(child);
+    return child;
   }
 
   async waitForDaemon() {
@@ -112,13 +138,17 @@ export class MerchantControl {
       new Promise((resolve) => setTimeout(resolve, delayMs)));
     for (let attempt = 0; attempt < 100; attempt += 1) {
       try {
-        await fetchDaemon(
+        await boundedFetch(
+          fetchDaemon,
           'http://127.0.0.1:10031/v1/daemon/get-info',
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: '{}',
           },
+          this.options.daemonProbeTimeoutMs
+            ?? DEFAULT_DAEMON_PROBE_TIMEOUT_MS,
+          'WAVELENGTH_DAEMON_PROBE_TIMEOUT',
         );
         // Before wallet creation, Wavelength may answer this probe with
         // FAILED_PRECONDITION. Any HTTP response proves the loopback gateway
@@ -138,7 +168,8 @@ export class MerchantControl {
       throw new Error('WAVELENGTH_WALLET_PASSWORD_TOO_SHORT');
     }
     const fetchDaemon = this.options.fetchDaemon ?? fetch;
-    const response = await fetchDaemon(
+    const response = await boundedFetch(
+      fetchDaemon,
       `http://127.0.0.1:10031/v1/wallet/${path}`,
       {
         method: 'POST',
@@ -147,6 +178,8 @@ export class MerchantControl {
           wallet_password: Buffer.from(password, 'utf8').toString('base64'),
         }),
       },
+      this.options.requestTimeoutMs ?? DEFAULT_DAEMON_REQUEST_TIMEOUT_MS,
+      `WAVELENGTH_WALLET_${path.toUpperCase()}_TIMEOUT`,
     );
     if (!response.ok) {
       if (this.options.diagnosticLifecycleErrors) {
@@ -170,7 +203,7 @@ export class MerchantControl {
 
   async start() {
     if (!this.restored) throw new Error('RESTORE_REQUIRED');
-    this.spawnRequired(this.options.daemonCommand);
+    this.daemonProcess = this.spawnRequired(this.options.daemonCommand);
     await this.waitForDaemon();
     await this.walletLifecycle('unlock');
     this.startWorkers();
@@ -182,7 +215,7 @@ export class MerchantControl {
       throw new Error('BOOTSTRAP_ALREADY_ATTEMPTED');
     }
     mkdirSync(this.options.walletDirectory, { recursive: true, mode: 0o700 });
-    this.spawnRequired(this.options.daemonCommand);
+    this.daemonProcess = this.spawnRequired(this.options.daemonCommand);
     await this.waitForDaemon();
     const created = await this.walletLifecycle('create');
     if (
@@ -202,11 +235,23 @@ export class MerchantControl {
 
   backup(outputPath) {
     if (this.status !== 'ready') throw new Error('MERCHANT_NOT_READY');
-    return backupWallet(
-      this.options.walletDirectory,
-      outputPath,
-      this.options.backupKeyBase64,
-    );
+    const daemon = this.daemonProcess;
+    if (!daemon || !daemon.kill('SIGSTOP')) {
+      throw new Error('BACKUP_DAEMON_QUIESCE_FAILED');
+    }
+    try {
+      return backupWallet(
+        this.options.walletDirectory,
+        outputPath,
+        this.options.backupKeyBase64,
+      );
+    } finally {
+      if (!daemon.kill('SIGCONT')) {
+        this.status = 'failed';
+        this.failureCategory = 'backup_daemon_resume_failed';
+        throw new Error('BACKUP_DAEMON_RESUME_FAILED');
+      }
+    }
   }
 
   health() {
@@ -221,6 +266,7 @@ export class MerchantControl {
     this.stopping = true;
     for (const child of this.processes) child.kill('SIGTERM');
     this.processes = [];
+    this.daemonProcess = undefined;
   }
 }
 

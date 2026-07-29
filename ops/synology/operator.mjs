@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 const LOOPBACK_HOST = '127.0.0.1';
 const DEFAULT_CONTROL_PORT = 8_080;
+const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
 const routes = Object.freeze({
   health: ['GET', '/health'],
   bootstrap: ['POST', '/bootstrap'],
@@ -21,6 +22,28 @@ function controlPort(value) {
 
 function successfulStatus(response) {
   return response.status >= 200 && response.status < 300;
+}
+
+async function boundedFetch(fetchImpl, url, options, timeoutMs) {
+  const controller = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error('OPERATOR_REQUEST_TIMEOUT'));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => fetchImpl(url, {
+        ...options,
+        signal: controller.signal,
+      })),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function jsonResponse(response) {
@@ -57,6 +80,7 @@ export async function runOperator(
     env = process.env,
     fetchImpl = fetch,
     write = (value) => process.stdout.write(value),
+    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   } = {},
 ) {
   if (
@@ -72,7 +96,8 @@ export async function runOperator(
     throw new Error('CONTAINER_CONTROL_TOKEN_REQUIRED');
   }
   const [method, path] = routes[command];
-  const response = await fetchImpl(
+  const response = await boundedFetch(
+    fetchImpl,
     `http://${LOOPBACK_HOST}:${controlPort(env.CONTROL_PORT)}${path}`,
     {
       method,
@@ -83,6 +108,7 @@ export async function runOperator(
           : 'application/json',
       },
     },
+    requestTimeoutMs,
   );
   if (!successfulStatus(response)) {
     throw new Error('OPERATOR_REQUEST_FAILED');
