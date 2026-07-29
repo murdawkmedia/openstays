@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+function headerBlock(headers: string, path: string): string {
+  const escapedPath = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = headers.match(new RegExp(`^${escapedPath}\\r?\\n((?:  .+\\r?\\n?)*)`, "m"));
+
+  return match?.[1] ?? "";
+}
+
 describe("Cloudflare Pages public showcase contract", () => {
   it("serves application deep links through the SPA entry point", () => {
     const redirects = readFileSync("public/_redirects", "utf8");
@@ -21,10 +28,30 @@ describe("Cloudflare Pages public showcase contract", () => {
   it("scopes cross-origin isolation to wallet routes", () => {
     const headers = readFileSync("public/_headers", "utf8");
 
-    expect(headers).toContain("/wallet/*");
-    expect(headers).toContain("Cross-Origin-Opener-Policy: same-origin");
-    expect(headers).toContain("Cross-Origin-Embedder-Policy: require-corp");
-    expect(headers).toContain("Cross-Origin-Resource-Policy: same-origin");
+    expect(headerBlock(headers, "/wallet/*")).toContain(
+      "Cross-Origin-Opener-Policy: same-origin",
+    );
+    expect(headerBlock(headers, "/wallet/*")).toContain(
+      "Cross-Origin-Embedder-Policy: require-corp",
+    );
+    expect(headerBlock(headers, "/wavewalletdk/*")).toContain(
+      "Cross-Origin-Embedder-Policy: require-corp",
+    );
+    expect(headerBlock(headers, "/wavewalletdk/*")).toContain(
+      "Cross-Origin-Resource-Policy: same-origin",
+    );
+    expect(headerBlock(headers, "/wavewalletdk-isolated-v1/*")).toContain(
+      "Cross-Origin-Embedder-Policy: require-corp",
+    );
+    expect(headerBlock(headers, "/wavewalletdk-isolated-v1/*")).toContain(
+      "Cross-Origin-Resource-Policy: same-origin",
+    );
+    expect(headerBlock(headers, "/assets/wavewalletdk-worker-*")).toContain(
+      "Cross-Origin-Embedder-Policy: require-corp",
+    );
+    expect(headerBlock(headers, "/assets/wavewalletdk-worker-*")).toContain(
+      "Cross-Origin-Resource-Policy: same-origin",
+    );
   });
 
   it("documents the fail-closed public showcase build switch", () => {
@@ -45,7 +72,11 @@ describe("Cloudflare Pages public showcase contract", () => {
     expect(viteConfig).toContain(
       "resolve('dist', 'wavewalletdk', 'wavewalletdk.wasm')",
     );
+    expect(viteConfig).toContain("public-showcase-version-wallet-runtime");
+    expect(viteConfig).toContain("resolve('dist', 'wavewalletdk-isolated-v1')");
     expect(viteConfig).toContain("request.url?.startsWith('/wallet/')");
+    expect(viteConfig).toContain("request.url?.startsWith('/wavewalletdk/')");
+    expect(viteConfig).toContain("request.url?.includes('wavewalletdk-worker')");
     expect(viteConfig).not.toContain("server: {\n    headers:");
   });
 });

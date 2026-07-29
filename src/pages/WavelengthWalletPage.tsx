@@ -253,14 +253,11 @@ function WalletPayment() {
     }
   }
 
-  const displayError = error || (walletError || create.createError || unlock.unlockError ||
-    deposit.depositError || prepare.prepareError || receive.receiveError ||
-    refresh.refreshError || send.sendError
-    ? explainWavelengthError(
-      walletError ?? create.createError ?? unlock.unlockError ??
-      deposit.depositError ?? prepare.prepareError ?? receive.receiveError ??
-      refresh.refreshError ?? send.sendError,
-    )
+  const operationError = walletError ?? create.createError ?? unlock.unlockError ??
+    deposit.depositError ?? prepare.prepareError ?? receive.receiveError ??
+    refresh.refreshError ?? send.sendError;
+  const displayError = error || (operationError
+    ? explainWavelengthError(operationError)
     : '');
 
   return (
@@ -416,7 +413,19 @@ function WalletPayment() {
               </div>
             ) : null}
 
-            {phase !== 'error' && displayError ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{displayError}</p> : null}
+            {phase !== 'error' && displayError ? (
+              <div role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+                <p>{displayError}</p>
+                {operationError ? (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer font-medium">Technical detail</summary>
+                    <p className="mt-2 break-words font-mono text-xs">
+                      {wavelengthRuntimeDiagnostic(operationError)}
+                    </p>
+                  </details>
+                ) : null}
+              </div>
+            ) : null}
             {create.createData?.mnemonic?.length && !recoverySaved ? (
               <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4">
                 <p className="font-semibold">Save the wallet recovery words privately</p>
