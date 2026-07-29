@@ -46,6 +46,8 @@ import type * as refunds from "../refunds.js";
 import type * as rewardPolicy from "../rewardPolicy.js";
 import type * as seed from "../seed.js";
 import type * as staff from "../staff.js";
+import type * as treasury from "../treasury.js";
+import type * as treasuryPolicy from "../treasuryPolicy.js";
 import type * as wavelength from "../wavelength.js";
 import type * as wavelengthRewards from "../wavelengthRewards.js";
 
@@ -94,6 +96,8 @@ declare const fullApi: ApiFromModules<{
   rewardPolicy: typeof rewardPolicy;
   seed: typeof seed;
   staff: typeof staff;
+  treasury: typeof treasury;
+  treasuryPolicy: typeof treasuryPolicy;
   wavelength: typeof wavelength;
   wavelengthRewards: typeof wavelengthRewards;
 }>;
