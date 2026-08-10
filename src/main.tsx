@@ -1,6 +1,6 @@
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ConvexReactClient } from 'convex/react';
 import { ConvexAuthProvider } from '@convex-dev/auth/react';
 
@@ -28,8 +28,12 @@ const WavelengthWalletPage =
   INCLUDE_WAVELENGTH_WALLET ? lazy(() => import('./pages/WavelengthWalletPage')) : null;
 const ConsensusRewardPage =
   INCLUDE_WAVELENGTH_WALLET ? lazy(() => import('./pages/ConsensusRewardPage')) : null;
-const AdminTapePage =
-  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminTapePage').then((module) => ({ default: module.AdminTapePage }))) : null;
+const AdminShell =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./components/AdminShell').then((module) => ({ default: module.AdminShell }))) : null;
+const AdminCommandPage =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminCommandPage').then((module) => ({ default: module.AdminCommandPage }))) : null;
+const AdminWorkflowPage =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminWorkflowPage').then((module) => ({ default: module.AdminWorkflowPage }))) : null;
 const AdminOperationsPage =
   INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminOperationsPage').then((module) => ({ default: module.AdminOperationsPage }))) : null;
 const AdminSettingsPage =
@@ -47,8 +51,11 @@ const rewardWalletElement = PUBLIC_SHOWCASE.allowLiveWavelength && ConsensusRewa
     <ConsensusRewardPage />
   </Suspense>
 ) : <PublicShowcaseBoundaryPage />;
-const staffTapeElement = PUBLIC_SHOWCASE.allowStaffRoutes && AdminTapePage ? (
-  <Suspense fallback={<p className="p-8">Loading staff consoleâ€¦</p>}><AdminTapePage /></Suspense>
+const staffShellElement = PUBLIC_SHOWCASE.allowStaffRoutes && AdminShell ? (
+  <Suspense fallback={<p className="p-8">Loading staff console…</p>}><AdminShell /></Suspense>
+) : <PublicShowcaseBoundaryPage />;
+const staffCommandElement = PUBLIC_SHOWCASE.allowStaffRoutes && AdminCommandPage ? (
+  <Suspense fallback={<p className="p-8">Loading command center…</p>}><AdminCommandPage /></Suspense>
 ) : <PublicShowcaseBoundaryPage />;
 const staffOperationsElement = PUBLIC_SHOWCASE.allowStaffRoutes && AdminOperationsPage ? (
   <Suspense fallback={<p className="p-8">Loading staff operationsâ€¦</p>}><AdminOperationsPage /></Suspense>
@@ -89,10 +96,25 @@ createRoot(rootElement).render(
             <Route path="/wallet/reward/:code" element={rewardWalletElement} />
             <Route path="/tour/operations" element={<PublicOperationsTourPage />} />
             <Route path="/about" element={<AboutPage />} />
-            <Route path="/admin" element={staffTapeElement} />
-            <Route path="/admin/operations" element={staffOperationsElement} />
-            <Route path="/admin/settings" element={staffSettingsElement} />
             <Route path="/admin/login" element={staffLoginElement} />
+            <Route path="/admin" element={staffShellElement}>
+              <Route index element={<Navigate to="/admin/command" replace />} />
+              <Route path="command" element={staffCommandElement} />
+              {AdminWorkflowPage ? (
+                <>
+                  <Route path="front-desk" element={<Suspense fallback={<p>Loading front desk…</p>}><AdminWorkflowPage workflow="front-desk" /></Suspense>} />
+                  <Route path="housekeeping" element={<Suspense fallback={<p>Loading housekeeping…</p>}><AdminWorkflowPage workflow="housekeeping" /></Suspense>} />
+                  <Route path="maintenance" element={<Suspense fallback={<p>Loading maintenance…</p>}><AdminWorkflowPage workflow="maintenance" /></Suspense>} />
+                  <Route path="folios" element={<Suspense fallback={<p>Loading folios…</p>}><AdminWorkflowPage workflow="folios" /></Suspense>} />
+                  <Route path="quotes" element={<Suspense fallback={<p>Loading quotes…</p>}><AdminWorkflowPage workflow="quotes" /></Suspense>} />
+                  <Route path="contracts" element={<Suspense fallback={<p>Loading contracts…</p>}><AdminWorkflowPage workflow="contracts" /></Suspense>} />
+                  <Route path="night-audit" element={<Suspense fallback={<p>Loading night audit…</p>}><AdminWorkflowPage workflow="night-audit" /></Suspense>} />
+                  <Route path="reports" element={<Suspense fallback={<p>Loading reports…</p>}><AdminWorkflowPage workflow="reports" /></Suspense>} />
+                </>
+              ) : null}
+              <Route path="operations" element={staffOperationsElement} />
+              <Route path="settings" element={staffSettingsElement} />
+            </Route>
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

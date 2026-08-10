@@ -429,3 +429,153 @@ describe('staff.recentActivity', () => {
     expect(rows).toHaveLength(1);
   });
 });
+
+describe('per-property operational access', () => {
+  it('maps legacy profiles safely before assignment backfill', async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await seedOwner(t);
+    const propertyId = await seedProperty(t);
+    const asOwner = t.withIdentity(identityFor(ownerId));
+
+    const context = await asOwner.query((api as any).staff.propertyContext, { propertyId });
+
+    expect(context.role).toBe('owner');
+    expect(context.capabilities).toContain('staff.manage');
+  });
+
+  it('uses explicit assignments and denies unassigned properties once scoped access exists', async () => {
+    const t = convexTest(schema, modules);
+    const staffUserId = await seedUser(t, 'manager@example.com', 'Manager');
+    const profileId = await t.run(async (ctx) =>
+      ctx.db.insert('staffProfiles', {
+        userId: staffUserId,
+        name: 'Manager',
+        role: 'staff',
+        active: true,
+        createdAt: Date.now(),
+      }),
+    );
+    const propertyId = await seedProperty(t);
+    const secondPropertyId = await t.run(async (ctx) =>
+      ctx.db.insert('properties', {
+        name: 'Second Grounds',
+        slug: 'second-grounds',
+        timezone: 'America/Edmonton',
+        currency: 'CAD',
+        taxRateBps: 500,
+        email: 'second@example.com',
+        phone: '555',
+        address: '2 Test Rd',
+        checkInTime: '16:00',
+        checkOutTime: '11:00',
+        active: true,
+      }),
+    );
+    await t.run(async (ctx) =>
+      ctx.db.insert('staffPropertyAssignments' as any, {
+        staffProfileId: profileId,
+        userId: staffUserId,
+        propertyId,
+        role: 'manager',
+        active: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    const asManager = t.withIdentity(identityFor(staffUserId));
+
+    const context = await asManager.query((api as any).staff.propertyContext, { propertyId });
+    expect(context.role).toBe('manager');
+    expect(context.capabilities).toContain('complimentary.approve');
+    expect(context.capabilities).not.toContain('staff.manage');
+
+    await expect(
+      asManager.query((api as any).staff.propertyContext, { propertyId: secondPropertyId }),
+    ).rejects.toThrow(/PROPERTY_ACCESS_DENIED/);
+  });
+
+  it('backfills every active legacy profile across active properties exactly once', async () => {
+    const t = convexTest(schema, modules);
+    await seedOwner(t);
+    const staffUserId = await seedUser(t, 'frontdesk@example.com', 'Front Desk');
+    await t.run(async (ctx) =>
+      ctx.db.insert('staffProfiles', {
+        userId: staffUserId,
+        name: 'Front Desk',
+        role: 'staff',
+        active: true,
+        createdAt: Date.now(),
+      }),
+    );
+    await seedProperty(t);
+    await t.run(async (ctx) =>
+      ctx.db.insert('properties', {
+        name: 'Inactive Grounds',
+        slug: 'inactive-grounds',
+        timezone: 'America/Edmonton',
+        currency: 'CAD',
+        taxRateBps: 500,
+        email: 'inactive@example.com',
+        phone: '555',
+        address: '3 Test Rd',
+        checkInTime: '16:00',
+        checkOutTime: '11:00',
+        active: false,
+      }),
+    );
+
+    const first = await t.mutation((internal as any).staff.backfillPropertyAssignments, {});
+    const second = await t.mutation((internal as any).staff.backfillPropertyAssignments, {});
+    const assignments = await t.run(async (ctx) =>
+      ctx.db.query('staffPropertyAssignments' as any).collect(),
+    );
+
+    expect(first).toEqual({ inserted: 2, existing: 0 });
+    expect(second).toEqual({ inserted: 0, existing: 2 });
+    expect(assignments).toHaveLength(2);
+    expect(assignments.map((assignment: any) => assignment.role).sort()).toEqual(['front_desk', 'owner']);
+  });
+
+  it('lists only explicitly assigned properties once scoped access exists', async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await seedOwner(t);
+    const firstPropertyId = await seedProperty(t);
+    const secondPropertyId = await t.run(async (ctx) =>
+      ctx.db.insert('properties', {
+        name: 'Second Grounds',
+        slug: 'second-grounds',
+        timezone: 'America/Edmonton',
+        currency: 'CAD',
+        taxRateBps: 500,
+        email: 'second@example.com',
+        phone: '555',
+        address: '2 Test Rd',
+        checkInTime: '16:00',
+        checkOutTime: '11:00',
+        active: true,
+      }),
+    );
+    const profileId = await t.run(async (ctx) =>
+      (await ctx.db
+        .query('staffProfiles')
+        .withIndex('by_userId', (q) => q.eq('userId', ownerId))
+        .unique())!._id,
+    );
+    await t.run(async (ctx) =>
+      ctx.db.insert('staffPropertyAssignments', {
+        staffProfileId: profileId,
+        userId: ownerId,
+        propertyId: secondPropertyId,
+        role: 'manager',
+        active: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    const rows = await t.withIdentity(identityFor(ownerId)).query((api as any).staff.assignedProperties, {});
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ propertyId: secondPropertyId, role: 'manager' });
+    expect(rows[0].propertyId).not.toBe(firstPropertyId);
+  });
+});

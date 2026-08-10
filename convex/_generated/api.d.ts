@@ -30,6 +30,8 @@ import type * as http from "../http.js";
 import type * as ical from "../ical.js";
 import type * as icalImport from "../icalImport.js";
 import type * as messages from "../messages.js";
+import type * as operations from "../operations.js";
+import type * as operationsFoundation from "../operationsFoundation.js";
 import type * as operationsHealth from "../operationsHealth.js";
 import type * as payments_checkout from "../payments/checkout.js";
 import type * as payments_index from "../payments/index.js";
@@ -80,6 +82,8 @@ declare const fullApi: ApiFromModules<{
   ical: typeof ical;
   icalImport: typeof icalImport;
   messages: typeof messages;
+  operations: typeof operations;
+  operationsFoundation: typeof operationsFoundation;
   operationsHealth: typeof operationsHealth;
   "payments/checkout": typeof payments_checkout;
   "payments/index": typeof payments_index;
