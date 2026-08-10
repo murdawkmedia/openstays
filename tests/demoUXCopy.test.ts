@@ -127,6 +127,15 @@ describe('judge-facing checkout copy', () => {
     expect(manage).toContain('Refund requested. Staff resolution is pending.');
     expect(manage).toContain('remains paid until staff records');
   });
+
+  it('explains cancellation as the current state while preserving historical milestones', () => {
+    const manage = readFileSync(new URL('../src/pages/ManageBookingPage.tsx', import.meta.url), 'utf8');
+    expect(manage).toContain("booking.status === 'cancelled'");
+    expect(manage).toContain('This booking is cancelled');
+    expect(manage).toContain('Booking history');
+    expect(manage).toContain('The payment timeline above shows whether the refund is complete or requires staff action.');
+    expect(manage).not.toContain('Manual providers remain paid until staff records the completed refund.');
+  });
 });
 
 describe('staff auth errors', () => {
