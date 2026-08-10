@@ -121,9 +121,7 @@ export function PublicOperationsTourPage() {
     });
   }, [kind, query]);
 
-  const selected = PUBLIC_OPERATIONS_FIXTURE.records.find((record) => record.id === selectedId)
-    ?? records[0]
-    ?? PUBLIC_OPERATIONS_FIXTURE.records[0];
+  const selected = records.find((record) => record.id === selectedId) ?? records[0] ?? null;
 
   return (
     <div className="space-y-6">
@@ -173,6 +171,7 @@ export function PublicOperationsTourPage() {
               <button
                 type="button"
                 onClick={() => setView('queue')}
+                aria-pressed={view === 'queue'}
                 className={`rounded-md px-3 py-1.5 ${view === 'queue' ? 'bg-white shadow-sm' : 'text-stone-500'}`}
               >
                 Operations queue
@@ -180,6 +179,7 @@ export function PublicOperationsTourPage() {
               <button
                 type="button"
                 onClick={() => setView('consensus')}
+                aria-pressed={view === 'consensus'}
                 className={`rounded-md px-3 py-1.5 ${view === 'consensus' ? 'bg-white shadow-sm' : 'text-stone-500'}`}
               >
                 Consensus states
@@ -196,12 +196,16 @@ export function PublicOperationsTourPage() {
               />
             </label>
           </div>
+          <p className="mt-3 text-sm text-stone-600">
+            Choose a work area, then select a record to inspect its details.
+          </p>
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label="Filter record type">
             {(Object.keys(KIND_LABELS) as Array<PublicOperationKind | 'all'>).map((option) => (
               <button
                 key={option}
                 type="button"
                 onClick={() => setKind(option)}
+                aria-pressed={kind === option}
                 className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${
                   kind === option
                     ? 'bg-stone-900 text-white'
@@ -224,7 +228,7 @@ export function PublicOperationsTourPage() {
                 <RecordRow
                   key={record.id}
                   record={record}
-                  selected={selected.id === record.id}
+                  selected={selected?.id === record.id}
                   onSelect={() => setSelectedId(record.id)}
                 />
               ))
@@ -236,46 +240,55 @@ export function PublicOperationsTourPage() {
           </div>
 
           <aside className="p-5" aria-live="polite">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-              {KIND_LABELS[selected.kind]}
-            </p>
-            <h2 className="mt-2 font-display text-2xl font-semibold text-stone-950">{selected.title}</h2>
-            <p className="mt-2 text-sm text-stone-600">{selected.summary}</p>
-            <dl className="mt-6 space-y-4">
-              {selected.details.map((detail) => (
-                <div key={detail.label} className="border-b border-stone-100 pb-3">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-stone-500">{detail.label}</dt>
-                  <dd className="mt-1 text-sm font-medium text-stone-900">{detail.value}</dd>
+            {selected ? (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                  {KIND_LABELS[selected.kind]}
+                </p>
+                <h2 className="mt-2 font-display text-2xl font-semibold text-stone-950">{selected.title}</h2>
+                <p className="mt-2 text-sm text-stone-600">{selected.summary}</p>
+                <dl className="mt-6 space-y-4">
+                  {selected.details.map((detail) => (
+                    <div key={detail.label} className="border-b border-stone-100 pb-3">
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-stone-500">{detail.label}</dt>
+                      <dd className="mt-1 text-sm font-medium text-stone-900">{detail.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+
+                <div className="mt-6 space-y-3">
+                  <div>
+                    <button type="button" className="btn-primary w-full justify-center" disabled>
+                      <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                      Retry operation
+                    </button>
+                    <p className="mt-1 text-center text-xs text-stone-500">Sign in to perform this action</p>
+                  </div>
+                  <div>
+                    <button type="button" className="btn-secondary w-full justify-center" disabled>
+                      Resolve selected record
+                    </button>
+                    <p className="mt-1 text-center text-xs text-stone-500">Sign in to perform this action</p>
+                  </div>
+                  <div>
+                    <button type="button" className="btn-secondary w-full justify-center" disabled>
+                      Open live audit detail
+                    </button>
+                    <p className="mt-1 text-center text-xs text-stone-500">Sign in to perform this action</p>
+                  </div>
                 </div>
-              ))}
-            </dl>
 
-            <div className="mt-6 space-y-3">
-              <div>
-                <button type="button" className="btn-primary w-full justify-center" disabled>
-                  <RefreshCw className="h-4 w-4" aria-hidden="true" />
-                  Retry operation
-                </button>
-                <p className="mt-1 text-center text-xs text-stone-500">Sign in to perform this action</p>
+                <Link to="/admin/login" className="mt-6 inline-flex items-center gap-1 text-sm font-semibold text-emerald-700 hover:text-emerald-800">
+                  Continue to private staff sign-in
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+              </>
+            ) : (
+              <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50 p-6 text-center">
+                <h2 className="font-display text-xl font-semibold text-stone-900">No sample record selected</h2>
+                <p className="mt-2 text-sm text-stone-600">Try another work area or clear the search.</p>
               </div>
-              <div>
-                <button type="button" className="btn-secondary w-full justify-center" disabled>
-                  Resolve selected record
-                </button>
-                <p className="mt-1 text-center text-xs text-stone-500">Sign in to perform this action</p>
-              </div>
-              <div>
-                <button type="button" className="btn-secondary w-full justify-center" disabled>
-                  Open live audit detail
-                </button>
-                <p className="mt-1 text-center text-xs text-stone-500">Sign in to perform this action</p>
-              </div>
-            </div>
-
-            <Link to="/admin/login" className="mt-6 inline-flex items-center gap-1 text-sm font-semibold text-emerald-700 hover:text-emerald-800">
-              Continue to private staff sign-in
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-            </Link>
+            )}
           </aside>
         </div>
       </section>
