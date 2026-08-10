@@ -7,14 +7,15 @@ Updated: 2026-08-10
 - Worktree: `C:\Users\Murphy\.config\superpowers\worktrees\openstays\merge-main`
 - Branch: `main`
 - Kokanee checkpoints: `65b07a8` (foundation), `0e19e43` (audited resort workflows), and `0e0ab5f` (final command center/automation pass).
-- Pull request `#3` merged as `0fdd834` after its complete CI run passed.
+- Pull requests `#3` and `#4` merged as `0fdd834` and `8b9a76f` after their
+  complete CI runs passed.
 - Production Convex and Cloudflare Pages were promoted on 2026-08-10.
 
 ## Live release
 
 - Production Convex `shiny-bison-351` received the additive schema and
   functions after a dry run confirmed that no indexes would be deleted.
-- Cloudflare Pages production deployment `cbd4a179` is live at
+- Cloudflare Pages production deployment `de964747` is live at
   `https://openstays-consensus.pages.dev` and preserves Zaprite, Wavelength
   signet, simulated fallback, Turnstile, and authenticated staff routes.
 - The public operations tour passed desktop and 390 px live-browser checks
@@ -85,13 +86,16 @@ Updated: 2026-08-10
   reward-eligible; public-tour filters now constrain the selected detail record
   and expose clear pressed states and first-use guidance.
 - Desktop and 390 px local acceptance passed with no page-level overflow or
-  browser warnings. The immutable `cbd4a179` deployment and production alias
+  browser warnings. The immutable `de964747` deployment and production alias
   were then verified against the cancelled booking and filtered front-desk
   queue; both serve the corrected frontend and backend behavior.
-- Pull-request CI `31427288762`, main CI `31427753509`, and Pages workflow
-  `31427753649` completed successfully.
+- Pull-request CI `31427288762` and `31428802578`, main CI `31427753509`
+  and `31429181429`, and Pages workflows `31427753649` and `31429181508`
+  completed successfully. The latter main run's isolated Synology concurrency
+  assertion passed on its failed-job rerun; the identical PR run was already
+  green.
 - The second pass exposed one redundant control: conversation and cancellation
-  rendered separate inputs for the same guest email state. The follow-up
+  rendered separate inputs for the same guest email state. The live flow now
   consolidates these into one clearly explained booking-email field used by
   conversation, history, rewards/refunds, and cancellation.
 
