@@ -4,10 +4,12 @@ Updated: 2026-08-10
 
 ## Current branch
 
-- Worktree: `C:\Users\Murphy\.config\superpowers\worktrees\openstays\merge-main`
-- Branch: `main`
+- Worktree: `C:\Users\Murphy\.config\superpowers\worktrees\openstays\usability-flow-polish`
+- Branch: `codex/usability-flow-polish`
 - Kokanee checkpoints: `65b07a8` (foundation), `0e19e43` (audited resort workflows), and `0e0ab5f` (final command center/automation pass).
-- `main` was fast-forwarded and pushed on 2026-08-10.
+- The branch is based on production `main` at `63a0e93`; the usability polish
+  remains local until the production Convex credential/deployment gate is
+  explicitly approved.
 
 ## Live release
 
@@ -50,7 +52,7 @@ Updated: 2026-08-10
 
 ## Verification state
 
-- Root: 75 files / 567 tests, typecheck, and production build are green.
+- Root: 75 files / 571 tests, typecheck, and production build are green.
 - CLI: 8 files / 82 tests, typecheck, and build are green.
 - Cloudflare operations: 9 files / 187 tests, typecheck, and Wrangler dry-run
   build are green.
@@ -61,6 +63,25 @@ Updated: 2026-08-10
   dependent live-rail checks were intentionally skipped; no live backend or
   payment state was used by this isolated verification run.
 - `git diff --check` is clean.
+
+## Basic-user usability acceptance
+
+- A synthetic guest completed the live public journey on 2026-08-10: selected
+  Consensus Commons inventory and dates, reviewed the price, used the simulated
+  payment path, reached confirmation, authenticated with the confirmation code
+  and normalized email, sent a booking message, reviewed the timeline, and
+  cancelled the reservation.
+- The synthetic booking is `OS-UBWTYQ`; it is cancelled, so it does not retain
+  active inventory.
+- The walkthrough exposed two clarity defects that are fixed on this branch:
+  cancelled reservations now show a prominent current-state banner and
+  historical wording instead of appearing currently confirmed or generically
+  reward-eligible; public-tour filters now constrain the selected detail record
+  and expose clear pressed states and first-use guidance.
+- Desktop and 390 px local acceptance passed with no page-level overflow or
+  browser warnings. The backend wording change is covered by regression tests
+  but will not appear on the live site until the matching Convex deployment is
+  approved and promoted with the frontend.
 
 ## Deployment boundary
 
