@@ -11,6 +11,7 @@
 import type * as apiKeys from "../apiKeys.js";
 import type * as apiV1 from "../apiV1.js";
 import type * as auth from "../auth.js";
+import type * as automation from "../automation.js";
 import type * as availability from "../availability.js";
 import type * as bookings from "../bookings.js";
 import type * as commerce from "../commerce.js";
@@ -69,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   apiKeys: typeof apiKeys;
   apiV1: typeof apiV1;
   auth: typeof auth;
+  automation: typeof automation;
   availability: typeof availability;
   bookings: typeof bookings;
   commerce: typeof commerce;

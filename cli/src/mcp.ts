@@ -231,6 +231,47 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         unitType: args.unitType as string,
       }),
   },
+  {
+    tool: {
+      name: 'openstays_operations_view',
+      description: 'Read a property-bounded PMS workspace such as front-desk, housekeeping, maintenance, folios, quotes, contracts, night-audit, reports, or staff search.',
+      inputSchema: {
+        type: 'object',
+        properties: { property: str, view: str, date: str, query: str, from: str, to: str, limit: num },
+        required: ['property', 'view'],
+      },
+    },
+    run: (client, args) => client.operationsView({
+      property: args.property as string,
+      view: args.view as never,
+      date: args.date as string | undefined,
+      query: args.query as string | undefined,
+      from: args.from as string | undefined,
+      to: args.to as string | undefined,
+      limit: args.limit as number | undefined,
+    }),
+  },
+  {
+    tool: {
+      name: 'openstays_operations_action',
+      description: 'Run one accepted, idempotent PMS workflow through the same audited backend mutation as staff UI. Requires a write-scoped API key.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          property: str,
+          action: str,
+          requestId: str,
+          input: { type: 'object', additionalProperties: true },
+        },
+        required: ['property', 'action', 'requestId', 'input'],
+      },
+    },
+    run: (client, args) => client.operationsAction(args.action as never, {
+      ...((args.input as Record<string, unknown>) ?? {}),
+      property: args.property as string,
+      requestId: args.requestId as string,
+    }),
+  },
 ];
 
 /** Build an MCP Server with all OpenStays tools registered against `client`. */

@@ -7,7 +7,14 @@ export type PublicOperationKind =
   | 'receipt'
   | 'reward'
   | 'channel'
-  | 'treasury';
+  | 'treasury'
+  | 'front_desk'
+  | 'housekeeping'
+  | 'maintenance'
+  | 'folio'
+  | 'quote'
+  | 'group'
+  | 'report';
 
 export interface PublicOperationRecord {
   id: string;
@@ -41,9 +48,9 @@ export const PUBLIC_OPERATIONS_FIXTURE: PublicOperationsFixture = {
   notice: 'Read-only fictional demo',
   generatedLabel: 'Consensus Commons · sample operations shift',
   metrics: [
-    { label: 'Availability', value: '7 open', note: '2 temporary holds' },
-    { label: 'Booking consensus', value: '4 reached', note: '1 awaiting payment' },
-    { label: 'Proofs', value: '3 submitted', note: '1 Bitcoin anchored' },
+    { label: 'Occupancy', value: '68%', note: '14 of 22 fictional sites' },
+    { label: 'Arrivals', value: '6 today', note: '5 units ready' },
+    { label: 'Open work', value: '4 items', note: '2 housekeeping · 2 maintenance' },
     { label: 'Channel adapter', value: 'Ready', note: 'Not connected' },
   ],
   records: [
@@ -175,6 +182,97 @@ export const PUBLIC_OPERATIONS_FIXTURE: PublicOperationsFixture = {
         { label: 'Protected reserve', value: '14,520 test sats' },
         { label: 'Refund liability', value: '1,000 test sats' },
         { label: 'Transfer state', value: 'Preview only' },
+      ],
+    },
+    {
+      id: 'demo-front-desk-01',
+      kind: 'front_desk',
+      title: 'Arrival queue',
+      status: '5 of 6 ready',
+      summary: 'The desk sees arrivals, balances, party size, unit readiness, and exceptions together.',
+      updatedLabel: 'Now',
+      details: [
+        { label: 'Arrivals', value: '6 fictional stays' },
+        { label: 'Ready', value: '5 units verified' },
+        { label: 'Exception', value: '1 inspection pending' },
+      ],
+    },
+    {
+      id: 'demo-housekeeping-01',
+      kind: 'housekeeping',
+      title: 'Turnaround board',
+      status: 'Cleaning',
+      summary: 'Service readiness advances independently from whether a unit is sellable.',
+      updatedLabel: '3 min ago',
+      details: [
+        { label: 'Queue', value: 'Dirty → cleaning → inspection → ready' },
+        { label: 'Assignment', value: 'Fictional attendant assigned' },
+        { label: 'Inventory impact', value: 'None unless a linked block is created' },
+      ],
+    },
+    {
+      id: 'demo-maintenance-01',
+      kind: 'maintenance',
+      title: 'Power pedestal repair',
+      status: 'In progress',
+      summary: 'A dated maintenance outage carries an explicit linked inventory block.',
+      updatedLabel: '11 min ago',
+      details: [
+        { label: 'Priority', value: 'High' },
+        { label: 'Sellability', value: 'Blocked only for the repair window' },
+        { label: 'Resolution', value: 'Releases the linked block with an audit event' },
+      ],
+    },
+    {
+      id: 'demo-folio-01',
+      kind: 'folio',
+      title: 'Camp-store folio',
+      status: 'Balanced',
+      summary: 'Retail charges and an external-terminal payment are recorded as immutable entries.',
+      updatedLabel: '16 min ago',
+      details: [
+        { label: 'Charges', value: 'CA$42.00' },
+        { label: 'Payments', value: 'CA$42.00' },
+        { label: 'Corrections', value: 'Reversals only; posted money is never rewritten' },
+      ],
+    },
+    {
+      id: 'demo-quote-01',
+      kind: 'quote',
+      title: 'Long-weekend quote',
+      status: 'Sent',
+      summary: 'The quote does not occupy inventory; acceptance rechecks availability before creating a hold.',
+      updatedLabel: '22 min ago',
+      details: [
+        { label: 'Inventory', value: 'Non-blocking' },
+        { label: 'Expiry', value: 'Tomorrow at noon' },
+        { label: 'Acceptance', value: 'Creates the normal 35-minute hold' },
+      ],
+    },
+    {
+      id: 'demo-group-01',
+      kind: 'group',
+      title: 'Paddling club prospect',
+      status: 'Prospect',
+      summary: 'A fictional group record coordinates dates and contacts without silently occupying sites.',
+      updatedLabel: '38 min ago',
+      details: [
+        { label: 'Requested sites', value: '8' },
+        { label: 'Current occupancy', value: 'None' },
+        { label: 'Next step', value: 'Create individual audited reservations' },
+      ],
+    },
+    {
+      id: 'demo-report-01',
+      kind: 'report',
+      title: 'Night-audit snapshot',
+      status: 'Closed',
+      summary: 'The fictional business date preserves revenue, payments, occupancy, refunds, and exceptions.',
+      updatedLabel: 'Yesterday',
+      details: [
+        { label: 'Revenue', value: 'CA$2,418.00' },
+        { label: 'Payments', value: 'CA$2,301.00' },
+        { label: 'Export', value: 'Accounting CSV ready' },
       ],
     },
   ],

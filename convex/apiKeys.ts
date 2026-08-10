@@ -186,13 +186,13 @@ export const listApiKeys = query({
  */
 export const verifyKey = internalQuery({
   args: { keyHash: v.string() },
-  handler: async (ctx, args): Promise<{ scope: 'read' | 'write'; apiKeyId: Id<'apiKeys'>; lastUsedAt?: number } | null> => {
+  handler: async (ctx, args): Promise<{ scope: 'read' | 'write'; apiKeyId: Id<'apiKeys'>; lastUsedAt?: number; createdBy: string; prefix: string } | null> => {
     const key = await ctx.db
       .query('apiKeys')
       .withIndex('by_keyHash', (q) => q.eq('keyHash', args.keyHash))
       .unique();
     if (!key || !key.active) return null;
-    return { scope: key.scope, apiKeyId: key._id, lastUsedAt: key.lastUsedAt };
+    return { scope: key.scope, apiKeyId: key._id, lastUsedAt: key.lastUsedAt, createdBy: key.createdBy, prefix: key.prefix };
   },
 });
 

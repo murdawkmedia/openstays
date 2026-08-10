@@ -90,7 +90,14 @@ export function AdminShell() {
   const foundation = useQuery(
     (api as any).operationsFoundation.snapshot,
     gate.status === 'staff' && propertyId ? { propertyId } : 'skip',
-  ) as { features: Array<{ feature: string; enabled: boolean }> } | undefined;
+  ) as {
+    features: Array<{ feature: string; enabled: boolean }>;
+    operationalStatus: {
+      alertCount: number;
+      alerts: Array<{ kind: string; label: string }>;
+      channel: { state: 'adapter_ready' | 'paused' | 'pending' | 'synchronized' | 'error'; label: string };
+    };
+  } | undefined;
   const queriedCommandCenterEnabled =
     foundation?.features.some((feature) => feature.feature === 'command_center' && feature.enabled) ?? false;
   const searchResults = useQuery(
@@ -126,11 +133,12 @@ export function AdminShell() {
   const property = properties.find((candidate) => candidate.propertyId === propertyId) ?? properties[0];
   const commandCenterEnabled = queriedCommandCenterEnabled;
   const enabledFeatures = foundation?.features.filter((feature) => feature.enabled).map((feature) => feature.feature) ?? [];
+  const operationalStatus = foundation?.operationalStatus;
   const searchRoute: Record<string, string> = {
     booking: '/admin/command',
     quote: '/admin/quotes',
     waitlist: '/admin/quotes',
-    task: '/admin/front-desk',
+    task: '/admin/command',
     maintenance: '/admin/maintenance',
     folio: '/admin/folios',
     group: '/admin/contracts',
@@ -179,7 +187,7 @@ export function AdminShell() {
               autoComplete="off"
             />
             {globalSearch.trim().length >= 2 ? (
-              <div className="absolute inset-x-0 top-full z-50 mt-2 max-h-80 overflow-y-auto rounded-xl border border-stone-200 bg-white p-2 shadow-2xl" role="listbox" aria-label="Staff search results">
+              <div className="absolute inset-x-0 top-full z-50 mt-2 max-h-80 overflow-y-auto rounded-xl border border-stone-200 bg-white p-2 shadow-2xl" role="region" aria-label="Staff search results" aria-live="polite">
                 {searchResults === undefined ? <p className="px-3 py-4 text-sm text-stone-500">Searching…</p> : null}
                 {searchResults?.map((result) => (
                   <NavLink
@@ -187,7 +195,6 @@ export function AdminShell() {
                     to={`${searchRoute[result.recordType] ?? '/admin/command'}?recordType=${encodeURIComponent(result.recordType)}&recordId=${encodeURIComponent(result.recordId)}`}
                     className="block rounded-lg px-3 py-2 hover:bg-stone-50"
                     onClick={() => setGlobalSearch('')}
-                    role="option"
                   >
                     <span className="flex items-center justify-between gap-3 text-sm font-semibold text-stone-900">
                       <span className="truncate">{result.title}</span>
@@ -211,9 +218,23 @@ export function AdminShell() {
               </div>
             ) : null}
           </div>
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800">
-            Sync monitored
-          </span>
+          {operationalStatus?.alertCount ? (
+            <details className="relative">
+              <summary className="cursor-pointer list-none rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+                {operationalStatus.alertCount} alert{operationalStatus.alertCount === 1 ? '' : 's'}
+              </summary>
+              <div className="absolute right-0 mt-2 w-64 space-y-2 rounded-xl border border-stone-200 bg-white p-3 text-xs text-stone-700 shadow-xl">
+                {operationalStatus.alerts.map((alert) => (
+                  <p key={`${alert.kind}:${alert.label}`} className="rounded-lg bg-amber-50 px-3 py-2">{alert.label}</p>
+                ))}
+              </div>
+            </details>
+          ) : null}
+          {operationalStatus ? (
+            <span className={`rounded-full px-3 py-1 text-xs font-medium ${operationalStatus.channel.state === 'error' ? 'bg-red-100 text-red-800' : operationalStatus.channel.state === 'pending' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-50 text-emerald-800'}`}>
+              {operationalStatus.channel.label}
+            </span>
+          ) : null}
           <details className="relative">
             <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-800 hover:bg-stone-50">
               <span className="max-w-36 truncate">{gate.name}</span>
@@ -267,9 +288,9 @@ export function AdminShell() {
             ))}
           </nav>
         </aside>
-        <main className="min-w-0 p-4 sm:p-6 lg:p-8">
+        <div className="min-w-0 p-4 sm:p-6 lg:p-8">
           <Outlet context={{ property, commandCenterEnabled, enabledFeatures } satisfies AdminPropertyContext} />
-        </main>
+        </div>
       </div>
     </div>
   );

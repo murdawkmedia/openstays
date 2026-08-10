@@ -3,7 +3,7 @@ import { mutation, query } from './_generated/server';
 import type { MutationCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import { markPropertyDirtyInline } from './channel/ari';
-import { requirePropertyCapability, requirePropertyFeature } from './staff';
+import { requireMutationPropertyCapability, requirePropertyCapability, requirePropertyFeature } from './staff';
 
 type ServiceState = 'ready' | 'dirty' | 'cleaning' | 'inspection' | 'do_not_disturb' | 'out_of_service';
 const TRANSITIONS: Record<ServiceState, readonly ServiceState[]> = {
@@ -51,9 +51,9 @@ export const board = query({
 });
 
 export const assign = mutation({
-  args: { propertyId: v.id('properties'), unitId: v.id('units'), serviceDate: v.string(), assignedStaffProfileId: v.optional(v.id('staffProfiles')), priority: v.number(), requestId: v.string() },
+  args: { propertyId: v.id('properties'), unitId: v.id('units'), serviceDate: v.string(), assignedStaffProfileId: v.optional(v.id('staffProfiles')), priority: v.number(), requestId: v.string(), automationToken: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'housekeeping.assign');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'housekeeping.assign', 'housekeeping.assign', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'housekeeping');
     const previous = await replay<{ assignmentId: Id<'housekeepingAssignments'> }>(ctx, args.propertyId, args.requestId, 'housekeeping.assign');
     if (previous) return { ...previous, replayed: true };
@@ -79,9 +79,9 @@ export const assign = mutation({
 });
 
 export const transitionState = mutation({
-  args: { propertyId: v.id('properties'), unitId: v.id('units'), state: v.union(v.literal('ready'), v.literal('dirty'), v.literal('cleaning'), v.literal('inspection'), v.literal('do_not_disturb'), v.literal('out_of_service')), expectedVersion: v.number(), note: v.optional(v.string()), requestId: v.string() },
+  args: { propertyId: v.id('properties'), unitId: v.id('units'), state: v.union(v.literal('ready'), v.literal('dirty'), v.literal('cleaning'), v.literal('inspection'), v.literal('do_not_disturb'), v.literal('out_of_service')), expectedVersion: v.number(), note: v.optional(v.string()), requestId: v.string(), automationToken: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'housekeeping.update');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'housekeeping.update', 'housekeeping.state.transition', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'housekeeping');
     const previous = await replay<{ state: ServiceState; version: number }>(ctx, args.propertyId, args.requestId, 'housekeeping.state.transition');
     if (previous) return { ...previous, replayed: true };
@@ -112,9 +112,9 @@ export const maintenanceBoard = query({
 });
 
 export const resolveMaintenance = mutation({
-  args: { propertyId: v.id('properties'), maintenanceTaskId: v.id('maintenanceTasks'), expectedVersion: v.number(), requestId: v.string() },
+  args: { propertyId: v.id('properties'), maintenanceTaskId: v.id('maintenanceTasks'), expectedVersion: v.number(), requestId: v.string(), automationToken: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'maintenance.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'maintenance.write', 'maintenance.resolve', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'maintenance');
     const previous = await replay<{ maintenanceTaskId: Id<'maintenanceTasks'>; version: number }>(ctx, args.propertyId, args.requestId, 'maintenance.resolve');
     if (previous) return { ...previous, replayed: true };

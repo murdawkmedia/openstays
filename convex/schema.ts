@@ -178,6 +178,21 @@ export default defineSchema({
     .index('by_property_request', ['propertyId', 'requestId'])
     .index('by_property_createdAt', ['propertyId', 'createdAt']),
 
+  // Short-lived, single-use bridge from an authenticated HTTP API key to the
+  // exact staff mutation used by the browser UI. Tokens are random, expire in
+  // one minute, and are consumed transactionally by the domain mutation.
+  automationClaims: defineTable({
+    token: v.string(),
+    apiKeyId: v.id('apiKeys'),
+    actorUserId: v.id('users'),
+    propertyId: v.id('properties'),
+    action: v.string(),
+    expiresAt: v.number(),
+  })
+    .index('by_token', ['token'])
+    .index('by_expiry', ['expiresAt'])
+    .index('by_apiKey_expiry', ['apiKeyId', 'expiresAt']),
+
   unitTypes: defineTable({
     propertyId: v.id('properties'),
     name: v.string(),
@@ -373,6 +388,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index('by_property', ['propertyId'])
     .index('by_property_status', ['propertyId', 'status'])
     .index('by_guest', ['guestId'])
     .index('by_expiry', ['status', 'expiresAt']),
@@ -413,6 +429,7 @@ export default defineSchema({
     updatedAt: v.number(),
     completedAt: v.optional(v.number()),
   })
+    .index('by_property', ['propertyId'])
     .index('by_property_status', ['propertyId', 'status'])
     .index('by_assignee_status', ['assignedStaffProfileId', 'status'])
     .index('by_booking', ['bookingId']),
@@ -662,6 +679,7 @@ export default defineSchema({
     resolvedAt: v.optional(v.number()),
   })
     .index('by_payment_status', ['paymentId', 'status'])
+    .index('by_property_status', ['propertyId', 'status'])
     .index('by_status_createdAt', ['status', 'createdAt'])
     .index('by_booking', ['bookingId']),
 

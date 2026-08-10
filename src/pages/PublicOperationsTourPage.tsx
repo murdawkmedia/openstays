@@ -33,6 +33,13 @@ const KIND_LABELS: Record<PublicOperationKind | 'all', string> = {
   reward: 'Rewards',
   channel: 'Channels',
   treasury: 'Treasury',
+  front_desk: 'Front desk',
+  housekeeping: 'Housekeeping',
+  maintenance: 'Maintenance',
+  folio: 'Folios',
+  quote: 'Quotes',
+  group: 'Groups',
+  report: 'Reports',
 };
 
 const KIND_ICONS: Record<PublicOperationKind, typeof BedDouble> = {
@@ -45,6 +52,13 @@ const KIND_ICONS: Record<PublicOperationKind, typeof BedDouble> = {
   reward: Bitcoin,
   channel: Network,
   treasury: WalletCards,
+  front_desk: BedDouble,
+  housekeeping: RefreshCw,
+  maintenance: RefreshCw,
+  folio: CircleDollarSign,
+  quote: FileCheck2,
+  group: MessageSquareText,
+  report: CalendarClock,
 };
 
 type ViewMode = 'queue' | 'consensus';

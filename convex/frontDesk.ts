@@ -3,7 +3,7 @@ import { mutation, query } from './_generated/server';
 import type { MutationCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import { markPropertyDirtyInline } from './channel/ari';
-import { requirePropertyCapability, requirePropertyFeature } from './staff';
+import { requireMutationPropertyCapability, requirePropertyCapability, requirePropertyFeature } from './staff';
 
 async function replay<T>(ctx: MutationCtx, propertyId: Id<'properties'>, requestId: string, action: string): Promise<T | null> {
   const row = await ctx.db.query('operationRequests').withIndex('by_property_request', (q) => q.eq('propertyId', propertyId).eq('requestId', requestId)).unique();
@@ -65,11 +65,12 @@ export const transition = mutation({
     propertyId: v.id('properties'), bookingId: v.id('bookings'),
     transition: v.union(v.literal('check_in'), v.literal('check_out'), v.literal('no_show')),
     expectedVersion: v.number(), requestId: v.string(), overrideNotReady: v.optional(v.boolean()),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'booking.check_in_out');
-    await requirePropertyFeature(ctx, args.propertyId, 'front_desk');
     const action = `front_desk.${args.transition}`;
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'booking.check_in_out', action, args.automationToken);
+    await requirePropertyFeature(ctx, args.propertyId, 'front_desk');
     const previous = await replay<{ bookingId: Id<'bookings'>; status: string; version: number }>(ctx, args.propertyId, args.requestId, action);
     if (previous) return { ...previous, replayed: true };
     const booking = await ctx.db.get(args.bookingId);

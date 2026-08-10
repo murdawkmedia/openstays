@@ -15,6 +15,8 @@ const EXPECTED_TOOL_NAMES = [
   'openstays_create_hold',
   'openstays_cancel_booking',
   'openstays_promo_preview',
+  'openstays_operations_view',
+  'openstays_operations_action',
 ];
 
 describe('MCP tool registry', () => {
@@ -114,6 +116,18 @@ describe('MCP tool registry', () => {
     const client = { getBooking } as unknown as OpenStaysClient;
     await def.run(client, { code: 'OS-ABC123' });
     expect(getBooking).toHaveBeenCalledWith('OS-ABC123');
+  });
+
+  it('routes PMS views and actions without flattening their workflow payloads', async () => {
+    const viewDef = TOOL_DEFINITIONS.find((d) => d.tool.name === 'openstays_operations_view')!;
+    const actionDef = TOOL_DEFINITIONS.find((d) => d.tool.name === 'openstays_operations_action')!;
+    const operationsView = vi.fn().mockResolvedValue({ records: [] });
+    const operationsAction = vi.fn().mockResolvedValue({ replayed: false });
+    const client = { operationsView, operationsAction } as unknown as OpenStaysClient;
+    await viewDef.run(client, { property: 'kokanee', view: 'front-desk', date: '2030-08-10' });
+    expect(operationsView).toHaveBeenCalledWith(expect.objectContaining({ property: 'kokanee', view: 'front-desk', date: '2030-08-10' }));
+    await actionDef.run(client, { property: 'kokanee', action: 'front-desk/transition', requestId: 'req-1', input: { bookingId: 'b1', transition: 'check_in', expectedVersion: 0 } });
+    expect(operationsAction).toHaveBeenCalledWith('front-desk/transition', { property: 'kokanee', requestId: 'req-1', bookingId: 'b1', transition: 'check_in', expectedVersion: 0 });
   });
 
   it('a tool run rejecting with ApiError propagates it (server maps to isError)', async () => {

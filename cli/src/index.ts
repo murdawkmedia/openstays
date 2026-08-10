@@ -15,6 +15,8 @@ import type {
   BookingStatus,
   CreateHoldArgs,
   OpenStaysClientOptions,
+  OperationalActionName,
+  OperationalViewName,
 } from './client.js';
 import { runMcpServer } from './mcp.js';
 import { runWaveBridge } from './waveBridge.js';
@@ -46,6 +48,8 @@ const KNOWN_COMMANDS = new Set([
   'hold',
   'cancel',
   'promo-preview',
+  'ops',
+  'ops-action',
   'mcp',
   'wave-bridge',
   'mail-bridge',
@@ -164,6 +168,10 @@ Commands:
   cancel <code> --email <e>                 Cancel a booking (write scope)
   promo-preview --code <c> --property <slug> --unit-type <slug>
                                              Preview a promo code
+  ops <view> --property <slug> [--date <d>] [--query <q>] [--from <d>] [--to <d>]
+                                             Read a bounded PMS workspace
+  ops-action <action> --property <slug> --request-id <id> --input-json <json>
+                                             Run an audited PMS workflow (write scope)
   mcp                                       Run as an MCP stdio server
   wave-bridge [--once]                      Run the local Wavelength signet merchant bridge
   mail-bridge [--once]                      Deliver queued OpenStays mail through SMTP
@@ -365,6 +373,39 @@ export async function dispatch(
         : result.valid
           ? `valid: ${result.code} (${result.kind})`
           : `invalid: ${result.reason}`;
+    }
+
+    case 'ops': {
+      const view = positional[0] as OperationalViewName | undefined;
+      if (!view) throw new CliUsageError('Usage: openstays ops <view> --property <slug>');
+      const result = await client.operationsView({
+        property: requireFlag(flags, 'property'),
+        view,
+        date: flags.date,
+        query: flags.query,
+        from: flags.from,
+        to: flags.to,
+        limit: intFlag(flags, 'limit'),
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'ops-action': {
+      const action = positional[0] as OperationalActionName | undefined;
+      if (!action) throw new CliUsageError('Usage: openstays ops-action <action> --property <slug> --request-id <id> --input-json <json>');
+      let input: unknown;
+      try {
+        input = JSON.parse(requireFlag(flags, 'input-json'));
+      } catch {
+        throw new CliUsageError('--input-json must be a valid JSON object');
+      }
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new CliUsageError('--input-json must be a valid JSON object');
+      const result = await client.operationsAction(action, {
+        ...(input as Record<string, unknown>),
+        property: requireFlag(flags, 'property'),
+        requestId: requireFlag(flags, 'request-id'),
+      });
+      return JSON.stringify(result, null, 2);
     }
 
     default:

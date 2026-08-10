@@ -47,6 +47,13 @@ describe('public operations fixture', () => {
         'reward',
         'channel',
         'treasury',
+        'front_desk',
+        'housekeeping',
+        'maintenance',
+        'folio',
+        'quote',
+        'group',
+        'report',
       ]),
     );
   });

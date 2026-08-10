@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import type { MutationCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
-import { requirePropertyCapability, requirePropertyFeature } from './staff';
+import { requireMutationPropertyCapability, requirePropertyCapability, requirePropertyFeature } from './staff';
 
 async function replay<T>(ctx: MutationCtx, propertyId: Id<'properties'>, requestId: string, action: string): Promise<T | null> {
   const row = await ctx.db.query('operationRequests').withIndex('by_property_request', (q) => q.eq('propertyId', propertyId).eq('requestId', requestId)).unique();
@@ -18,9 +18,9 @@ async function finish(ctx: MutationCtx, args: { propertyId: Id<'properties'>; re
 }
 
 export const createRetailFolio = mutation({
-  args: { propertyId: v.id('properties'), description: v.string(), requestId: v.string() },
+  args: { propertyId: v.id('properties'), description: v.string(), requestId: v.string(), automationToken: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'folio.post');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'folio.post', 'folio.retail.create', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'commerce');
     const previous = await replay<{ folioId: Id<'folios'> }>(ctx, args.propertyId, args.requestId, 'folio.retail.create');
     if (previous) return { ...previous, replayed: true };
@@ -37,9 +37,10 @@ export const postEntry = mutation({
     kind: v.union(v.literal('charge'), v.literal('adjustment'), v.literal('payment'), v.literal('refund')),
     description: v.string(), amountCents: v.number(), taxCents: v.number(), paymentId: v.optional(v.id('payments')),
     expectedVersion: v.number(), requestId: v.string(),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'folio.post');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'folio.post', 'folio.entry.post', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'commerce');
     const previous = await replay<{ entryId: Id<'folioEntries'>; version: number }>(ctx, args.propertyId, args.requestId, 'folio.entry.post');
     if (previous) return { ...previous, replayed: true };
@@ -61,9 +62,9 @@ export const postEntry = mutation({
 });
 
 export const reverseEntry = mutation({
-  args: { propertyId: v.id('properties'), folioId: v.id('folios'), entryId: v.id('folioEntries'), reason: v.string(), expectedVersion: v.number(), requestId: v.string() },
+  args: { propertyId: v.id('properties'), folioId: v.id('folios'), entryId: v.id('folioEntries'), reason: v.string(), expectedVersion: v.number(), requestId: v.string(), automationToken: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'folio.post');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'folio.post', 'folio.entry.reverse', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'commerce');
     const previous = await replay<{ reversalEntryId: Id<'folioEntries'>; version: number }>(ctx, args.propertyId, args.requestId, 'folio.entry.reverse');
     if (previous) return { ...previous, replayed: true };
@@ -87,9 +88,10 @@ export const recordManualPayment = mutation({
     propertyId: v.id('properties'), folioId: v.id('folios'),
     method: v.union(v.literal('cash'), v.literal('etransfer'), v.literal('cheque'), v.literal('external_terminal'), v.literal('gift_certificate')),
     amountCents: v.number(), expectedVersion: v.number(), requestId: v.string(),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'folio.post');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'folio.post', 'folio.payment.record', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'commerce');
     const previous = await replay<{ paymentId: Id<'payments'>; entryId: Id<'folioEntries'>; version: number }>(ctx, args.propertyId, args.requestId, 'folio.payment.record');
     if (previous) return { ...previous, replayed: true };

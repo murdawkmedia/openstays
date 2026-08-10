@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
-import { requirePropertyCapability, requirePropertyFeature } from './staff';
+import { requireMutationPropertyCapability, requirePropertyCapability, requirePropertyFeature } from './staff';
 
 function localDate(ts: number, timezone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ts));
@@ -42,9 +42,9 @@ export const preview = query({
 });
 
 export const closeNight = mutation({
-  args: { propertyId: v.id('properties'), businessDate: v.string(), requestId: v.string() },
+  args: { propertyId: v.id('properties'), businessDate: v.string(), requestId: v.string(), automationToken: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'night_audit.close');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'night_audit.close', 'night_audit.close', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'night_audit');
     const priorRequest = await ctx.db.query('operationRequests').withIndex('by_property_request', (q) => q.eq('propertyId', args.propertyId).eq('requestId', args.requestId)).unique();
     if (priorRequest) {

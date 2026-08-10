@@ -34,6 +34,22 @@ async function seed(t: ReturnType<typeof convexTest>) {
 }
 
 describe('audited command-center workflows', () => {
+  it('rejects a forged automation claim before any operation is written', async () => {
+    const t = convexTest(schema, modules);
+    const f = await seed(t);
+    await expect(t.mutation((api as any).operations.createBlock, {
+      propertyId: f.propertyId,
+      unitId: f.unitId,
+      checkIn: '2030-02-01',
+      checkOut: '2030-02-03',
+      reason: 'Forged request',
+      requestId: 'req-forged-automation',
+      automationToken: 'not-a-real-claim',
+    })).rejects.toThrow(/AUTOMATION_CLAIM_INVALID/);
+    expect(await t.run(async (ctx) => ctx.db.query('bookings').collect())).toHaveLength(1);
+    expect(await t.run(async (ctx) => ctx.db.query('operationRequests').collect())).toHaveLength(0);
+  });
+
   it('keeps maintenance readiness separate from inventory until an explicit block is requested', async () => {
     const t = convexTest(schema, modules);
     const f = await seed(t);
@@ -87,5 +103,38 @@ describe('audited command-center workflows', () => {
     expect(entries.map((entry) => entry.amountCents)).toEqual([1200, -1200]);
     expect(entries[1]).toMatchObject({ kind: 'reversal', reversesEntryId: charge.entryId });
     expect(entries.reduce((sum, entry) => sum + entry.amountCents + entry.taxCents, 0)).toBe(0);
+  });
+
+  it('keeps call tasks visible until an audited idempotent completion', async () => {
+    const t = convexTest(schema, modules);
+    const f = await seed(t);
+    const asOwner = t.withIdentity(identityFor(f.userId));
+    const created = await asOwner.mutation((api as any).operations.createCallTask, {
+      propertyId: f.propertyId,
+      bookingId: f.bookingId,
+      title: 'Confirm late arrival',
+      detail: 'Call before 6 p.m.',
+      requestId: 'req-call-create',
+    });
+
+    const board = await asOwner.query((api as any).operations.callTaskBoard, {
+      propertyId: f.propertyId,
+    });
+    expect(board[0]).toMatchObject({ taskId: created.taskId, status: 'open', confirmationCode: 'OS-OPS001' });
+
+    const args = {
+      propertyId: f.propertyId,
+      taskId: created.taskId,
+      expectedVersion: 0,
+      requestId: 'req-call-complete',
+    };
+    expect(await asOwner.mutation((api as any).operations.completeCallTask, args)).toMatchObject({ version: 1, replayed: false });
+    expect(await asOwner.mutation((api as any).operations.completeCallTask, args)).toMatchObject({ version: 1, replayed: true });
+    const task = await t.run(async (ctx) => ctx.db.get(created.taskId));
+    expect(task).toMatchObject({ status: 'completed', version: 1 });
+    const audit = await t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect()).filter((row) => row.action === 'task.call.complete'),
+    );
+    expect(audit).toHaveLength(1);
   });
 });

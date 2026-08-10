@@ -9,11 +9,18 @@ living version.
 | **M0** | Scaffold + demo. Schema v1, hold/expiry/conflict-proof booking core, GST/deposit/refund pricing math, per-unit iCal export, simulated demo payment path, Pinewood Flats seed, minimal public booking flow. |
 | **M1** (shipped in source) | Payments, staff auth, transactional email, and two-way iCal are implemented and test-covered; each deployment still completes its own provider configuration/live acceptance. |
 | **Consensus Commons** (experimental) | Bitcoin++ Toronto MVP: Zaprite sandbox reconciliation, Wavelength signet payments, OpenTimestamps consensus receipts, one-time 1,000 signet-sat rewards, booking chat, manual refund cases, OpenStays Mail, and consensus timeline. Not production rails. |
-| **M2** | Front-desk core: front-desk booking views, add-ons folio, Square in the front-desk flow, manual (cash/e-transfer/terminal) payment recording. |
+| **Kokanee command center** (implemented, feature-gated) | Property-scoped roles and shell; 30/45/60/90-day grid; operational search; audited reserve/block/quote/repair/call/complimentary/retail/move/resize/rate workflows; front desk; housekeeping; maintenance; immutable folios; manual payment records; night audit; reporting; groups and seasonal-contract foundations. Promotion remains deployment-specific. |
+| **M2** (implemented behind flags) | Front-desk queues, record-only folios and retail, and cash/e-transfer/cheque/external-terminal payment recording. Card-present hardware control remains out of scope. |
 | **M3** | Hardening — load testing, edge-case coverage on the availability/hold core. |
-| **M4** | Seasonal site contracts (the `seasonalContracts` table goes from skeletal to fully wired — invoicing schedules, renewal offers), gift certificates (ledger goes from skeletal to redeemable), reporting. Agreement e-signing for seasonal contracts: a lightweight built-in flow (client-side PDF + on-device signature capture) as the default, with an optional [DocuSeal](https://github.com/docusealco/docuseal) integration for remote, email-based signing with audit trails — DocuSeal is open source, self-hostable, and consumed over its API as a separate service, so it pairs cleanly with this MIT codebase. Renewal season is the killer use case: emailing a couple hundred seasonal agreements beats collecting signatures one clipboard at a time. |
+| **M4** | Complete seasonal operations: automated invoicing and renewal offers, redeemable gift certificates, and agreement e-signing. The preferred future shape is a lightweight built-in signing flow plus an optional self-hosted [DocuSeal](https://github.com/docusealco/docuseal) integration for remote delivery and audit trails. |
 | **M5** | 1.0. |
 | **M6** | OTA distribution via the [Channex](https://channex.io) channel manager. The plumbing is already **scaffolded** in this snapshot — a `ChannelManagerProvider` contract, the availability/rates push, the OTA-booking pull/ack ingest, the admin mapping surface, the schema fields, crons, and webhook route (`convex/channel/**`) — but it is **dormant until an operator connects it**. Going live still requires an operator to hold a Channex account, set `CHANNEX_API_KEY`, map objects, do the OTA-side mapping in Channex's dashboard, **and pass Channex's production certification**. It is *not* a direct Airbnb/Booking.com API integration (those stay partner-gated) and *not* a shipped v1 feature — see [Channels](/channels). |
+
+> **M4 scope correction:** the command-center branch implements feature-gated
+> seasonal contract records and balanced schedules, group prospects, reminders,
+> gift-certificate issuance, night-audit snapshots, and reports. Renewal offers,
+> full certificate redemption, invoicing automation, and e-signature delivery
+> remain future work; “fully wired” should not be inferred from the schema.
 
 ### M1 checklist (shipped in source)
 

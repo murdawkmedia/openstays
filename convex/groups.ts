@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import type { MutationCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
-import { requirePropertyCapability, requirePropertyFeature } from './staff';
+import { requireMutationPropertyCapability, requirePropertyCapability, requirePropertyFeature } from './staff';
 
 async function replay<T>(ctx: MutationCtx, propertyId: Id<'properties'>, requestId: string, action: string): Promise<T | null> {
   const row = await ctx.db.query('operationRequests').withIndex('by_property_request', (q) => q.eq('propertyId', propertyId).eq('requestId', requestId)).unique();
@@ -18,9 +18,9 @@ async function finish(ctx: MutationCtx, args: { propertyId: Id<'properties'>; re
 }
 
 export const createGroup = mutation({
-  args: { propertyId: v.id('properties'), name: v.string(), contactGuestId: v.id('guests'), arrivalDate: v.string(), departureDate: v.string(), requestId: v.string() },
+  args: { propertyId: v.id('properties'), name: v.string(), contactGuestId: v.id('guests'), arrivalDate: v.string(), departureDate: v.string(), requestId: v.string(), automationToken: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'booking.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'booking.write', 'group.create', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'groups');
     const prior = await replay<{ groupReservationId: Id<'groupReservations'> }>(ctx, args.propertyId, args.requestId, 'group.create');
     if (prior) return { ...prior, replayed: true };
@@ -38,9 +38,10 @@ export const createSeasonalContract = mutation({
   args: {
     propertyId: v.id('properties'), unitId: v.id('units'), guestId: v.id('guests'), seasonLabel: v.string(), startDate: v.string(), endDate: v.string(), totalCents: v.number(), gstCents: v.number(),
     schedule: v.array(v.object({ dueDate: v.string(), amountCents: v.number() })), requestId: v.string(),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'booking.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'booking.write', 'seasonal_contract.create', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'long_term');
     const prior = await replay<{ seasonalContractId: Id<'seasonalContracts'> }>(ctx, args.propertyId, args.requestId, 'seasonal_contract.create');
     if (prior) return { ...prior, replayed: true };
@@ -59,9 +60,9 @@ export const createSeasonalContract = mutation({
 });
 
 export const createReminder = mutation({
-  args: { propertyId: v.id('properties'), title: v.string(), detail: v.string(), dueAt: v.number(), requestId: v.string() },
+  args: { propertyId: v.id('properties'), title: v.string(), detail: v.string(), dueAt: v.number(), requestId: v.string(), automationToken: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'booking.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'booking.write', 'reminder.create', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'groups');
     const prior = await replay<{ taskId: Id<'staffTasks'> }>(ctx, args.propertyId, args.requestId, 'reminder.create');
     if (prior) return { ...prior, replayed: true };
@@ -75,9 +76,9 @@ export const createReminder = mutation({
 });
 
 export const issueGiftCertificate = mutation({
-  args: { propertyId: v.id('properties'), amountCents: v.number(), recipientName: v.optional(v.string()), requestId: v.string() },
+  args: { propertyId: v.id('properties'), amountCents: v.number(), recipientName: v.optional(v.string()), requestId: v.string(), automationToken: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'folio.post');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'folio.post', 'gift_certificate.issue', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'commerce');
     const prior = await replay<{ giftCertificateId: Id<'giftCertificates'>; code: string }>(ctx, args.propertyId, args.requestId, 'gift_certificate.issue');
     if (prior) return { ...prior, replayed: true };

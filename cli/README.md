@@ -62,6 +62,8 @@ openstays hold            --unit-id <id> --rate-plan-id <id> --check-in <d> --ch
                            [--marketing-opt-in] [--promo-code <c>]
 openstays cancel          <confirmationCode> --email <e>
 openstays promo-preview   --code <c> --property <slug> --unit-type <slug>
+openstays ops             <view> --property <slug> [--date <d>] [--from <d>] [--to <d>] [--limit <n>]
+openstays ops-action      <action> --property <slug> --request-id <unique-id> --input-json '<json>'
 openstays mcp
 openstays wave-bridge     [--once]
 openstays ots-bridge      [--once]
@@ -111,7 +113,10 @@ tools (`openstays_health`, `openstays_list_properties`,
 `openstays_list_unit_types`, `openstays_list_units`,
 `openstays_list_rate_plans`, `openstays_availability`, `openstays_tape`,
 `openstays_list_bookings`, `openstays_get_booking`, `openstays_create_hold`,
-`openstays_cancel_booking`, `openstays_promo_preview`). See
+`openstays_cancel_booking`, `openstays_promo_preview`,
+`openstays_operations_view`, `openstays_operations_action`). Operational tools
+are property- and role-bounded and use the same feature-gated mutations as the
+staff UI. See
 `docs/automation.md` for client registration examples.
 
 ## Development

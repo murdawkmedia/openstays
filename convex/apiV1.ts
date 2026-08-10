@@ -4,6 +4,8 @@ import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { addDays, daysBetween } from '../shared/pricing';
 import { sha256HexOf } from './apiKeys';
+import { requireAutomationPropertyCapability } from './staff';
+import type { OperationalCapability } from '../shared/operations';
 
 // ---------------------------------------------------------------------------
 // HTTP API v1 (M1.5) — the automation surface consumed by the openstays CLI,
@@ -16,7 +18,7 @@ import { sha256HexOf } from './apiKeys';
 // required even on the demo (automations must behave identically everywhere).
 //
 // SHAPE: JSON only. Success = 200 {data: ...}. Errors = {error: {code,
-// message}} with 400/401/403/404/409. Money stays integer cents; dates stay
+// message}} with 400/401/403/404/409/429. Money stays integer cents; dates stay
 // 'YYYY-MM-DD' strings. Handlers NEVER reimplement domain logic — they call
 // the same public/internal queries + mutations the UI uses (createHold,
 // cancelByGuest, availability.forUnitType, tapeForProperty via an internal
@@ -36,6 +38,8 @@ import { sha256HexOf } from './apiKeys';
 //   POST /api/v1/bookings/hold   body = createHold args        (write)
 //   POST /api/v1/bookings/<confirmationCode>/cancel body={email} (write)
 //   POST /api/v1/promo-codes/preview body={code, ...}          (read)
+//   GET  /api/v1/operations/<view>?property=<slug>             (read)
+//   POST /api/v1/operations/<action> body={property,requestId,...} (write)
 //
 // A single dispatching httpAction keeps http.ts wiring to two lines (GET +
 // POST pathPrefix '/api/v1/'). 404 for unknown paths.
@@ -81,8 +85,9 @@ const CONFLICT_CODES = new Set([
   'UNIT_NOT_YET_BOOKABLE',
 ]);
 const NOT_FOUND_CODES = new Set(['NOT_FOUND', 'BOOKING_NOT_FOUND']);
-const FORBIDDEN_CODES = new Set(['OWNER_ONLY', 'NOT_STAFF']);
+const FORBIDDEN_CODES = new Set(['OWNER_ONLY', 'NOT_STAFF', 'CAPABILITY_DENIED', 'PROPERTY_ACCESS_DENIED', 'AUTOMATION_ACTOR_INACTIVE', 'AUTOMATION_KEY_INVALID', 'AUTOMATION_ACTOR_REQUIRED']);
 const UNAUTH_CODES = new Set(['UNAUTHENTICATED']);
+const RATE_LIMIT_CODES = new Set(['AUTOMATION_CLAIM_LIMIT']);
 // Stay-rule / validation codes surfaced by validateStayRules & guards → 400.
 
 function mapConvexError(error: unknown): Response {
@@ -96,10 +101,10 @@ function mapConvexError(error: unknown): Response {
     // that is actually a {code,message} object so both shapes map correctly.
     if (typeof data === 'string') {
       const trimmed = data.trim();
-      if (trimmed.startsWith('{')) {
+      if (trimmed.startsWith('{') || trimmed.startsWith('"')) {
         try {
           const parsed = JSON.parse(trimmed);
-          if (parsed && typeof parsed === 'object') data = parsed;
+          if (typeof parsed === 'string' || (parsed && typeof parsed === 'object')) data = parsed;
         } catch {
           /* leave as a bare string code */
         }
@@ -116,8 +121,9 @@ function mapConvexError(error: unknown): Response {
     }
     if (UNAUTH_CODES.has(code)) return err(401, code, message);
     if (FORBIDDEN_CODES.has(code)) return err(403, code, message);
+    if (RATE_LIMIT_CODES.has(code)) return err(429, code, message);
     if (NOT_FOUND_CODES.has(code)) return err(404, code, message);
-    if (CONFLICT_CODES.has(code)) return err(409, code, message);
+    if (CONFLICT_CODES.has(code) || code.startsWith('VERSION_CONFLICT:')) return err(409, code, message);
     return err(400, code, message);
   }
   // Non-Convex errors: don't leak internals.
@@ -127,7 +133,7 @@ function mapConvexError(error: unknown): Response {
 // ── Auth ────────────────────────────────────────────────────────────────────
 
 type AuthResult =
-  | { ok: true; scope: 'read' | 'write' }
+  | { ok: true; scope: 'read' | 'write'; apiKeyId: Id<'apiKeys'>; createdBy: string; prefix: string }
   | { ok: false; response: Response };
 
 /**
@@ -169,7 +175,27 @@ async function authenticate(
   if (key.lastUsedAt === undefined || now - key.lastUsedAt > TOUCH_INTERVAL_MS) {
     await ctx.runMutation(internal.apiKeys.touchLastUsed, { apiKeyId: key.apiKeyId });
   }
-  return { ok: true, scope: key.scope };
+  return { ok: true, scope: key.scope, apiKeyId: key.apiKeyId, createdBy: key.createdBy, prefix: key.prefix };
+}
+
+async function issueAutomationClaim(
+  ctx: Parameters<Parameters<typeof httpAction>[0]>[0],
+  auth: Extract<AuthResult, { ok: true }>,
+  propertyId: Id<'properties'>,
+  action: string,
+): Promise<string> {
+  if (auth.createdBy === 'demo') throw new ConvexError('AUTOMATION_ACTOR_REQUIRED');
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  const token = Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  await ctx.runMutation(internal.automation.issueClaim, {
+    apiKeyId: auth.apiKeyId,
+    actorUserId: auth.createdBy as Id<'users'>,
+    propertyId,
+    action,
+    token,
+  });
+  return token;
 }
 
 // ── Small param helpers ──────────────────────────────────────────────────────
@@ -541,6 +567,105 @@ export const promoPreviewIds = internalQuery({
   },
 });
 
+/**
+ * API-key read projection for accepted PMS workspaces. The HTTP dispatcher
+ * authenticates the key before invoking this internal query. Results are
+ * property-bounded and capped; no surface is callable from the public client.
+ */
+export const operationalView = internalQuery({
+  args: {
+    slug: v.string(),
+    view: v.string(),
+    businessDate: v.optional(v.string()),
+    search: v.optional(v.string()),
+    startDate: v.optional(v.string()),
+    endDate: v.optional(v.string()),
+    limit: v.optional(v.number()),
+    actorUserId: v.id('users'),
+  },
+  handler: async (ctx, args) => {
+    const property = await ctx.db.query('properties').withIndex('by_slug', (q) => q.eq('slug', args.slug)).first();
+    if (!property?.active) return null;
+    const propertyId = property._id;
+    const viewCapabilities: Record<string, OperationalCapability> = {
+      search: 'booking.read', 'front-desk': 'booking.read', housekeeping: 'housekeeping.read',
+      maintenance: 'maintenance.read', folios: 'folio.read', quotes: 'booking.read',
+      contracts: 'booking.read', 'night-audit': 'reports.read', reports: 'reports.read',
+    };
+    const capability = viewCapabilities[args.view];
+    if (!capability) throw new ConvexError('OPERATIONS_VIEW_UNKNOWN');
+    await requireAutomationPropertyCapability(ctx, args.actorUserId, propertyId, capability);
+    const limit = Math.min(Math.max(Math.floor(args.limit ?? 100), 1), 200);
+    const enabledFeatures = (await ctx.db.query('propertyFeatures').withIndex('by_property', (q) => q.eq('propertyId', propertyId)).collect())
+      .filter((feature) => feature.enabled)
+      .map((feature) => feature.feature);
+    const requiredFeature: Record<string, string> = {
+      search: 'command_center',
+      'front-desk': 'front_desk',
+      housekeeping: 'housekeeping',
+      maintenance: 'maintenance',
+      folios: 'commerce',
+      quotes: 'command_center',
+      'night-audit': 'night_audit',
+      reports: 'night_audit',
+    };
+    const required = requiredFeature[args.view];
+    if (required && !enabledFeatures.includes(required)) throw new ConvexError(`FEATURE_DISABLED:${required}`);
+    if (args.view === 'contracts' && !enabledFeatures.some((feature) => feature === 'groups' || feature === 'long_term')) {
+      throw new ConvexError('FEATURE_DISABLED:groups');
+    }
+
+    if (args.view === 'search') {
+      const terms = (args.search ?? '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+      const rows = await ctx.db.query('operationalSearchDocuments').withIndex('by_property_updatedAt', (q) => q.eq('propertyId', propertyId)).order('desc').take(500);
+      return { view: args.view, enabledFeatures, records: rows.filter((row) => terms.length === 0 || terms.every((term) => row.normalizedText.includes(term))).slice(0, limit).map(({ normalizedText, propertyId: _propertyId, ...row }) => row) };
+    }
+    if (args.view === 'front-desk') {
+      const businessDate = args.businessDate ?? new Date().toISOString().slice(0, 10);
+      const bookings = await ctx.db.query('bookings').withIndex('by_property_checkIn', (q) => q.eq('propertyId', propertyId)).collect();
+      const relevant = bookings.filter((booking) => booking.checkIn === businessDate || booking.checkOut === businessDate || (booking.checkIn < businessDate && booking.checkOut > businessDate));
+      const records = [];
+      for (const booking of relevant.slice(0, limit)) {
+        const [guest, unit, service] = await Promise.all([booking.guestId ? ctx.db.get(booking.guestId) : null, ctx.db.get(booking.unitId), ctx.db.query('unitServiceStates').withIndex('by_unit', (q) => q.eq('unitId', booking.unitId)).unique()]);
+        records.push({ bookingId: booking._id, confirmationCode: booking.confirmationCode, guestName: guest?.name ?? 'External guest', unitName: unit?.name ?? 'Unknown unit', checkIn: booking.checkIn, checkOut: booking.checkOut, status: booking.status, partySize: booking.adults + booking.children, readiness: service?.state ?? 'ready', version: booking.version ?? 0 });
+      }
+      return { view: args.view, enabledFeatures, businessDate, records };
+    }
+    if (args.view === 'housekeeping') {
+      const serviceDate = args.businessDate ?? new Date().toISOString().slice(0, 10);
+      const [units, assignments] = await Promise.all([ctx.db.query('units').withIndex('by_property', (q) => q.eq('propertyId', propertyId)).take(limit), ctx.db.query('housekeepingAssignments').withIndex('by_property_date', (q) => q.eq('propertyId', propertyId).eq('serviceDate', serviceDate)).collect()]);
+      const records = [];
+      for (const unit of units) {
+        const state = await ctx.db.query('unitServiceStates').withIndex('by_unit', (q) => q.eq('unitId', unit._id)).unique();
+        const assignment = assignments.find((row) => row.unitId === unit._id);
+        records.push({ unitId: unit._id, unitName: unit.name, sellableStatus: unit.status, state: state?.state ?? 'ready', stateVersion: state?.version ?? 0, assignmentId: assignment?._id, assignmentStatus: assignment?.status, priority: assignment?.priority });
+      }
+      return { view: args.view, enabledFeatures, businessDate: serviceDate, records };
+    }
+    if (args.view === 'maintenance') {
+      return { view: args.view, enabledFeatures, records: await ctx.db.query('maintenanceTasks').withIndex('by_property_status', (q) => q.eq('propertyId', propertyId)).take(limit) };
+    }
+    if (args.view === 'folios') {
+      return { view: args.view, enabledFeatures, records: await ctx.db.query('folios').withIndex('by_property_status', (q) => q.eq('propertyId', propertyId)).take(limit) };
+    }
+    if (args.view === 'quotes') {
+      const [quotes, waitlist] = await Promise.all([ctx.db.query('quotes').withIndex('by_property_status', (q) => q.eq('propertyId', propertyId)).take(limit), ctx.db.query('waitlistEntries').withIndex('by_property_status', (q) => q.eq('propertyId', propertyId)).take(limit)]);
+      return { view: args.view, enabledFeatures, records: { quotes, waitlist } };
+    }
+    if (args.view === 'contracts') {
+      const [groups, contracts, reminders] = await Promise.all([ctx.db.query('groupReservations').withIndex('by_property_status', (q) => q.eq('propertyId', propertyId)).take(limit), ctx.db.query('seasonalContracts').withIndex('by_property_status', (q) => q.eq('propertyId', propertyId)).take(limit), ctx.db.query('staffTasks').withIndex('by_property_status', (q) => q.eq('propertyId', propertyId).eq('status', 'open')).take(limit)]);
+      return { view: args.view, enabledFeatures, records: { groups, contracts, reminders: reminders.filter((row) => row.kind === 'reminder') } };
+    }
+    if (args.view === 'night-audit' || args.view === 'reports') {
+      const startDate = args.startDate ?? '0000-01-01';
+      const endDate = args.endDate ?? '9999-12-31';
+      const records = await ctx.db.query('nightAuditSnapshots').withIndex('by_property_date', (q) => q.eq('propertyId', propertyId).gte('businessDate', startDate).lte('businessDate', endDate)).take(limit);
+      return { view: args.view, enabledFeatures, records: records.map((row) => ({ ...row, summary: JSON.parse(row.summaryJson), summaryJson: undefined })) };
+    }
+    throw new ConvexError('OPERATIONS_VIEW_UNKNOWN');
+  },
+});
+
 // ===========================================================================
 // The dispatcher.
 // ===========================================================================
@@ -708,6 +833,31 @@ export const handle = httpAction(async (ctx, request) => {
         return ok(data);
       }
 
+      if (segments[0] === 'operations' && segments.length === 2) {
+        const auth = await authenticate(ctx, request, 'read');
+        if (!auth.ok) return auth.response;
+        if (auth.createdBy === 'demo') return err(403, 'AUTOMATION_ACTOR_REQUIRED', 'Operational API keys must belong to an active staff owner.');
+        const slug = q.get('property');
+        if (!slug) return err(400, 'MISSING_PARAM', 'property query param is required.');
+        const limitRaw = q.get('limit');
+        const limit = limitRaw === null ? undefined : Number.parseInt(limitRaw, 10);
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+          return err(400, 'INVALID_LIMIT', 'limit must be a positive integer.');
+        }
+        const data = await ctx.runQuery(internal.apiV1.operationalView, {
+          slug,
+          view: decodeURIComponent(segments[1]),
+          businessDate: q.get('date') ?? undefined,
+          search: q.get('q') ?? undefined,
+          startDate: q.get('from') ?? undefined,
+          endDate: q.get('to') ?? undefined,
+          limit,
+          actorUserId: auth.createdBy as Id<'users'>,
+        });
+        if (data === null) return err(404, 'NOT_FOUND', 'Property not found.');
+        return ok(data);
+      }
+
       return err(404, 'NOT_FOUND', 'Unknown API path.');
     }
 
@@ -715,6 +865,65 @@ export const handle = httpAction(async (ctx, request) => {
     // POST routes
     // ─────────────────────────────────────────────────────────────────────────
     if (method === 'POST') {
+      if (segments[0] === 'operations' && segments.length >= 2) {
+        const auth = await authenticate(ctx, request, 'write');
+        if (!auth.ok) return auth.response;
+        const body = await parseJsonBody(request);
+        if ('error' in body) return body.error;
+        const input = body.value as Record<string, unknown>;
+        if (typeof input.property !== 'string' || !input.property) {
+          return err(400, 'MISSING_PARAM', 'property is required.');
+        }
+        if (typeof input.requestId !== 'string' || !input.requestId.trim()) {
+          return err(400, 'MISSING_PARAM', 'requestId is required.');
+        }
+        const property = await ctx.runQuery(internal.apiV1.propertyBySlug, { slug: input.property });
+        if (!property) return err(404, 'NOT_FOUND', 'Property not found.');
+        const operation = segments.slice(1).join('/');
+        const definitions: Record<string, { action: string; mutation: any }> = {
+          block: { action: 'booking.block', mutation: api.operations.createBlock },
+          move: { action: 'booking.move', mutation: api.operations.moveBooking },
+          quote: { action: 'quote.create', mutation: api.operations.createQuote },
+          'quote/accept': { action: 'quote.accept', mutation: api.operations.acceptQuote },
+          waitlist: { action: 'waitlist.create', mutation: api.operations.createWaitlistEntry },
+          maintenance: { action: 'maintenance.create', mutation: api.operations.createMaintenanceTask },
+          call: { action: 'task.call.create', mutation: api.operations.createCallTask },
+          'call/complete': { action: 'task.call.complete', mutation: api.operations.completeCallTask },
+          complimentary: { action: 'complimentary.approve', mutation: api.operations.authorizeComplimentary },
+          'rate-adjustment': { action: 'rate.adjust', mutation: api.operations.adjustBookingRate },
+          'front-desk/transition': { action: 'front_desk.dynamic', mutation: api.frontDesk.transition },
+          'housekeeping/assign': { action: 'housekeeping.assign', mutation: api.housekeeping.assign },
+          'housekeeping/state': { action: 'housekeeping.state.transition', mutation: api.housekeeping.transitionState },
+          'maintenance/resolve': { action: 'maintenance.resolve', mutation: api.housekeeping.resolveMaintenance },
+          'folios/retail': { action: 'folio.retail.create', mutation: api.commerce.createRetailFolio },
+          'folios/entry': { action: 'folio.entry.post', mutation: api.commerce.postEntry },
+          'folios/reverse': { action: 'folio.entry.reverse', mutation: api.commerce.reverseEntry },
+          'folios/payment': { action: 'folio.payment.record', mutation: api.commerce.recordManualPayment },
+          'night-audit/close': { action: 'night_audit.close', mutation: api.closeout.closeNight },
+          group: { action: 'group.create', mutation: api.groups.createGroup },
+          'seasonal-contract': { action: 'seasonal_contract.create', mutation: api.groups.createSeasonalContract },
+          reminder: { action: 'reminder.create', mutation: api.groups.createReminder },
+          'gift-certificate': { action: 'gift_certificate.issue', mutation: api.groups.issueGiftCertificate },
+        };
+        const definition = definitions[operation];
+        if (!definition) return err(404, 'NOT_FOUND', 'Unknown operations action.');
+        const action = operation === 'front-desk/transition'
+          ? `front_desk.${String(input.transition ?? '')}`
+          : definition.action;
+        const automationToken = await issueAutomationClaim(ctx, auth, property.propertyId, action);
+        const { property: _property, ...args } = input;
+        try {
+          const data = await ctx.runMutation(definition.mutation, {
+            ...args,
+            propertyId: property.propertyId,
+            automationToken,
+          });
+          return ok(data);
+        } catch (mutationError) {
+          if (mutationError instanceof ConvexError) throw mutationError;
+          return err(400, 'INVALID_FIELD', 'One or more operations fields are invalid.');
+        }
+      }
       // POST /api/v1/bookings/hold — write
       if (segments[0] === 'bookings' && segments[1] === 'hold' && segments.length === 2) {
         const auth = await authenticate(ctx, request, 'write');

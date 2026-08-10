@@ -20,6 +20,14 @@
 > Visitors can explore a source-controlled, no-login backend simulation at
 > `/tour/operations`; it never queries live bookings or exposes guest data.
 
+> **Kokanee-first PMS expansion:** the source now includes a feature-gated,
+> property-scoped reservation command center with 90-day inventory views,
+> front-desk queues, housekeeping and maintenance, immutable folios, manual
+> payment recording, night audit, groups, and seasonal-contract foundations.
+> It is additive and disabled per property until migration and acceptance are
+> complete; the existing public showcase and live deployment are unchanged.
+> See [Reservation command center](./docs/command-center.md).
+
 **Open-source booking engine and property-management system for independent
 lodging — campgrounds, cabins, glamping, yurts, small resorts.**
 
@@ -83,6 +91,14 @@ Shipped in the source tree; operator configuration and live acceptance remain de
   Wavelength’s official demo wallet** at
   <https://wavelength.lightning.engineering/demo/>. Both paths pay the same
   invoice, and only the authenticated merchant receive confirms the booking.
+
+### Property-scoped operations
+
+The private staff console now has fixed owner, manager, front-desk,
+housekeeping, and accounting roles; a persistent property/staff shell; private
+global search; a virtualized 30/45/60/90-day grid; and audited booking,
+service, folio, closeout, group, and long-term workflows. Each workspace is
+released independently through a reversible property feature flag.
 
 ## What it is NOT (yet)
 

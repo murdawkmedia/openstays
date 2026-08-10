@@ -4,7 +4,7 @@ import type { MutationCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import { markPropertyDirtyInline } from './channel/ari';
 import { HOLD_TTL_MS } from './bookings';
-import { requirePropertyCapability, requirePropertyFeature } from './staff';
+import { requireMutationPropertyCapability, requirePropertyCapability, requirePropertyFeature } from './staff';
 import {
   addDays,
   computePrice,
@@ -123,9 +123,10 @@ export const createBlock = mutation({
     checkOut: v.string(),
     reason: v.string(),
     requestId: v.string(),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'booking.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'booking.write', 'booking.block', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'command_center');
     const replay = await replayResult<{ bookingId: Id<'bookings'> }>(ctx, args.propertyId, args.requestId, 'booking.block');
     if (replay) return { ...replay, replayed: true };
@@ -170,9 +171,10 @@ export const moveBooking = mutation({
   args: {
     propertyId: v.id('properties'), bookingId: v.id('bookings'), targetUnitId: v.id('units'),
     checkIn: v.string(), checkOut: v.string(), expectedVersion: v.number(), requestId: v.string(),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'booking.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'booking.write', 'booking.move', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'command_center');
     const replay = await replayResult<{ bookingId: Id<'bookings'>; version: number }>(ctx, args.propertyId, args.requestId, 'booking.move');
     if (replay) return { ...replay, replayed: true };
@@ -236,9 +238,10 @@ export const createQuote = mutation({
     propertyId: v.id('properties'), unitId: v.id('units'), ratePlanId: v.id('ratePlans'),
     checkIn: v.string(), checkOut: v.string(), adults: v.number(), children: v.number(),
     guest: guestValidator, expiresAt: v.number(), requestId: v.string(),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'quote.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'quote.write', 'quote.create', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'command_center');
     const replay = await replayResult<{ quoteId: Id<'quotes'> }>(ctx, args.propertyId, args.requestId, 'quote.create');
     if (replay) return { ...replay, replayed: true };
@@ -268,9 +271,9 @@ export const createQuote = mutation({
 });
 
 export const acceptQuote = mutation({
-  args: { propertyId: v.id('properties'), quoteId: v.id('quotes'), expectedVersion: v.number(), requestId: v.string() },
+    args: { propertyId: v.id('properties'), quoteId: v.id('quotes'), expectedVersion: v.number(), requestId: v.string(), automationToken: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'quote.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'quote.write', 'quote.accept', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'command_center');
     const replay = await replayResult<{ bookingId: Id<'bookings'>; quoteId: Id<'quotes'>; version: number }>(ctx, args.propertyId, args.requestId, 'quote.accept');
     if (replay) return { ...replay, replayed: true };
@@ -319,9 +322,10 @@ export const createMaintenanceTask = mutation({
     checkIn: v.optional(v.string()),
     checkOut: v.optional(v.string()),
     requestId: v.string(),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'maintenance.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'maintenance.write', 'maintenance.create', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'maintenance');
     const replay = await replayResult<{ maintenanceTaskId: Id<'maintenanceTasks'>; blockBookingId?: Id<'bookings'> }>(ctx, args.propertyId, args.requestId, 'maintenance.create');
     if (replay) return { ...replay, replayed: true };
@@ -366,9 +370,10 @@ export const createCallTask = mutation({
   args: {
     propertyId: v.id('properties'), bookingId: v.optional(v.id('bookings')),
     title: v.string(), detail: v.string(), dueAt: v.optional(v.number()), requestId: v.string(),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'booking.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'booking.write', 'task.call.create', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'command_center');
     const replay = await replayResult<{ taskId: Id<'staffTasks'> }>(ctx, args.propertyId, args.requestId, 'task.call.create');
     if (replay) return { ...replay, replayed: true };
@@ -393,10 +398,92 @@ export const createCallTask = mutation({
   },
 });
 
-export const authorizeComplimentary = mutation({
-  args: { propertyId: v.id('properties'), bookingId: v.id('bookings'), reason: v.string(), requestId: v.string() },
+export const callTaskBoard = query({
+  args: { propertyId: v.id('properties') },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'complimentary.approve');
+    await requirePropertyCapability(ctx, args.propertyId, 'booking.read');
+    await requirePropertyFeature(ctx, args.propertyId, 'command_center');
+    const tasks = await ctx.db
+      .query('staffTasks')
+      .withIndex('by_property', (q) => q.eq('propertyId', args.propertyId))
+      .order('desc')
+      .take(100);
+    return await Promise.all(
+      tasks
+        .filter((task) => task.kind === 'call')
+        .map(async (task) => {
+          const booking = task.bookingId ? await ctx.db.get(task.bookingId) : null;
+          return {
+            taskId: task._id,
+            bookingId: task.bookingId,
+            confirmationCode: booking?.confirmationCode,
+            title: task.title,
+            detail: task.detail,
+            status: task.status,
+            dueAt: task.dueAt,
+            version: task.version,
+            updatedAt: task.updatedAt,
+          };
+        }),
+    );
+  },
+});
+
+export const completeCallTask = mutation({
+  args: {
+    propertyId: v.id('properties'),
+    taskId: v.id('staffTasks'),
+    expectedVersion: v.number(),
+    requestId: v.string(),
+    automationToken: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const access = await requireMutationPropertyCapability(
+      ctx,
+      args.propertyId,
+      'booking.write',
+      'task.call.complete',
+      args.automationToken,
+    );
+    await requirePropertyFeature(ctx, args.propertyId, 'command_center');
+    const replay = await replayResult<{ taskId: Id<'staffTasks'>; version: number }>(
+      ctx,
+      args.propertyId,
+      args.requestId,
+      'task.call.complete',
+    );
+    if (replay) return { ...replay, replayed: true };
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.propertyId !== args.propertyId || task.kind !== 'call') {
+      throw new ConvexError('PROPERTY_RECORD_MISMATCH');
+    }
+    if (task.version !== args.expectedVersion) {
+      throw new ConvexError(`VERSION_CONFLICT:${task.version}`);
+    }
+    if (task.status !== 'open') throw new ConvexError('TASK_NOT_OPEN');
+    const now = Date.now();
+    const version = task.version + 1;
+    await ctx.db.patch(task._id, { status: 'completed', completedAt: now, updatedAt: now, version });
+    const result = { taskId: task._id, version };
+    await finishOperation(ctx, {
+      propertyId: args.propertyId,
+      requestId: args.requestId,
+      action: 'task.call.complete',
+      actorUserId: access.userId,
+      actorName: access.profile.name,
+      entityType: 'staff_task',
+      entityId: task._id,
+      detail: `completed call task ${task.title}`,
+      result,
+    });
+    return { ...result, replayed: false };
+  },
+});
+
+export const authorizeComplimentary = mutation({
+  args: { propertyId: v.id('properties'), bookingId: v.id('bookings'), reason: v.string(), requestId: v.string(), automationToken: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'complimentary.approve', 'complimentary.approve', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'command_center');
     const replay = await replayResult<{ authorizationId: Id<'complimentaryAuthorizations'> }>(ctx, args.propertyId, args.requestId, 'complimentary.approve');
     if (replay) return { ...replay, replayed: true };
@@ -432,9 +519,10 @@ export const adjustBookingRate = mutation({
   args: {
     propertyId: v.id('properties'), bookingId: v.id('bookings'), adjustedTotalCents: v.number(),
     reason: v.string(), requestId: v.string(),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'rate.adjust');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'rate.adjust', 'rate.adjust', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'command_center');
     const replay = await replayResult<{ adjustmentId: Id<'rateAdjustments'> }>(ctx, args.propertyId, args.requestId, 'rate.adjust');
     if (replay) return { ...replay, replayed: true };
@@ -461,9 +549,10 @@ export const createWaitlistEntry = mutation({
   args: {
     propertyId: v.id('properties'), unitTypeId: v.id('unitTypes'), desiredCheckIn: v.string(), desiredCheckOut: v.string(),
     adults: v.number(), children: v.number(), flexibility: v.string(), guest: guestValidator, requestId: v.string(),
+    automationToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'quote.write');
+    const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'quote.write', 'waitlist.create', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'command_center');
     const prior = await replayResult<{ waitlistEntryId: Id<'waitlistEntries'> }>(ctx, args.propertyId, args.requestId, 'waitlist.create');
     if (prior) return { ...prior, replayed: true };
