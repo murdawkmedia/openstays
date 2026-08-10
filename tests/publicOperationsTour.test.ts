@@ -85,6 +85,23 @@ describe('public operations tour boundary', () => {
     expect(source.match(/Sign in to perform this action/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 
+  it('keeps the detail panel within the currently visible filtered records', () => {
+    const source = fs.readFileSync('src/pages/PublicOperationsTourPage.tsx', 'utf8');
+    expect(source).toContain('records.find((record) => record.id === selectedId)');
+    expect(source).not.toContain(
+      'PUBLIC_OPERATIONS_FIXTURE.records.find((record) => record.id === selectedId)',
+    );
+    expect(source).toContain('No sample record selected');
+  });
+
+  it('gives a first-time operator a short interaction cue and exposes selected filters', () => {
+    const source = fs.readFileSync('src/pages/PublicOperationsTourPage.tsx', 'utf8');
+    expect(source).toContain('Choose a work area, then select a record to inspect its details.');
+    expect(source).toContain('aria-pressed={kind === option}');
+    expect(source).toContain("aria-pressed={view === 'queue'}");
+    expect(source).toContain("aria-pressed={view === 'consensus'}");
+  });
+
   it('makes the tour prominent while keeping staff sign-in available', () => {
     const source = fs.readFileSync('src/components/AppLayout.tsx', 'utf8');
     expect(source).toContain('Explore the backend');

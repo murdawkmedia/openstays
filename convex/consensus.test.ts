@@ -38,4 +38,23 @@ describe('consensus timeline', () => {
     expect(buildConsensusTimeline({ ...base, paymentRefunded: true })[2])
       .toMatchObject({ state: 'reached', detail: expect.stringContaining('refunded') });
   });
+
+  it('makes a cancelled booking and absent reward unambiguous', () => {
+    const timeline = buildConsensusTimeline({
+      statusHistory: ['hold', 'confirmed', 'cancelled'], paymentCount: 1, paid: true,
+      paymentRefunded: true, emailDelivered: true, messageCount: 0, openRefundCount: 0,
+      channelMapped: false, channelDirty: false, receiptStatus: 'submitted',
+      rewardStatus: undefined,
+    });
+
+    expect(timeline[3]).toMatchObject({
+      label: 'Booking was confirmed',
+      state: 'reached',
+      detail: expect.stringContaining('now cancelled'),
+    });
+    expect(timeline[6]).toMatchObject({
+      state: 'ready',
+      detail: 'No signet reward is attached to this booking.',
+    });
+  });
 });

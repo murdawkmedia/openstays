@@ -64,6 +64,7 @@ export function ManageBookingPage() {
   if (booking === null) return <NotFoundPage />;
 
   const cancellable = booking.status === 'confirmed' || booking.status === 'hold';
+  const cancelled = booking.status === 'cancelled';
 
   async function handleCancel() {
     setCancelling(true);
@@ -174,6 +175,15 @@ export function ManageBookingPage() {
           </div>
         </dl>
 
+        {booking.status === 'cancelled' ? (
+          <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4" role="status">
+            <p className="font-semibold text-amber-950">This booking is cancelled.</p>
+            <p className="mt-1 text-sm text-amber-900">
+              Historical milestones and the immutable timestamp receipt remain below for reference.
+            </p>
+          </div>
+        ) : null}
+
         <section className="mt-6 border-t border-stone-200 pt-6" aria-labelledby="booking-chat-heading">
           <h2 id="booking-chat-heading" className="text-lg font-semibold text-stone-900">Booking conversation</h2>
           <p className="mt-1 text-sm text-stone-500">Messages stay with this reservation. Email alerts link back here.</p>
@@ -198,7 +208,9 @@ export function ManageBookingPage() {
 
         {consensus ? <section className="mt-6 border-t border-stone-200 pt-6" aria-labelledby="consensus-heading">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Consensus Commons</p>
-          <h2 id="consensus-heading" className="mt-1 text-lg font-semibold text-stone-900">Consensus reached</h2>
+          <h2 id="consensus-heading" className="mt-1 text-lg font-semibold text-stone-900">
+            {cancelled ? 'Booking history' : 'Consensus reached'}
+          </h2>
           <ol className="mt-4 space-y-3">{consensus.map((step) => (
             <li key={step.key} className="grid grid-cols-[1rem_1fr] gap-3">
               <span className={`mt-1 h-3 w-3 rounded-full ${step.state === 'reached' ? 'bg-emerald-500' : step.state === 'attention' ? 'bg-amber-500' : 'bg-stone-300'}`} aria-hidden="true" />
@@ -278,13 +290,13 @@ export function ManageBookingPage() {
           <div className="mt-6 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             <p className="font-medium">Booking cancelled.</p>
             <p className="mt-1">
-              Paid: {formatMoney(result.paidCents, booking?.currency)} · Refund due: {formatMoney(result.refundCents, booking?.currency)}
+              Paid before cancellation: {formatMoney(result.paidCents, booking?.currency)} · Refund amount: {formatMoney(result.refundCents, booking?.currency)}
             </p>
             {result.refundCents > 0 ? (
               <p className="mt-1">
-                Manual providers remain paid until staff records the completed refund.
+                The payment timeline above shows whether the refund is complete or requires staff action.
               </p>
-            ) : null}
+            ) : <p className="mt-1">No refund is due under the cancellation policy.</p>}
           </div>
         ) : cancellable ? (
           <div className="mt-6 border-t border-stone-200 pt-6">
