@@ -17,6 +17,36 @@ import { consensusRewardSats } from './rewardPolicy';
 const statusHistorySchema = v.array(v.object({ status: v.string(), ts: v.number() }));
 const noteSchema = v.array(v.object({ ts: v.number(), text: v.string(), by: v.string() }));
 
+export const operationalRole = v.union(
+  v.literal('owner'),
+  v.literal('manager'),
+  v.literal('front_desk'),
+  v.literal('housekeeping'),
+  v.literal('accounting'),
+);
+
+export const unitAttributesSchema = v.object({
+  siteLengthFeet: v.optional(v.number()),
+  hookups: v.optional(
+    v.array(
+      v.union(
+        v.literal('15_amp'),
+        v.literal('30_amp'),
+        v.literal('50_amp'),
+        v.literal('water'),
+        v.literal('sewer'),
+      ),
+    ),
+  ),
+  parkingStyle: v.optional(
+    v.union(v.literal('back_in'), v.literal('pull_through'), v.literal('not_applicable')),
+  ),
+  accessible: v.optional(v.boolean()),
+  petPolicy: v.optional(
+    v.union(v.literal('allowed'), v.literal('restricted'), v.literal('not_allowed')),
+  ),
+});
+
 export const bookingStatus = v.union(
   v.literal('hold'), // TTL hold, pre-payment
   v.literal('confirmed'), // paid (deposit or full)
@@ -72,6 +102,23 @@ export default defineSchema({
     createdAt: v.number(),
   }).index('by_userId', ['userId']),
 
+  // Property-scoped operational authority. The legacy staffProfiles role is
+  // retained during the additive migration, but command-center mutations use
+  // these assignments once a profile has any scoped rows.
+  staffPropertyAssignments: defineTable({
+    staffProfileId: v.id('staffProfiles'),
+    userId: v.id('users'),
+    propertyId: v.id('properties'),
+    role: operationalRole,
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_profile', ['staffProfileId'])
+    .index('by_user', ['userId'])
+    .index('by_property', ['propertyId'])
+    .index('by_profile_property', ['staffProfileId', 'propertyId']),
+
   // Machine credentials for the HTTP API v1 / CLI / MCP surface (M1.5).
   // The raw token ('osk_...') is shown ONCE at creation and never stored —
   // only its SHA-256 hex. Scope 'write' implies 'read'. Automations use
@@ -105,6 +152,31 @@ export default defineSchema({
     // to. Unset = not connected. Dormant until set + CHANNEX_API_KEY present.
     channexPropertyId: v.optional(v.string()),
   }).index('by_slug', ['slug']),
+
+  // Per-property rollout switches. Features are additive and disabled until a
+  // property explicitly opts in after its acceptance gates pass.
+  propertyFeatures: defineTable({
+    propertyId: v.id('properties'),
+    feature: v.string(),
+    enabled: v.boolean(),
+    version: v.number(),
+    updatedBy: v.id('users'),
+    updatedAt: v.number(),
+  })
+    .index('by_property', ['propertyId'])
+    .index('by_property_feature', ['propertyId', 'feature']),
+
+  // Generic mutation idempotency ledger for staff operational workflows.
+  operationRequests: defineTable({
+    propertyId: v.id('properties'),
+    requestId: v.string(),
+    action: v.string(),
+    actorUserId: v.id('users'),
+    resultJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index('by_property_request', ['propertyId', 'requestId'])
+    .index('by_property_createdAt', ['propertyId', 'createdAt']),
 
   unitTypes: defineTable({
     propertyId: v.id('properties'),
@@ -150,10 +222,34 @@ export default defineSchema({
       }),
     ),
     sortOrder: v.number(),
+    attributes: v.optional(unitAttributesSchema),
+    attributesVersion: v.optional(v.number()),
   })
     .index('by_property', ['propertyId', 'sortOrder'])
     .index('by_type', ['unitTypeId'])
     .index('by_icalToken', ['icalExportToken']),
+
+  unitGroups: defineTable({
+    propertyId: v.id('properties'),
+    name: v.string(),
+    slug: v.string(),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_property', ['propertyId'])
+    .index('by_property_slug', ['propertyId', 'slug']),
+
+  unitGroupMembers: defineTable({
+    propertyId: v.id('properties'),
+    unitGroupId: v.id('unitGroups'),
+    unitId: v.id('units'),
+    addedBy: v.id('users'),
+    addedAt: v.number(),
+  })
+    .index('by_group', ['unitGroupId'])
+    .index('by_unit', ['unitId'])
+    .index('by_group_unit', ['unitGroupId', 'unitId']),
 
   ratePlans: defineTable({
     propertyId: v.id('properties'),
@@ -237,6 +333,7 @@ export default defineSchema({
     })),
     createdAt: v.number(),
     updatedAt: v.number(),
+    version: v.optional(v.number()),
   })
     .index('by_unit_checkIn', ['unitId', 'checkIn'])
     .index('by_status_holdExpires', ['status', 'holdExpiresAt'])
@@ -245,6 +342,80 @@ export default defineSchema({
     .index('by_confirmationCode', ['confirmationCode'])
     .index('by_unit_externalUid', ['unitId', 'externalUid'])
     .index('by_channelBooking', ['channelBookingId']),
+
+  // Quotes and waitlist entries are explicitly non-blocking. Only quote
+  // acceptance creates a normal booking hold and unitNights rows.
+  quotes: defineTable({
+    propertyId: v.id('properties'),
+    guestId: v.id('guests'),
+    unitTypeId: v.id('unitTypes'),
+    unitId: v.optional(v.id('units')),
+    ratePlanId: v.id('ratePlans'),
+    checkIn: v.string(),
+    checkOut: v.string(),
+    adults: v.number(),
+    children: v.number(),
+    amountCents: v.number(),
+    gstCents: v.number(),
+    currency: v.string(),
+    priceBreakdown: priceBreakdownSchema,
+    status: v.union(
+      v.literal('draft'),
+      v.literal('sent'),
+      v.literal('accepted'),
+      v.literal('declined'),
+      v.literal('expired'),
+    ),
+    expiresAt: v.number(),
+    convertedBookingId: v.optional(v.id('bookings')),
+    version: v.number(),
+    createdBy: v.id('users'),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_property_status', ['propertyId', 'status'])
+    .index('by_guest', ['guestId'])
+    .index('by_expiry', ['status', 'expiresAt']),
+
+  waitlistEntries: defineTable({
+    propertyId: v.id('properties'),
+    guestId: v.id('guests'),
+    unitTypeId: v.id('unitTypes'),
+    desiredCheckIn: v.string(),
+    desiredCheckOut: v.string(),
+    adults: v.number(),
+    children: v.number(),
+    flexibility: v.string(),
+    status: v.union(v.literal('open'), v.literal('contacted'), v.literal('converted'), v.literal('closed')),
+    quoteId: v.optional(v.id('quotes')),
+    version: v.number(),
+    createdBy: v.id('users'),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_property_status', ['propertyId', 'status'])
+    .index('by_guest', ['guestId']),
+
+  staffTasks: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.optional(v.id('bookings')),
+    quoteId: v.optional(v.id('quotes')),
+    waitlistEntryId: v.optional(v.id('waitlistEntries')),
+    kind: v.union(v.literal('call'), v.literal('follow_up'), v.literal('reminder')),
+    title: v.string(),
+    detail: v.string(),
+    status: v.union(v.literal('open'), v.literal('completed'), v.literal('cancelled')),
+    assignedStaffProfileId: v.optional(v.id('staffProfiles')),
+    dueAt: v.optional(v.number()),
+    version: v.number(),
+    createdBy: v.id('users'),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index('by_property_status', ['propertyId', 'status'])
+    .index('by_assignee_status', ['assignedStaffProfileId', 'status'])
+    .index('by_booking', ['bookingId']),
 
   // Derived occupancy: one row per blocked unit-night. THE conflict-detection
   // and calendar-rendering surface. Invariant: a row exists iff an active
@@ -257,6 +428,172 @@ export default defineSchema({
   })
     .index('by_unit_date', ['unitId', 'date'])
     .index('by_booking', ['bookingId']),
+
+  maintenanceTasks: defineTable({
+    propertyId: v.id('properties'),
+    unitId: v.id('units'),
+    title: v.string(),
+    description: v.string(),
+    priority: v.union(v.literal('low'), v.literal('normal'), v.literal('high'), v.literal('urgent')),
+    status: v.union(v.literal('open'), v.literal('in_progress'), v.literal('resolved'), v.literal('cancelled')),
+    removesInventory: v.boolean(),
+    linkedBlockBookingId: v.optional(v.id('bookings')),
+    assignedStaffProfileId: v.optional(v.id('staffProfiles')),
+    version: v.number(),
+    createdBy: v.id('users'),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index('by_property_status', ['propertyId', 'status'])
+    .index('by_unit_status', ['unitId', 'status'])
+    .index('by_assignee_status', ['assignedStaffProfileId', 'status']),
+
+  unitServiceStates: defineTable({
+    propertyId: v.id('properties'),
+    unitId: v.id('units'),
+    state: v.union(
+      v.literal('ready'),
+      v.literal('dirty'),
+      v.literal('cleaning'),
+      v.literal('inspection'),
+      v.literal('do_not_disturb'),
+      v.literal('out_of_service'),
+    ),
+    note: v.optional(v.string()),
+    version: v.number(),
+    updatedBy: v.id('users'),
+    updatedAt: v.number(),
+  })
+    .index('by_property_state', ['propertyId', 'state'])
+    .index('by_unit', ['unitId']),
+
+  housekeepingAssignments: defineTable({
+    propertyId: v.id('properties'),
+    unitId: v.id('units'),
+    serviceDate: v.string(),
+    assignedStaffProfileId: v.optional(v.id('staffProfiles')),
+    priority: v.number(),
+    status: v.union(v.literal('assigned'), v.literal('in_progress'), v.literal('ready_for_inspection'), v.literal('verified'), v.literal('cancelled')),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    verifiedAt: v.optional(v.number()),
+    version: v.number(),
+    createdBy: v.id('users'),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_property_date', ['propertyId', 'serviceDate'])
+    .index('by_assignee_date', ['assignedStaffProfileId', 'serviceDate'])
+    .index('by_unit_date', ['unitId', 'serviceDate']),
+
+  folios: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.optional(v.id('bookings')),
+    guestId: v.optional(v.id('guests')),
+    kind: v.union(v.literal('booking'), v.literal('retail')),
+    status: v.union(v.literal('open'), v.literal('closed'), v.literal('void')),
+    currency: v.string(),
+    version: v.number(),
+    createdBy: v.id('users'),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    closedAt: v.optional(v.number()),
+  })
+    .index('by_property_status', ['propertyId', 'status'])
+    .index('by_booking', ['bookingId']),
+
+  folioEntries: defineTable({
+    propertyId: v.id('properties'),
+    folioId: v.id('folios'),
+    kind: v.union(
+      v.literal('charge'),
+      v.literal('adjustment'),
+      v.literal('payment'),
+      v.literal('refund'),
+      v.literal('reversal'),
+    ),
+    description: v.string(),
+    amountCents: v.number(),
+    taxCents: v.number(),
+    paymentId: v.optional(v.id('payments')),
+    reversesEntryId: v.optional(v.id('folioEntries')),
+    postedBy: v.id('users'),
+    postedAt: v.number(),
+  })
+    .index('by_folio_postedAt', ['folioId', 'postedAt'])
+    .index('by_payment', ['paymentId'])
+    .index('by_reversal', ['reversesEntryId']),
+
+  complimentaryAuthorizations: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.id('bookings'),
+    originalValueCents: v.number(),
+    reason: v.string(),
+    status: v.union(v.literal('requested'), v.literal('approved'), v.literal('declined'), v.literal('reversed')),
+    requestedBy: v.id('users'),
+    resolvedBy: v.optional(v.id('users')),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index('by_booking', ['bookingId'])
+    .index('by_property_status', ['propertyId', 'status']),
+
+  rateAdjustments: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.id('bookings'),
+    originalTotalCents: v.number(),
+    adjustedTotalCents: v.number(),
+    reason: v.string(),
+    authorizedBy: v.id('users'),
+    createdAt: v.number(),
+  }).index('by_booking', ['bookingId']),
+
+  nightAuditSnapshots: defineTable({
+    propertyId: v.id('properties'),
+    businessDate: v.string(),
+    status: v.union(v.literal('draft'), v.literal('closed'), v.literal('reopened')),
+    summaryJson: v.string(),
+    closedBy: v.optional(v.id('users')),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    closedAt: v.optional(v.number()),
+  }).index('by_property_date', ['propertyId', 'businessDate']),
+
+  groupReservations: defineTable({
+    propertyId: v.id('properties'),
+    name: v.string(),
+    contactGuestId: v.id('guests'),
+    arrivalDate: v.string(),
+    departureDate: v.string(),
+    status: v.union(v.literal('prospect'), v.literal('held'), v.literal('confirmed'), v.literal('completed'), v.literal('cancelled')),
+    bookingIds: v.array(v.id('bookings')),
+    contractStorageId: v.optional(v.id('_storage')),
+    version: v.number(),
+    createdBy: v.id('users'),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_property_status', ['propertyId', 'status'])
+    .index('by_contact', ['contactGuestId']),
+
+  operationalSearchDocuments: defineTable({
+    propertyId: v.id('properties'),
+    recordType: v.string(),
+    recordId: v.string(),
+    title: v.string(),
+    subtitle: v.string(),
+    normalizedText: v.string(),
+    status: v.string(),
+    source: v.optional(v.string()),
+    dateStart: v.optional(v.string()),
+    dateEnd: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index('by_property_type', ['propertyId', 'recordType'])
+    .index('by_property_status', ['propertyId', 'status'])
+    .index('by_property_updatedAt', ['propertyId', 'updatedAt']),
 
   payments: defineTable({
     propertyId: v.id('properties'),
@@ -691,8 +1028,16 @@ export default defineSchema({
     actorName: v.string(),
     action: v.string(), // 'property.update' | 'staff.grant' | 'apiKey.create' | ...
     detail: v.string(),
+    propertyId: v.optional(v.id('properties')),
+    entityType: v.optional(v.string()),
+    entityId: v.optional(v.string()),
+    requestId: v.optional(v.string()),
+    metadataJson: v.optional(v.string()),
     ts: v.number(),
-  }).index('by_ts', ['ts']),
+  })
+    .index('by_ts', ['ts'])
+    .index('by_property_ts', ['propertyId', 'ts'])
+    .index('by_property_request', ['propertyId', 'requestId']),
 
   // Staff auth lands in M1 (Convex Auth). Settings is the kokanee-style
   // key/value store for non-secret deployment prefs.

@@ -1,7 +1,7 @@
 import { v } from 'convex/values';
 import { query } from './_generated/server';
 import { addDays } from '../shared/pricing';
-import { requireStaff } from './staff';
+import { requirePropertyCapability } from './staff';
 
 /**
  * Public availability for one unit type over a date window: which nights are
@@ -64,7 +64,7 @@ export const tapeForProperty = query({
   },
   handler: async (ctx, args) => {
     if (process.env.DEMO_MODE !== 'true') {
-      await requireStaff(ctx);
+      await requirePropertyCapability(ctx, args.propertyId, 'booking.read');
     }
     const days = Math.max(1, Math.min(120, Math.floor(args.days)));
     const endDate = addDays(args.startDate, days);
@@ -85,19 +85,89 @@ export const tapeForProperty = query({
     const active = new Set(['hold', 'confirmed', 'checked_in', 'external', 'blocked']);
     const bookings = candidates.filter((b) => active.has(b.status) && b.checkOut > args.startDate);
 
+    const unitRows = [];
+    for (const unit of units) {
+      const memberships = await ctx.db
+        .query('unitGroupMembers')
+        .withIndex('by_unit', (q) => q.eq('unitId', unit._id))
+        .collect();
+      unitRows.push({
+        unitId: unit._id,
+        unitTypeId: unit.unitTypeId,
+        name: unit.name,
+        status: unit.status,
+        groupIds: memberships.map((membership) => membership.unitGroupId),
+        attributes: unit.attributes ?? {},
+        attributesVersion: unit.attributesVersion ?? 0,
+      });
+    }
+
+    const bookingRows = [];
+    for (const booking of bookings) {
+      const [guest, payments] = await Promise.all([
+        booking.guestId ? ctx.db.get(booking.guestId) : null,
+        ctx.db
+          .query('payments')
+          .withIndex('by_booking', (q) => q.eq('bookingId', booking._id))
+          .collect(),
+      ]);
+      const paymentStatus = payments.some((payment) => payment.status === 'paid')
+        ? 'paid'
+        : payments.some((payment) => payment.status === 'partially_refunded')
+          ? 'partially_refunded'
+          : payments.some((payment) => payment.status === 'refunded')
+            ? 'refunded'
+            : payments.some((payment) => payment.status === 'failed')
+              ? 'failed'
+              : 'pending';
+      const attention: string[] = [];
+      if (booking.syncConflict) attention.push('sync_conflict');
+      if (
+        booking.status === 'hold' &&
+        booking.holdExpiresAt !== undefined &&
+        booking.holdExpiresAt - Date.now() <= 15 * 60 * 1000
+      ) {
+        attention.push('hold_expiring');
+      }
+      if (booking.status === 'confirmed' && paymentStatus !== 'paid') {
+        attention.push('payment_review');
+      }
+      bookingRows.push({
+        bookingId: booking._id,
+        unitId: booking.unitId,
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+        status: booking.status,
+        confirmationCode: booking.confirmationCode,
+        source: booking.source,
+        guestName: guest?.name ?? (booking.status === 'blocked' ? 'Inventory block' : 'External guest'),
+        adults: booking.adults,
+        children: booking.children,
+        paymentStatus,
+        attention,
+        updatedAt: booking.updatedAt,
+      });
+    }
+
+    const groups = await ctx.db
+      .query('unitGroups')
+      .withIndex('by_property', (q) => q.eq('propertyId', args.propertyId))
+      .collect();
+    const unitTypes = await ctx.db
+      .query('unitTypes')
+      .withIndex('by_property', (q) => q.eq('propertyId', args.propertyId))
+      .collect();
+
     return {
       startDate: args.startDate,
       endDate,
-      units: units.map((u) => ({ unitId: u._id, name: u.name, status: u.status })),
-      bookings: bookings.map((b) => ({
-        bookingId: b._id,
-        unitId: b.unitId,
-        checkIn: b.checkIn,
-        checkOut: b.checkOut,
-        status: b.status,
-        confirmationCode: b.confirmationCode,
-        source: b.source,
+      units: unitRows,
+      bookings: bookingRows,
+      unitGroups: groups.filter((group) => group.active).map((group) => ({
+        unitGroupId: group._id,
+        name: group.name,
       })),
+      unitTypes: unitTypes.map((unitType) => ({ unitTypeId: unitType._id, name: unitType.name })),
     };
   },
 });

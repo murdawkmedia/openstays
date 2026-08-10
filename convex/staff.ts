@@ -4,6 +4,12 @@ import { internalMutation, mutation, query } from './_generated/server';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import { isSupportedCurrency } from '../shared/currency';
+import {
+  capabilitiesForRole,
+  roleCan,
+  type OperationalCapability,
+  type OperationalRole,
+} from '../shared/operations';
 
 // ---------------------------------------------------------------------------
 // Staff access control + staff-only admin mutations (M1).
@@ -25,6 +31,133 @@ export async function requireStaff(
   if (!profile || !profile.active) throw new ConvexError('NOT_STAFF');
   return { userId, profile };
 }
+
+function legacyOperationalRole(profile: Doc<'staffProfiles'>): OperationalRole {
+  return profile.role === 'owner' ? 'owner' : 'front_desk';
+}
+
+/**
+ * Property-scoped authorization chokepoint for command-center operations.
+ *
+ * The temporary legacy fallback keeps existing deployments readable while the
+ * idempotent backfill runs. As soon as a profile has one scoped assignment,
+ * every property must be granted explicitly.
+ */
+export async function requirePropertyCapability(
+  ctx: QueryCtx | MutationCtx,
+  propertyId: Id<'properties'>,
+  capability: OperationalCapability,
+): Promise<{
+  userId: Id<'users'>;
+  profile: Doc<'staffProfiles'>;
+  property: Doc<'properties'>;
+  role: OperationalRole;
+}> {
+  const { userId, profile } = await requireStaff(ctx);
+  const property = await ctx.db.get(propertyId);
+  if (!property || !property.active) throw new ConvexError('PROPERTY_ACCESS_DENIED');
+
+  const assignments = await ctx.db
+    .query('staffPropertyAssignments')
+    .withIndex('by_profile', (q) => q.eq('staffProfileId', profile._id))
+    .collect();
+  const explicit = assignments.find(
+    (assignment) => assignment.propertyId === propertyId && assignment.active,
+  );
+  if (assignments.length > 0 && !explicit) throw new ConvexError('PROPERTY_ACCESS_DENIED');
+
+  const role = explicit?.role ?? legacyOperationalRole(profile);
+  if (!roleCan(role, capability)) throw new ConvexError('CAPABILITY_DENIED');
+  return { userId, profile, property, role };
+}
+
+export const propertyContext = query({
+  args: { propertyId: v.id('properties') },
+  handler: async (ctx, args) => {
+    const access = await requirePropertyCapability(ctx, args.propertyId, 'property.read');
+    return {
+      propertyId: access.property._id,
+      propertyName: access.property.name,
+      role: access.role,
+      capabilities: capabilitiesForRole(access.role),
+    };
+  },
+});
+
+export const assignedProperties = query({
+  args: {},
+  handler: async (ctx) => {
+    const { profile } = await requireStaff(ctx);
+    const assignments = await ctx.db
+      .query('staffPropertyAssignments')
+      .withIndex('by_profile', (q) => q.eq('staffProfileId', profile._id))
+      .collect();
+
+    if (assignments.length === 0) {
+      const role = legacyOperationalRole(profile);
+      const properties = (await ctx.db.query('properties').collect()).filter((property) => property.active);
+      return properties.map((property) => ({
+        propertyId: property._id,
+        name: property.name,
+        slug: property.slug,
+        role,
+        capabilities: capabilitiesForRole(role),
+      }));
+    }
+
+    const result = [];
+    for (const assignment of assignments.filter((row) => row.active)) {
+      const property = await ctx.db.get(assignment.propertyId);
+      if (!property?.active) continue;
+      result.push({
+        propertyId: property._id,
+        name: property.name,
+        slug: property.slug,
+        role: assignment.role,
+        capabilities: capabilitiesForRole(assignment.role),
+      });
+    }
+    return result;
+  },
+});
+
+/** Idempotent migration from the legacy global owner/staff roles. */
+export const backfillPropertyAssignments = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ inserted: number; existing: number }> => {
+    const profiles = (await ctx.db.query('staffProfiles').collect()).filter((profile) => profile.active);
+    const properties = (await ctx.db.query('properties').collect()).filter((property) => property.active);
+    let inserted = 0;
+    let existing = 0;
+    const now = Date.now();
+
+    for (const profile of profiles) {
+      for (const property of properties) {
+        const assignment = await ctx.db
+          .query('staffPropertyAssignments')
+          .withIndex('by_profile_property', (q) =>
+            q.eq('staffProfileId', profile._id).eq('propertyId', property._id),
+          )
+          .unique();
+        if (assignment) {
+          existing += 1;
+          continue;
+        }
+        await ctx.db.insert('staffPropertyAssignments', {
+          staffProfileId: profile._id,
+          userId: profile.userId,
+          propertyId: property._id,
+          role: legacyOperationalRole(profile),
+          active: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+        inserted += 1;
+      }
+    }
+    return { inserted, existing };
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Who-did-what audit trail. writeAudit appends one auditLog row per staff
