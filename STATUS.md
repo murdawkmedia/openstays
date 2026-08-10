@@ -4,23 +4,25 @@ Updated: 2026-08-10
 
 ## Current branch
 
-- Worktree: `C:\Users\Murphy\.config\superpowers\worktrees\openstays\usability-flow-polish`
-- Branch: `codex/usability-flow-polish`
+- Worktree: `C:\Users\Murphy\.config\superpowers\worktrees\openstays\merge-main`
+- Branch: `main`
 - Kokanee checkpoints: `65b07a8` (foundation), `0e19e43` (audited resort workflows), and `0e0ab5f` (final command center/automation pass).
-- The branch is based on production `main` at `63a0e93`; the usability polish
-  remains local until the production Convex credential/deployment gate is
-  explicitly approved.
+- Pull request `#3` merged as `0fdd834` after its complete CI run passed.
+- Production Convex and Cloudflare Pages were promoted on 2026-08-10.
 
 ## Live release
 
 - Production Convex `shiny-bison-351` received the additive schema and
   functions after a dry run confirmed that no indexes would be deleted.
-- Cloudflare Pages production deployment `540c4ccb` is live at
+- Cloudflare Pages production deployment `cbd4a179` is live at
   `https://openstays-consensus.pages.dev` and preserves Zaprite, Wavelength
   signet, simulated fallback, Turnstile, and authenticated staff routes.
 - The public operations tour passed desktop and 390 px live-browser checks
   with no console errors or page-level overflow. The Wavelength runtime and
   eligibility edge return healthy production responses.
+- The paired Convex deployment now distinguishes historical confirmation from
+  a booking's current cancelled state and omits reward claims when no reward
+  exists.
 - Property feature flags remain absent/off. The assignment migration replayed
   twice with zero inserts because production currently has no staff profiles;
   controlled owner bootstrap is still required before the private operator
@@ -79,9 +81,11 @@ Updated: 2026-08-10
   reward-eligible; public-tour filters now constrain the selected detail record
   and expose clear pressed states and first-use guidance.
 - Desktop and 390 px local acceptance passed with no page-level overflow or
-  browser warnings. The backend wording change is covered by regression tests
-  but will not appear on the live site until the matching Convex deployment is
-  approved and promoted with the frontend.
+  browser warnings. The immutable `cbd4a179` deployment and production alias
+  were then verified against the cancelled booking and filtered front-desk
+  queue; both serve the corrected frontend and backend behavior.
+- Pull-request CI `31427288762`, main CI `31427753509`, and Pages workflow
+  `31427753649` completed successfully.
 
 ## Deployment boundary
 
