@@ -25,8 +25,9 @@ Updated: 2026-08-10
   workspace can be enabled.
 - The first post-merge CI run passed application, docs, Cloudflare operations,
   container build, runtime, and recovery tests, then Trivy identified fixable
-  transitive CLI dependencies. The follow-up pins patched releases and must
-  pass the replacement CI run before release closeout.
+  transitive CLI dependencies. Commit `00b885d` pins patched releases, and
+  replacement CI run `31424758210` passed every job, including the strict
+  deploy-blocking Trivy scan.
 
 ## Implemented
 
