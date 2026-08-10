@@ -189,6 +189,9 @@ export function ManageBookingPage() {
           <p className="mt-1 text-sm text-stone-500">Messages stay with this reservation. Email alerts link back here.</p>
           <label className="field-label mt-4" htmlFor="conversation-email">Booking email</label>
           <input id="conversation-email" type="email" className="field-input" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" />
+          <p className="mt-2 text-xs text-stone-500">
+            Enter it once to open your conversation, booking history, and available actions.
+          </p>
           {thread ? (
             <div className="mt-4 space-y-3" aria-live="polite">
               {thread.length === 0 ? <p className="text-sm text-stone-500">No messages yet. Ask the host anything about your stay.</p> : thread.map((message) => (
@@ -203,7 +206,7 @@ export function ManageBookingPage() {
                 <button type="button" className="btn-primary" disabled={sendingMessage || !messageText.trim()} onClick={() => void handleMessage()}>{sendingMessage ? 'Sending…' : 'Send message'}</button>
               </div>
             </div>
-          ) : <p className="mt-3 text-sm text-stone-500">Enter the email used for this booking to open the conversation.</p>}
+          ) : <p className="mt-3 text-sm text-stone-500">Booking details stay hidden until the email matches this reservation.</p>}
         </section>
 
         {consensus ? <section className="mt-6 border-t border-stone-200 pt-6" aria-labelledby="consensus-heading">
@@ -300,17 +303,12 @@ export function ManageBookingPage() {
           </div>
         ) : cancellable ? (
           <div className="mt-6 border-t border-stone-200 pt-6">
-            <label className="field-label" htmlFor="manage-email">
-              Confirm your booking email to cancel
-            </label>
-            <input
-              id="manage-email"
-              type="email"
-              className="field-input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-            />
+            <h2 className="text-lg font-semibold text-stone-900">Cancellation</h2>
+            <p className="mt-1 text-sm text-stone-500">
+              {email.includes('@')
+                ? 'This action uses the booking email entered above.'
+                : 'Enter the booking email above to enable cancellation.'}
+            </p>
 
             {error ? (
               <div className="mt-3">

@@ -54,7 +54,7 @@ Updated: 2026-08-10
 
 ## Verification state
 
-- Root: 75 files / 571 tests, typecheck, and production build are green.
+- Root: 75 files / 572 tests, typecheck, and production build are green.
 - CLI: 8 files / 82 tests, typecheck, and build are green.
 - Cloudflare operations: 9 files / 187 tests, typecheck, and Wrangler dry-run
   build are green.
@@ -75,6 +75,10 @@ Updated: 2026-08-10
   cancelled the reservation.
 - The synthetic booking is `OS-UBWTYQ`; it is cancelled, so it does not retain
   active inventory.
+- A second acceptance booking, `OS-QZYPAF`, repeated the full live flow after
+  release: pricing, hold, simulated payment, confirmation, authenticated
+  management, guest message, receipt/timeline, and cancellation. It is also
+  cancelled and retains no active inventory.
 - The walkthrough exposed two clarity defects that are fixed on this branch:
   cancelled reservations now show a prominent current-state banner and
   historical wording instead of appearing currently confirmed or generically
@@ -86,6 +90,10 @@ Updated: 2026-08-10
   queue; both serve the corrected frontend and backend behavior.
 - Pull-request CI `31427288762`, main CI `31427753509`, and Pages workflow
   `31427753649` completed successfully.
+- The second pass exposed one redundant control: conversation and cancellation
+  rendered separate inputs for the same guest email state. The follow-up
+  consolidates these into one clearly explained booking-email field used by
+  conversation, history, rewards/refunds, and cancellation.
 
 ## Deployment boundary
 
