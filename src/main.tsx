@@ -32,6 +32,22 @@ const AdminShell =
   INCLUDE_PUBLIC_STAFF ? lazy(() => import('./components/AdminShell').then((module) => ({ default: module.AdminShell }))) : null;
 const AdminCommandPage =
   INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminCommandPage').then((module) => ({ default: module.AdminCommandPage }))) : null;
+const AdminFrontDeskPage =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminFrontDeskPage').then((module) => ({ default: module.AdminFrontDeskPage }))) : null;
+const AdminHousekeepingPage =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminHousekeepingPage').then((module) => ({ default: module.AdminHousekeepingPage }))) : null;
+const AdminMaintenancePage =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminMaintenancePage').then((module) => ({ default: module.AdminMaintenancePage }))) : null;
+const AdminFoliosPage =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminFoliosPage').then((module) => ({ default: module.AdminFoliosPage }))) : null;
+const AdminNightAuditPage =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminNightAuditPage').then((module) => ({ default: module.AdminNightAuditPage }))) : null;
+const AdminReportsPage =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminReportsPage').then((module) => ({ default: module.AdminReportsPage }))) : null;
+const AdminQuotesPage =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminQuotesPage').then((module) => ({ default: module.AdminQuotesPage }))) : null;
+const AdminContractsPage =
+  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminContractsPage').then((module) => ({ default: module.AdminContractsPage }))) : null;
 const AdminWorkflowPage =
   INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminWorkflowPage').then((module) => ({ default: module.AdminWorkflowPage }))) : null;
 const AdminOperationsPage =
@@ -102,14 +118,14 @@ createRoot(rootElement).render(
               <Route path="command" element={staffCommandElement} />
               {AdminWorkflowPage ? (
                 <>
-                  <Route path="front-desk" element={<Suspense fallback={<p>Loading front desk…</p>}><AdminWorkflowPage workflow="front-desk" /></Suspense>} />
-                  <Route path="housekeeping" element={<Suspense fallback={<p>Loading housekeeping…</p>}><AdminWorkflowPage workflow="housekeeping" /></Suspense>} />
-                  <Route path="maintenance" element={<Suspense fallback={<p>Loading maintenance…</p>}><AdminWorkflowPage workflow="maintenance" /></Suspense>} />
-                  <Route path="folios" element={<Suspense fallback={<p>Loading folios…</p>}><AdminWorkflowPage workflow="folios" /></Suspense>} />
-                  <Route path="quotes" element={<Suspense fallback={<p>Loading quotes…</p>}><AdminWorkflowPage workflow="quotes" /></Suspense>} />
-                  <Route path="contracts" element={<Suspense fallback={<p>Loading contracts…</p>}><AdminWorkflowPage workflow="contracts" /></Suspense>} />
-                  <Route path="night-audit" element={<Suspense fallback={<p>Loading night audit…</p>}><AdminWorkflowPage workflow="night-audit" /></Suspense>} />
-                  <Route path="reports" element={<Suspense fallback={<p>Loading reports…</p>}><AdminWorkflowPage workflow="reports" /></Suspense>} />
+                  <Route path="front-desk" element={AdminFrontDeskPage ? <Suspense fallback={<p>Loading front desk…</p>}><AdminFrontDeskPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
+                  <Route path="housekeeping" element={AdminHousekeepingPage ? <Suspense fallback={<p>Loading housekeeping…</p>}><AdminHousekeepingPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
+                  <Route path="maintenance" element={AdminMaintenancePage ? <Suspense fallback={<p>Loading maintenance…</p>}><AdminMaintenancePage /></Suspense> : <PublicShowcaseBoundaryPage />} />
+                  <Route path="folios" element={AdminFoliosPage ? <Suspense fallback={<p>Loading folios…</p>}><AdminFoliosPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
+                  <Route path="quotes" element={AdminQuotesPage ? <Suspense fallback={<p>Loading quotes…</p>}><AdminQuotesPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
+                  <Route path="contracts" element={AdminContractsPage ? <Suspense fallback={<p>Loading contracts…</p>}><AdminContractsPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
+                  <Route path="night-audit" element={AdminNightAuditPage ? <Suspense fallback={<p>Loading night audit…</p>}><AdminNightAuditPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
+                  <Route path="reports" element={AdminReportsPage ? <Suspense fallback={<p>Loading reports…</p>}><AdminReportsPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
                 </>
               ) : null}
               <Route path="operations" element={staffOperationsElement} />
