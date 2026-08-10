@@ -283,6 +283,17 @@ describe('dispatch', () => {
     expect(out).toContain('valid: SUMMER10');
   });
 
+  it('dispatches generic PMS views and audited actions', async () => {
+    const operationsView = vi.fn().mockResolvedValue({ records: [] });
+    const operationsAction = vi.fn().mockResolvedValue({ replayed: false });
+    const client = fakeClient({ operationsView, operationsAction });
+    const viewOutput = await dispatch(parseArgs(['ops', 'housekeeping', '--property', 'kokanee', '--date', '2030-08-10']), client);
+    expect(JSON.parse(viewOutput)).toEqual({ records: [] });
+    expect(operationsView).toHaveBeenCalledWith({ property: 'kokanee', view: 'housekeeping', date: '2030-08-10', query: undefined, from: undefined, to: undefined, limit: undefined });
+    await dispatch(parseArgs(['ops-action', 'housekeeping/state', '--property', 'kokanee', '--request-id', 'req-hk', '--input-json', '{"unitId":"u1","state":"dirty","expectedVersion":0}']), client);
+    expect(operationsAction).toHaveBeenCalledWith('housekeeping/state', { property: 'kokanee', requestId: 'req-hk', unitId: 'u1', state: 'dirty', expectedVersion: 0 });
+  });
+
   it('propagates ApiError from the client unchanged', async () => {
     const client = fakeClient({
       getBooking: vi.fn().mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'Booking not found.')),

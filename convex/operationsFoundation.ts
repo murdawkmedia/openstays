@@ -304,7 +304,7 @@ export const snapshot = query({
   args: { propertyId: v.id('properties') },
   handler: async (ctx, args) => {
     await requirePropertyCapability(ctx, args.propertyId, 'property.read');
-    const [features, groups, units] = await Promise.all([
+    const [features, groups, units, channel, openRefunds, openMaintenance, activeMaintenance] = await Promise.all([
       ctx.db
         .query('propertyFeatures')
         .withIndex('by_property', (q) => q.eq('propertyId', args.propertyId))
@@ -317,6 +317,28 @@ export const snapshot = query({
         .query('units')
         .withIndex('by_property', (q) => q.eq('propertyId', args.propertyId))
         .collect(),
+      ctx.db
+        .query('channelSync')
+        .withIndex('by_property', (q) => q.eq('propertyId', args.propertyId))
+        .unique(),
+      ctx.db
+        .query('refundCases')
+        .withIndex('by_property_status', (q) =>
+          q.eq('propertyId', args.propertyId).eq('status', 'open'),
+        )
+        .take(100),
+      ctx.db
+        .query('maintenanceTasks')
+        .withIndex('by_property_status', (q) =>
+          q.eq('propertyId', args.propertyId).eq('status', 'open'),
+        )
+        .take(100),
+      ctx.db
+        .query('maintenanceTasks')
+        .withIndex('by_property_status', (q) =>
+          q.eq('propertyId', args.propertyId).eq('status', 'in_progress'),
+        )
+        .take(100),
     ]);
     const unitGroups = await Promise.all(
       groups.map(async (group) => ({
@@ -332,8 +354,43 @@ export const snapshot = query({
         ).map((member) => member.unitId),
       })),
     );
+    const urgentMaintenance = [...openMaintenance, ...activeMaintenance]
+      .filter((task) => task.priority === 'urgent').length;
+    const channelStatus = !channel
+      ? { state: 'adapter_ready' as const, label: 'Channel adapter ready' }
+      : !channel.enabled
+        ? { state: 'paused' as const, label: 'Channel sync paused' }
+        : channel.lastError
+          ? { state: 'error' as const, label: 'Channel sync needs attention' }
+          : channel.dirtySince
+            ? { state: 'pending' as const, label: 'Channel sync pending' }
+            : { state: 'synchronized' as const, label: 'Channels synchronized' };
+    const alerts: Array<{ kind: 'refund' | 'maintenance' | 'channel'; label: string }> = [];
+    if (openRefunds.length) {
+      alerts.push({
+        kind: 'refund',
+        label: `${openRefunds.length} open manual refund${openRefunds.length === 1 ? '' : 's'}`,
+      });
+    }
+    if (urgentMaintenance) {
+      alerts.push({
+        kind: 'maintenance',
+        label: `${urgentMaintenance} urgent maintenance task${urgentMaintenance === 1 ? '' : 's'}`,
+      });
+    }
+    if (channelStatus.state === 'pending' || channelStatus.state === 'error') {
+      alerts.push({ kind: 'channel', label: channelStatus.label });
+    }
+
     return {
       features: features.map(({ feature, enabled, version }) => ({ feature, enabled, version })),
+      operationalStatus: {
+        alertCount: openRefunds.length + urgentMaintenance + (
+          channelStatus.state === 'pending' || channelStatus.state === 'error' ? 1 : 0
+        ),
+        alerts,
+        channel: channelStatus,
+      },
       unitGroups,
       units: units.map((unit) => ({
         unitId: unit._id,

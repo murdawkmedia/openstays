@@ -59,6 +59,24 @@ data in a private deployment — never in this repo).
     and tests are unaffected. (Adversarial review 2026-07-08 — both Channex
     CRITICALs were violations of this.)
 
+14. **Operational staff authority is property scoped.** Fixed roles are
+    `owner`, `manager`, `front_desk`, `housekeeping`, and `accounting`.
+    Every PMS mutation checks the active property assignment and capability;
+    a global users/staff row is never enough.
+15. **Every PMS write is idempotent and version-aware.** New operations accept
+    a caller-generated request ID. Changes to existing records check an
+    expected version and return the current version on conflict.
+16. **Service readiness is not sellability.** Housekeeping and maintenance
+    state never remove inventory by implication. Only an explicit linked
+    blocked booking may occupy `unitNights` for an outage.
+17. **Folios do not replace payment authority.** Posted financial entries are
+    immutable; corrections are reversing entries. Payment rows remain the
+    settlement source of truth.
+18. **API automation uses the UI mutation.** An authenticated API key receives
+    a random single-use 60-second `automationClaims` row bound to its creator,
+    property, and action. The normal mutation consumes it transactionally.
+    Never add a parallel unaudited service mutation.
+
 ## Review policy
 
 Any diff touching `shared/pricing.ts`, `convex/payments/**`, the hold/booking
@@ -105,6 +123,14 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   (M4). Wiring the input without the debit is a money leak.
 
 ## Decision log
+
+- 2026-08-10 (Kokanee-first PMS): operational coverage is implemented as
+  additive, per-property feature flags. ResNexus informed workflow coverage,
+  not interface or code. Quotes/waitlists stay non-occupying; maintenance
+  outages require explicit linked blocks; complimentary stays preserve original
+  value; folio corrections use reversals; API/CLI/MCP operations use short-lived
+  claims to reach the exact audited staff mutation. Existing public and live
+  deployments remain unchanged until staged acceptance.
 
 - 2026-07-08: Project created. Convex chosen for serializable mutations
   (double-booking safety), team familiarity, self-hostable OSS story.

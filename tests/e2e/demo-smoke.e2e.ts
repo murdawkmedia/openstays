@@ -22,6 +22,29 @@ test('Consensus Commons public funnel is judge-ready', async ({ page }) => {
   expect(browserErrors).toEqual([]);
 });
 
+test('fictional operations tour is interactive, read-only, and responsive', async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on('pageerror', (error) => browserErrors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error' && !message.text().includes('favicon.ico')) {
+      browserErrors.push(message.text());
+    }
+  });
+
+  await page.goto('/tour/operations');
+  await expect(page.getByRole('heading', { level: 1, name: 'See how a stay reaches consensus' })).toBeVisible();
+  await expect(page.getByText('Read-only fictional demo').first()).toBeVisible();
+  const disabledAction = page.getByRole('button', { name: 'Retry operation' });
+  await expect(disabledAction).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Front desk' })).toBeVisible();
+  await page.getByRole('button', { name: 'Housekeeping' }).click();
+  await expect(page.getByText('Turnaround board')).toBeVisible();
+
+  expect(await page.evaluate(() => document.querySelectorAll('main').length)).toBe(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  expect(browserErrors).toEqual([]);
+});
+
 test('live Wavelength checkout loads one isolated wallet engine', async ({ page }) => {
   const bookingId = process.env.OPENSTAYS_E2E_BOOKING_ID;
   const confirmation = process.env.OPENSTAYS_E2E_CONFIRMATION;

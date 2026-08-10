@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased — Kokanee-first PMS expansion
+
+- Added fixed property-scoped staff roles and capability checks, reversible
+  workspace feature flags, idempotent assignment backfill, structured unit
+  groups/attributes, and a private operational search projection.
+- Added the reservation command center, 30/45/60/90-day virtualized tape,
+  audited block/move/resize/quote/waitlist/call/complimentary/rate workflows,
+  front-desk queues, housekeeping, maintenance, immutable folios, manual
+  payment records, night audit, reports, groups, and seasonal contracts.
+- Added property-bounded `/api/v1/operations/*`, CLI, and MCP surfaces using
+  short-lived single-use claims to invoke the same business mutations as the
+  browser. Claims have bounded cleanup/backpressure and API-key audit
+  provenance.
+- Expanded the public backend tour with curated fictional PMS records only;
+  live staff routes remain independently excluded by default.
+
 ## Unreleased (M0)
 
 - Multi-currency: CAD by default, USD and EUR offered out of the box.

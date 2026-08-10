@@ -26,9 +26,11 @@ This page covers three layers built on top of that API:
   scope that can bypass a guest's own confirmation-code + email match for
   cancellation, and no route that skips the conflict-checked, serializable
   hold transaction — the API cannot double-book any more than the UI can.
-- v1 does not expose staff-only mutations beyond the booking tape (no
-  inventory CRUD, no payment refund initiation beyond guest-cancellation
-  refund policy). See the [roadmap](/roadmap) for what's landing later.
+- Feature-gated PMS workspaces are exposed under `/api/v1/operations/*`.
+  Operational keys inherit the property assignments and role capabilities of
+  the owner who minted the key. They cannot cross into a property that owner
+  is not assigned to. Refund initiation remains outside this generic action
+  surface.
 
 ## Security model (what a key is, by design)
 
@@ -44,6 +46,11 @@ from that and are intentional, not defects:
   provision read keys accordingly, and revoke any key the moment it is no
   longer needed. If you need a caller that can only see part of the book, don't
   give it a key.
+- **New operational views are narrower than legacy booking-book routes.**
+  `/operations/*` resolves the active staff identity that minted the key and
+  enforces that person's property assignment and role capability. This does
+  not retroactively narrow the original deployment-wide `/bookings` and
+  `/tape` contracts described above.
 - **A `write` key can create many holds across different guest emails.** This
   is inherent to a booking API. The only throttle today is the per-guest-email
   active-hold cap (3), and holds self-expire after 35 minutes. A malicious or
@@ -87,7 +94,7 @@ export OPENSTAYS_API_KEY=osk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 All requests: `Authorization: Bearer <token>`. All responses: JSON, `200
 {"data": ...}` on success or `{"error": {"code", "message"}}` with a
-`400`/`401`/`403`/`404`/`409` status on failure. Money is integer cents;
+`400`/`401`/`403`/`404`/`409`/`429` status on failure. Money is integer cents;
 dates are `'YYYY-MM-DD'` strings — see [Configuration](/configuration) for
 what those mean.
 
@@ -105,6 +112,22 @@ what those mean.
 | POST | `/api/v1/bookings/hold` | write | body = `createHold` args |
 | POST | `/api/v1/bookings/<confirmationCode>/cancel` | write | body = `{email}` |
 | POST | `/api/v1/promo-codes/preview` | read | body = `{code, property, unitType}` |
+| GET | `/api/v1/operations/<view>?property=<slug>` | read | bounded, feature- and property-gated PMS view |
+| POST | `/api/v1/operations/<action>` | write | accepted action payload plus `property` and unique `requestId` |
+
+Views are `search`, `front-desk`, `housekeeping`, `maintenance`, `folios`,
+`quotes`, `contracts`, `night-audit`, and `reports`. Actions include `block`,
+`move`, `quote`, `quote/accept`, `waitlist`, `maintenance`,
+`maintenance/resolve`, `call`, `call/complete`, `complimentary`, `rate-adjustment`,
+`front-desk/transition`, `housekeeping/assign`, `housekeeping/state`,
+`folios/retail`, `folios/entry`, `folios/reverse`, `folios/payment`,
+`night-audit/close`, `group`, `seasonal-contract`, `reminder`, and
+`gift-certificate`. A write call receives a random single-use 60-second claim;
+the normal staff mutation consumes it transactionally and writes the audit row.
+Successful API writes also append an `automation.authorize` audit event with
+the API-key identifier and action. Expired claims are removed in bounded
+batches; a key with 100 outstanding claims receives HTTP 429 with code
+`AUTOMATION_CLAIM_LIMIT` until claims expire or complete.
 
 The canonical route list lives in `convex/apiV1.ts` (header comment) — treat
 this table as a mirror of it, not a second source of truth.
@@ -157,6 +180,10 @@ openstays hold          --unit-id <id> --rate-plan-id <id> \
                          --name "Sam Guest" --email sam@example.com --phone 780-555-0100
 openstays cancel        OS-7K3M2Q --email sam@example.com
 openstays promo-preview --code SUMMER10 --property pinewood-flats --unit-type lakeview-cabin
+openstays ops front-desk --property pinewood-flats --date 2026-07-01
+openstays ops-action housekeeping/state --property pinewood-flats \
+  --request-id hk-20260701-a01-dirty \
+  --input-json '{"unitId":"<id>","state":"dirty","expectedVersion":0}'
 openstays mcp
 ```
 
@@ -193,6 +220,8 @@ them in the client's MCP server config, not just your shell).
 | `openstays_create_hold` | `POST /bookings/hold` |
 | `openstays_cancel_booking` | `POST /bookings/<code>/cancel` |
 | `openstays_promo_preview` | `POST /promo-codes/preview` |
+| `openstays_operations_view` | `GET /operations/<view>` |
+| `openstays_operations_action` | `POST /operations/<action>` |
 
 Each tool returns the API's `{data}` payload as JSON text content on success,
 or surfaces the `ApiError` (`[code] (HTTP status) message`) as a tool error

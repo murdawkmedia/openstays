@@ -201,6 +201,15 @@ describe('OpenStaysClient', () => {
     expect(url).toBe('https://example.convex.site/api/v1/promo-codes/preview');
   });
 
+  it('addresses bounded PMS views and audited operations actions', async () => {
+    const fetchImpl = makeFetch({ status: 200, body: { data: { records: [] } } });
+    const client = new OpenStaysClient({ baseUrl: 'https://example.convex.site', apiKey: 'osk_abc', fetchImpl });
+    await client.operationsView({ property: 'kokanee', view: 'front-desk', date: '2030-08-10', limit: 25 });
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://example.convex.site/api/v1/operations/front-desk?property=kokanee&date=2030-08-10&limit=25');
+    await client.operationsAction('front-desk/transition', { property: 'kokanee', requestId: 'req-1', bookingId: 'b1', transition: 'check_in', expectedVersion: 0 });
+    expect(fetchImpl.mock.calls[1][0]).toBe('https://example.convex.site/api/v1/operations/front-desk/transition');
+  });
+
   it('listRatePlans returns the {unitTypeId, ratePlans} wire shape unchanged', async () => {
     const fetchImpl = makeFetch({
       status: 200,

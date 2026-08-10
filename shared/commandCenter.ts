@@ -1,4 +1,7 @@
+import { isIsoDate } from './pricing';
+
 export const COMMAND_CENTER_HORIZONS = [30, 45, 60, 90] as const;
+export type CommandCenterHorizon = (typeof COMMAND_CENTER_HORIZONS)[number];
 
 export interface CommandCenterUnit {
   unitId: string;
@@ -32,6 +35,68 @@ export interface CommandCenterFilters {
   source?: string;
   paymentStatus?: string;
   attention?: string;
+  occupancy?: 'occupied' | 'vacant';
+}
+
+export interface SavedCommandCenterView {
+  startDate: string;
+  days: CommandCenterHorizon;
+  filters: CommandCenterFilters;
+  search: string;
+}
+
+const STRING_FILTERS = [
+  'unitTypeId',
+  'unitGroupId',
+  'hookup',
+  'parkingStyle',
+  'status',
+  'source',
+  'paymentStatus',
+  'attention',
+] as const satisfies readonly (keyof CommandCenterFilters)[];
+
+export function parseSavedCommandCenterView(
+  serialized: string | null,
+  fallbackDate: string,
+): SavedCommandCenterView {
+  const fallback: SavedCommandCenterView = {
+    startDate: fallbackDate,
+    days: 45,
+    filters: {},
+    search: '',
+  };
+  if (!serialized) return fallback;
+  try {
+    const value = JSON.parse(serialized) as Record<string, unknown>;
+    const rawFilters =
+      value.filters && typeof value.filters === 'object'
+        ? (value.filters as Record<string, unknown>)
+        : {};
+    const filters: CommandCenterFilters = {};
+    for (const key of STRING_FILTERS) {
+      const filter = rawFilters[key];
+      if (typeof filter === 'string' && filter.length <= 100) filters[key] = filter;
+    }
+    if (typeof rawFilters.accessibleOnly === 'boolean') {
+      filters.accessibleOnly = rawFilters.accessibleOnly;
+    }
+    if (rawFilters.occupancy === 'occupied' || rawFilters.occupancy === 'vacant') {
+      filters.occupancy = rawFilters.occupancy;
+    }
+    return {
+      startDate: typeof value.startDate === 'string' && isIsoDate(value.startDate)
+        ? value.startDate
+        : fallbackDate,
+      days: typeof value.days === 'number' && COMMAND_CENTER_HORIZONS.includes(value.days as CommandCenterHorizon)
+        ? value.days as CommandCenterHorizon
+        : 45,
+      filters,
+      search: typeof value.search === 'string' ? value.search.slice(0, 200) : '',
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 export function filterCommandCenterTape<
@@ -51,6 +116,15 @@ export function filterCommandCenterTape<
     return true;
   });
   const allowedUnits = new Set(unitCandidates.map((unit) => unit.unitId));
+  const occupiedUnits = new Set(
+    bookings.filter((booking) => allowedUnits.has(booking.unitId)).map((booking) => booking.unitId),
+  );
+  if (filters.occupancy === 'vacant') {
+    return {
+      units: unitCandidates.filter((unit) => !occupiedUnits.has(unit.unitId)),
+      bookings: [],
+    };
+  }
   const hasBookingFilter = Boolean(
     filters.status || filters.source || filters.paymentStatus || filters.attention,
   );
@@ -63,7 +137,14 @@ export function filterCommandCenterTape<
     return true;
   });
 
-  if (!hasBookingFilter) return { units: unitCandidates, bookings: matchingBookings };
+  if (!hasBookingFilter) {
+    return {
+      units: filters.occupancy === 'occupied'
+        ? unitCandidates.filter((unit) => occupiedUnits.has(unit.unitId))
+        : unitCandidates,
+      bookings: matchingBookings,
+    };
+  }
   const unitsWithMatches = new Set(matchingBookings.map((booking) => booking.unitId));
   return {
     units: unitCandidates.filter((unit) => unitsWithMatches.has(unit.unitId)),

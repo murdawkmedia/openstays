@@ -48,8 +48,6 @@ const AdminQuotesPage =
   INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminQuotesPage').then((module) => ({ default: module.AdminQuotesPage }))) : null;
 const AdminContractsPage =
   INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminContractsPage').then((module) => ({ default: module.AdminContractsPage }))) : null;
-const AdminWorkflowPage =
-  INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminWorkflowPage').then((module) => ({ default: module.AdminWorkflowPage }))) : null;
 const AdminOperationsPage =
   INCLUDE_PUBLIC_STAFF ? lazy(() => import('./pages/AdminOperationsPage').then((module) => ({ default: module.AdminOperationsPage }))) : null;
 const AdminSettingsPage =
@@ -116,8 +114,6 @@ createRoot(rootElement).render(
             <Route path="/admin" element={staffShellElement}>
               <Route index element={<Navigate to="/admin/command" replace />} />
               <Route path="command" element={staffCommandElement} />
-              {AdminWorkflowPage ? (
-                <>
                   <Route path="front-desk" element={AdminFrontDeskPage ? <Suspense fallback={<p>Loading front desk…</p>}><AdminFrontDeskPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
                   <Route path="housekeeping" element={AdminHousekeepingPage ? <Suspense fallback={<p>Loading housekeeping…</p>}><AdminHousekeepingPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
                   <Route path="maintenance" element={AdminMaintenancePage ? <Suspense fallback={<p>Loading maintenance…</p>}><AdminMaintenancePage /></Suspense> : <PublicShowcaseBoundaryPage />} />
@@ -126,8 +122,6 @@ createRoot(rootElement).render(
                   <Route path="contracts" element={AdminContractsPage ? <Suspense fallback={<p>Loading contracts…</p>}><AdminContractsPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
                   <Route path="night-audit" element={AdminNightAuditPage ? <Suspense fallback={<p>Loading night audit…</p>}><AdminNightAuditPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
                   <Route path="reports" element={AdminReportsPage ? <Suspense fallback={<p>Loading reports…</p>}><AdminReportsPage /></Suspense> : <PublicShowcaseBoundaryPage />} />
-                </>
-              ) : null}
               <Route path="operations" element={staffOperationsElement} />
               <Route path="settings" element={staffSettingsElement} />
             </Route>

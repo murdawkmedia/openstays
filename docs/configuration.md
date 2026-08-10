@@ -6,13 +6,13 @@ properties baked in — the only inventory in this repo is the fictional
 deployment (`convex/seed.ts`). Your cabins, sites, rates, and policies live as
 rows in your own Convex deployment, not as source files you fork and edit.
 
-> **Admin UI status:** today, inventory is loaded via a seed-style Convex
-> script or directly through the [Convex dashboard](https://dashboard.convex.dev)
-> (Data tab, insert/edit rows by hand or import JSON). A proper admin CRUD UI
-> for managing this data from the browser lands in **M1+** — see the
-> [roadmap](/roadmap). Until then, treat `convex/seed.ts` as a template: copy
-> it, replace the fictional data with yours, and run it with
-> `npx convex run yourSeedFile:run`.
+> **Inventory setup status:** initial property, unit, and rate inventory is
+> still loaded through a seed-style Convex script or the
+> [Convex dashboard](https://dashboard.convex.dev). Once loaded, the
+> feature-gated command center handles daily reservations, front desk,
+> housekeeping, maintenance, folios, closeout, groups, and seasonal records.
+> Treat `convex/seed.ts` as a template; never put customer data in the public
+> repository.
 
 Two conventions apply everywhere below and are enforced by tests, not just
 convention:
@@ -21,6 +21,21 @@ convention:
 - **Stay dates are property-local ISO strings** (`'2026-07-15'`), compared
   lexicographically. Nights are half-open: a booking `[checkIn, checkOut)`
   does not occupy the checkout date, so the next guest can check in that day.
+
+## Property operations flags
+
+The PMS expansion is additive and disabled per property until a row in
+`propertyFeatures` explicitly enables it. Supported flags are
+`command_center`, `front_desk`, `housekeeping`, `maintenance`, `commerce`,
+`night_audit`, `groups`, and `long_term`. An absent row is disabled.
+
+Before enabling a property, run the idempotent
+`staff:backfillPropertyAssignments` migration, inspect its assignments, and
+run it a second time to confirm it inserts zero additional rows. Then enable
+one workspace at a time and follow the acceptance sequence in
+[Kokanee-first command center](/command-center). Disabling a flag removes its
+operator workspace without changing guest booking, payment reconciliation, or
+existing records.
 
 ## Domain objects
 
@@ -50,7 +65,8 @@ RV Site." Each has a `kind` (`room` | `cabin` | `site` | `rv_rental` | `yurt`
   the availability calendar applies.
 - **`seasonal`** — long-term site contracts (a full summer season, not
   night-by-night). The `seasonalContracts` table backs this; full seasonal
-  workflow (invoicing schedule, renewal offers) lands in **M4**.
+  workflows now support auditable contract records and balanced payment
+  schedules. Automated invoicing and renewal offers remain future work.
 
 `comingSoon` lets you list a unit type before it's bookable; `sortOrder`
 controls display order.
@@ -136,6 +152,8 @@ without updating that file too.
 # ── Frontend (Vite) ─────────────────────────────────────────────────────
 # Set automatically by `npx convex dev` into .env.local during development.
 VITE_CONVEX_URL=
+VITE_PUBLIC_SHOWCASE=false
+VITE_PUBLIC_STAFF=false
 
 # ── Convex deployment env vars ──────────────────────────────────────────
 # These are NOT read from this file. Set them per deployment with:
@@ -193,6 +211,8 @@ the relevant feature is simply off or log-only, never a booking error. See
 
 | Variable | Purpose | If unset |
 |---|---|---|
+| `VITE_PUBLIC_SHOWCASE` | Build-time switch for the sanitized fictional public showcase. | Normal operator-facing build. |
+| `VITE_PUBLIC_STAFF` | Independently includes authenticated `/admin/*` routes in a showcase build only when exactly `true`. | Staff routes are excluded from public-showcase bundles. |
 | `STRIPE_SECRET_KEY` | Restricted API key used server-side to create Stripe Checkout Sessions. | Stripe isn't "configured" for this deployment — the Stripe button is absent from checkout; guests only see providers that are configured. |
 | `STRIPE_WEBHOOK_SECRET` | Verifies that incoming `/webhooks/stripe` requests are authentically from Stripe (signature check) before any booking state changes. | Same as above — a deployment needs both Stripe vars to offer Stripe at all. |
 | `SQUARE_ACCESS_TOKEN` | Server-side token used to create Square Payment Links. | Square isn't configured — the Square button is absent from checkout. |

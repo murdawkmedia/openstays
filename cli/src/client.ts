@@ -235,6 +235,52 @@ export interface TapeArgs {
   to: string;
 }
 
+export type OperationalViewName =
+  | 'search'
+  | 'front-desk'
+  | 'housekeeping'
+  | 'maintenance'
+  | 'folios'
+  | 'quotes'
+  | 'contracts'
+  | 'night-audit'
+  | 'reports';
+
+export type OperationalActionName =
+  | 'block'
+  | 'move'
+  | 'quote'
+  | 'quote/accept'
+  | 'waitlist'
+  | 'maintenance'
+  | 'call'
+  | 'call/complete'
+  | 'complimentary'
+  | 'rate-adjustment'
+  | 'front-desk/transition'
+  | 'housekeeping/assign'
+  | 'housekeeping/state'
+  | 'maintenance/resolve'
+  | 'folios/retail'
+  | 'folios/entry'
+  | 'folios/reverse'
+  | 'folios/payment'
+  | 'night-audit/close'
+  | 'group'
+  | 'seasonal-contract'
+  | 'reminder'
+  | 'gift-certificate';
+
+export interface OperationalViewArgs {
+  property: string;
+  view: OperationalViewName;
+  date?: string;
+  query?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
 function buildQuery(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -363,5 +409,14 @@ export class OpenStaysClient {
 
   promoPreview(args: PromoPreviewArgs): Promise<PromoPreviewResult> {
     return this.request<PromoPreviewResult>('POST', '/promo-codes/preview', args);
+  }
+
+  operationsView(args: OperationalViewArgs): Promise<unknown> {
+    return this.request('GET', `/operations/${encodeURIComponent(args.view)}${buildQuery({ property: args.property, date: args.date, q: args.query, from: args.from, to: args.to, limit: args.limit })}`);
+  }
+
+  operationsAction(action: OperationalActionName, args: Record<string, unknown> & { property: string; requestId: string }): Promise<unknown> {
+    const path = action.split('/').map(encodeURIComponent).join('/');
+    return this.request('POST', `/operations/${path}`, args);
   }
 }

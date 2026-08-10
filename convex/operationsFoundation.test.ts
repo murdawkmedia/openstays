@@ -157,4 +157,42 @@ describe('operations foundation', () => {
       }),
     ).rejects.toThrow(/VERSION_CONFLICT/);
   });
+
+  it('reports real synchronization and operational alert state for the staff shell', async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seed(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert('channelSync', {
+        propertyId: fixture.propertyId,
+        provider: 'channex',
+        enabled: true,
+        dirtySince: 123,
+      });
+      await ctx.db.insert('maintenanceTasks', {
+        propertyId: fixture.propertyId,
+        unitId: fixture.unitId,
+        title: 'Water line leak',
+        description: 'Inspect immediately',
+        priority: 'urgent',
+        status: 'open',
+        removesInventory: false,
+        version: 0,
+        createdBy: fixture.userId,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+
+    const state = await t.withIdentity(identityFor(fixture.userId)).query(
+      (api as any).operationsFoundation.snapshot,
+      { propertyId: fixture.propertyId },
+    );
+
+    expect(state.operationalStatus.channel).toMatchObject({ state: 'pending', label: 'Channel sync pending' });
+    expect(state.operationalStatus.alertCount).toBe(2);
+    expect(state.operationalStatus.alerts.map((alert: { kind: string }) => alert.kind)).toEqual([
+      'maintenance',
+      'channel',
+    ]);
+  });
 });

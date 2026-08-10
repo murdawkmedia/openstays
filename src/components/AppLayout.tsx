@@ -6,6 +6,7 @@ import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 export function AppLayout() {
   return (
     <div className="flex min-h-screen flex-col">
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       {PUBLIC_SHOWCASE.enabled ? (
         <div className="bg-amber-100 px-4 py-2 text-center text-xs font-semibold text-amber-950">
           Public showcase · fictional data · signet test sats
@@ -14,7 +15,7 @@ export function AppLayout() {
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
           <Link to="/" className="flex items-center gap-2 text-stone-900">
-            <Mountain className="h-6 w-6 text-emerald-700" strokeWidth={2} />
+            <Mountain className="h-6 w-6 text-emerald-700" strokeWidth={2} aria-hidden="true" />
             <span className="font-display text-lg font-semibold">OpenStays</span>
             <span className="hidden rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-800 sm:inline">Consensus Commons</span>
           </Link>
@@ -42,7 +43,7 @@ export function AppLayout() {
           </nav>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
+      <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
         <Outlet />
       </main>
       <footer className="border-t border-stone-200 py-6 text-center text-xs text-stone-400">

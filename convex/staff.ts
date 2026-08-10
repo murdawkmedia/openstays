@@ -54,6 +54,21 @@ export async function requirePropertyCapability(
   role: OperationalRole;
 }> {
   const { userId, profile } = await requireStaff(ctx);
+  return await resolvePropertyCapability(ctx, userId, profile, propertyId, capability);
+}
+
+async function resolvePropertyCapability(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<'users'>,
+  profile: Doc<'staffProfiles'>,
+  propertyId: Id<'properties'>,
+  capability: OperationalCapability,
+): Promise<{
+  userId: Id<'users'>;
+  profile: Doc<'staffProfiles'>;
+  property: Doc<'properties'>;
+  role: OperationalRole;
+}> {
   const property = await ctx.db.get(propertyId);
   if (!property || !property.active) throw new ConvexError('PROPERTY_ACCESS_DENIED');
 
@@ -69,6 +84,57 @@ export async function requirePropertyCapability(
   const role = explicit?.role ?? legacyOperationalRole(profile);
   if (!roleCan(role, capability)) throw new ConvexError('CAPABILITY_DENIED');
   return { userId, profile, property, role };
+}
+
+/**
+ * API-key automation authorization. A write key acts only with the active
+ * property role of the owner who minted it; it never becomes a deployment-
+ * wide superuser merely because its scope is "write".
+ */
+export async function requireAutomationPropertyCapability(
+  ctx: QueryCtx | MutationCtx,
+  actorUserId: Id<'users'>,
+  propertyId: Id<'properties'>,
+  capability: OperationalCapability,
+) {
+  const profile = await ctx.db
+    .query('staffProfiles')
+    .withIndex('by_userId', (q) => q.eq('userId', actorUserId))
+    .unique();
+  if (!profile?.active) throw new ConvexError('AUTOMATION_ACTOR_INACTIVE');
+  return await resolvePropertyCapability(ctx, actorUserId, profile, propertyId, capability);
+}
+
+export async function requireMutationPropertyCapability(
+  ctx: MutationCtx,
+  propertyId: Id<'properties'>,
+  capability: OperationalCapability,
+  action: string,
+  automationToken?: string,
+) {
+  if (!automationToken) return await requirePropertyCapability(ctx, propertyId, capability);
+  const claim = await ctx.db
+    .query('automationClaims')
+    .withIndex('by_token', (q) => q.eq('token', automationToken))
+    .unique();
+  if (!claim || claim.propertyId !== propertyId || claim.action !== action || claim.expiresAt <= Date.now()) {
+    throw new ConvexError('AUTOMATION_CLAIM_INVALID');
+  }
+  const access = await requireAutomationPropertyCapability(ctx, claim.actorUserId, propertyId, capability);
+  const key = await ctx.db.get(claim.apiKeyId);
+  await ctx.db.insert('auditLog', {
+    actorUserId: access.userId,
+    actorName: access.profile.name,
+    propertyId,
+    action: 'automation.authorize',
+    detail: `authorized ${action} via API key ${key?.prefix ?? 'unknown'}`,
+    entityType: 'api_key',
+    entityId: claim.apiKeyId,
+    metadataJson: JSON.stringify({ source: 'api_v1', action, apiKeyId: claim.apiKeyId }),
+    ts: Date.now(),
+  });
+  await ctx.db.delete(claim._id);
+  return access;
 }
 
 export async function requirePropertyFeature(

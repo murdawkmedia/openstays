@@ -97,7 +97,7 @@ async function seedFixture(t: ReturnType<typeof convexTest>) {
 }
 
 /** Insert an API key row directly and return its raw token. */
-async function seedKey(t: ReturnType<typeof convexTest>, scope: 'read' | 'write') {
+async function seedKey(t: ReturnType<typeof convexTest>, scope: 'read' | 'write', createdBy = 'test') {
   // A real osk_ token so the request path (sha256 → verifyKey) is exercised.
   const token = `osk_${'a'.repeat(scope === 'read' ? 48 : 47)}${scope === 'read' ? '' : 'b'}`;
   const keyHash = await sha256HexOf(token);
@@ -108,7 +108,7 @@ async function seedKey(t: ReturnType<typeof convexTest>, scope: 'read' | 'write'
       prefix: token.slice(0, 12),
       scope,
       active: true,
-      createdBy: 'test',
+      createdBy,
       createdAt: Date.now(),
     }),
   );
@@ -234,6 +234,150 @@ describe('scope enforcement', () => {
     const writeToken = await seedKey(t, 'write');
     const res = await t.fetch('/api/v1/properties', { method: 'GET', headers: bearer(writeToken) });
     expect(res.status).toBe(200);
+  });
+});
+
+describe('staff operations automation', () => {
+  it('uses a short-lived API claim to run the same audited block mutation', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    const userId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert('users', { email: 'owner@example.com', name: 'Owner' });
+      await ctx.db.insert('staffProfiles', { userId, name: 'API Owner', role: 'owner', active: true, createdAt: 1 });
+      await ctx.db.insert('propertyFeatures', { propertyId: fx.propertyId, feature: 'command_center', enabled: true, version: 1, updatedBy: userId, updatedAt: 1 });
+      return userId;
+    });
+    const token = await seedKey(t, 'write', userId);
+    const res = await t.fetch('/api/v1/operations/block', {
+      method: 'POST',
+      headers: { ...bearer(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ property: 'test-grounds', unitId: fx.unitId, checkIn: D(10), checkOut: D(12), reason: 'API repair', requestId: 'api-block-1' }),
+    });
+    expect(res.status).toBe(200);
+    const state = await t.run(async (ctx) => ({
+      bookings: await ctx.db.query('bookings').collect(),
+      claims: await ctx.db.query('automationClaims').collect(),
+      audits: (await ctx.db.query('auditLog').collect()).filter((row) => row.action === 'booking.block'),
+    }));
+    expect(state.bookings).toHaveLength(1);
+    expect(state.bookings[0].status).toBe('blocked');
+    expect(state.claims).toHaveLength(0);
+    expect(state.audits[0].actorName).toBe('API Owner');
+    const automationAudit = await t.run(async (ctx) =>
+      ctx.db.query('auditLog').filter((q) => q.eq(q.field('action'), 'automation.authorize')).unique(),
+    );
+    expect(automationAudit?.entityType).toBe('api_key');
+    expect(JSON.parse(automationAudit?.metadataJson ?? '{}')).toMatchObject({
+      source: 'api_v1',
+      action: 'booking.block',
+    });
+  });
+
+  it('cleans expired automation claims before issuing the next one', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    const userId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert('users', { email: 'cleanup@example.com' });
+      await ctx.db.insert('staffProfiles', { userId, name: 'Cleanup owner', role: 'owner', active: true, createdAt: 1 });
+      await ctx.db.insert('propertyFeatures', { propertyId: fx.propertyId, feature: 'command_center', enabled: true, version: 1, updatedBy: userId, updatedAt: 1 });
+      return userId;
+    });
+    const token = await seedKey(t, 'write', userId);
+    await t.run(async (ctx) => {
+      const key = await ctx.db.query('apiKeys').withIndex('by_keyHash').first();
+      if (!key) throw new Error('missing key');
+      for (let index = 0; index < 3; index += 1) {
+        await ctx.db.insert('automationClaims', { token: `expired-${index}`, apiKeyId: key._id, actorUserId: userId, propertyId: fx.propertyId, action: 'booking.block', expiresAt: Date.now() - 1 });
+      }
+    });
+    const res = await t.fetch('/api/v1/operations/block', {
+      method: 'POST',
+      headers: { ...bearer(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ property: 'test-grounds', unitId: fx.unitId, checkIn: D(20), checkOut: D(22), reason: 'Cleanup check', requestId: 'api-claim-cleanup' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await t.run(async (ctx) => ctx.db.query('automationClaims').collect())).toHaveLength(0);
+  });
+
+  it('applies backpressure when a key has too many outstanding automation claims', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    const userId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert('users', { email: 'limited@example.com' });
+      await ctx.db.insert('staffProfiles', { userId, name: 'Limited owner', role: 'owner', active: true, createdAt: 1 });
+      await ctx.db.insert('propertyFeatures', { propertyId: fx.propertyId, feature: 'command_center', enabled: true, version: 1, updatedBy: userId, updatedAt: 1 });
+      return userId;
+    });
+    const token = await seedKey(t, 'write', userId);
+    await t.run(async (ctx) => {
+      const key = await ctx.db.query('apiKeys').withIndex('by_keyHash').first();
+      if (!key) throw new Error('missing key');
+      for (let index = 0; index < 100; index += 1) {
+        await ctx.db.insert('automationClaims', { token: `active-${index}`, apiKeyId: key._id, actorUserId: userId, propertyId: fx.propertyId, action: 'booking.block', expiresAt: Date.now() + 60_000 });
+      }
+    });
+    const res = await t.fetch('/api/v1/operations/block', {
+      method: 'POST',
+      headers: { ...bearer(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ property: 'test-grounds', unitId: fx.unitId, checkIn: D(24), checkOut: D(26), reason: 'Should throttle', requestId: 'api-claim-limit' }),
+    });
+    expect(res.status).toBe(429);
+    expect(await t.run(async (ctx) => ctx.db.query('bookings').collect())).toHaveLength(0);
+  });
+
+  it('serves bounded operational read views only behind an API key and feature flag', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    const userId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert('users', { email: 'm@example.com' });
+      await ctx.db.insert('staffProfiles', { userId, name: 'Read owner', role: 'owner', active: true, createdAt: 1 });
+      await ctx.db.insert('propertyFeatures', { propertyId: fx.propertyId, feature: 'maintenance', enabled: true, version: 1, updatedBy: userId, updatedAt: 1 });
+      await ctx.db.insert('maintenanceTasks', { propertyId: fx.propertyId, unitId: fx.unitId, title: 'Pedestal check', description: '', priority: 'normal', status: 'open', removesInventory: false, version: 0, createdBy: userId, createdAt: 1, updatedAt: 1 });
+      return userId;
+    });
+    const token = await seedKey(t, 'read', userId);
+    const res = await t.fetch('/api/v1/operations/maintenance?property=test-grounds&limit=10', { method: 'GET', headers: bearer(token) });
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res) as any;
+    expect(body.data.records).toHaveLength(1);
+    expect(body.data.records[0].title).toBe('Pedestal check');
+  });
+
+  it('completes an existing call task through the same audited operation mutation', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert('users', { email: 'caller@example.com', name: 'Caller' });
+      await ctx.db.insert('staffProfiles', { userId, name: 'API Caller', role: 'owner', active: true, createdAt: 1 });
+      await ctx.db.insert('propertyFeatures', { propertyId: fx.propertyId, feature: 'command_center', enabled: true, version: 1, updatedBy: userId, updatedAt: 1 });
+      const taskId = await ctx.db.insert('staffTasks', { propertyId: fx.propertyId, kind: 'call', title: 'Return message', detail: '', status: 'open', version: 0, createdBy: userId, createdAt: 1, updatedAt: 1 });
+      return { userId, taskId };
+    });
+    const token = await seedKey(t, 'write', seeded.userId);
+    const res = await t.fetch('/api/v1/operations/call/complete', {
+      method: 'POST',
+      headers: { ...bearer(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ property: 'test-grounds', taskId: seeded.taskId, expectedVersion: 0, requestId: 'api-call-complete' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await t.run(async (ctx) => ctx.db.get(seeded.taskId))).toMatchObject({ status: 'completed', version: 1 });
+  });
+
+  it('does not let a write key escape the property assignment of its creator', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    const userId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert('users', { email: 'scoped@example.com' });
+      const staffProfileId = await ctx.db.insert('staffProfiles', { userId, name: 'Scoped owner', role: 'owner', active: true, createdAt: 1 });
+      const otherPropertyId = await ctx.db.insert('properties', { name: 'Other', slug: 'other', timezone: 'UTC', currency: 'CAD', taxRateBps: 0, email: 'o@example.com', phone: '', address: '', checkInTime: '16:00', checkOutTime: '11:00', active: true });
+      await ctx.db.insert('staffPropertyAssignments', { staffProfileId, userId, propertyId: otherPropertyId, role: 'owner', active: true, createdAt: 1, updatedAt: 1 });
+      await ctx.db.insert('propertyFeatures', { propertyId: fx.propertyId, feature: 'command_center', enabled: true, version: 1, updatedBy: userId, updatedAt: 1 });
+      return userId;
+    });
+    const token = await seedKey(t, 'write', userId);
+    const res = await t.fetch('/api/v1/operations/block', { method: 'POST', headers: { ...bearer(token), 'Content-Type': 'application/json' }, body: JSON.stringify({ property: 'test-grounds', unitId: fx.unitId, checkIn: D(10), checkOut: D(12), reason: 'Nope', requestId: 'api-scope-denied' }) });
+    expect(res.status).toBe(403);
+    expect(await t.run(async (ctx) => ctx.db.query('bookings').collect())).toHaveLength(0);
   });
 });
 

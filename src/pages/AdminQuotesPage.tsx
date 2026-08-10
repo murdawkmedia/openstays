@@ -1,17 +1,212 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
+import { useSearchParams } from 'react-router-dom';
+
 import { api } from '../../convex/_generated/api';
 import { useAdminProperty } from '../components/AdminShell';
 import { Spinner } from '../components/Spinner';
 
-type Board = { quotes: any[]; waitlist: any[]; units: Array<{ unitId: string; unitTypeId: string; name: string }>; unitTypes: Array<{ unitTypeId: string; name: string }>; ratePlans: Array<{ ratePlanId: string; unitTypeId: string; name: string }> };
+type Board = {
+  quotes: any[];
+  waitlist: any[];
+  units: Array<{ unitId: string; unitTypeId: string; name: string }>;
+  unitTypes: Array<{ unitTypeId: string; name: string }>;
+  ratePlans: Array<{ ratePlanId: string; unitTypeId: string; name: string }>;
+};
+
 export function AdminQuotesPage() {
-  const { property, commandCenterEnabled } = useAdminProperty(); const board = useQuery(api.operations.quoteBoard, commandCenterEnabled ? { propertyId: property.propertyId } : 'skip') as Board | undefined;
-  const createQuote = useMutation(api.operations.createQuote); const acceptQuote = useMutation(api.operations.acceptQuote); const createWaitlist = useMutation(api.operations.createWaitlistEntry);
-  const [unitId, setUnitId] = useState(''); const [message, setMessage] = useState<string | null>(null);
-  const selectedUnit = board?.units.find((unit) => unit.unitId === unitId); const plans = useMemo(() => board?.ratePlans.filter((plan) => plan.unitTypeId === selectedUnit?.unitTypeId) ?? [], [board, selectedUnit]);
-  async function submitQuote(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); try { await createQuote({ propertyId: property.propertyId, unitId: unitId as any, ratePlanId: String(data.get('ratePlanId')) as any, checkIn: String(data.get('checkIn')), checkOut: String(data.get('checkOut')), adults: Number(data.get('adults')), children: Number(data.get('children')), guest: { name: String(data.get('name')), email: String(data.get('email')), phone: String(data.get('phone')) }, expiresAt: Date.now() + 7 * 86_400_000, requestId: crypto.randomUUID() }); event.currentTarget.reset(); setUnitId(''); setMessage('Quote created without blocking inventory.'); } catch (error) { setMessage(error instanceof Error ? error.message : 'Quote failed.'); } }
-  async function submitWaitlist(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); try { await createWaitlist({ propertyId: property.propertyId, unitTypeId: String(data.get('unitTypeId')) as any, desiredCheckIn: String(data.get('checkIn')), desiredCheckOut: String(data.get('checkOut')), adults: Number(data.get('adults')), children: Number(data.get('children')), flexibility: String(data.get('flexibility')), guest: { name: String(data.get('name')), email: String(data.get('email')), phone: String(data.get('phone')) }, requestId: crypto.randomUUID() }); event.currentTarget.reset(); setMessage('Waitlist entry created. Inventory remains unchanged.'); } catch (error) { setMessage(error instanceof Error ? error.message : 'Waitlist entry failed.'); } }
-  if (!commandCenterEnabled) return <div className="card max-w-2xl p-6"><h1 className="text-2xl font-semibold">Quotes & waitlist</h1><p className="mt-2 text-sm text-stone-600">Installed and protected by the <code>command_center</code> property flag.</p></div>;
-  return <div className="space-y-5"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Commerce</p><h1 className="mt-1 text-2xl font-semibold">Quotes & waitlist</h1><p className="mt-1 text-sm text-stone-600">Neither record occupies inventory until a quote is explicitly accepted.</p></div>{message ? <p className="rounded-lg bg-stone-900 px-4 py-3 text-sm text-white" role="status">{message}</p> : null}{board === undefined ? <Spinner label="Loading quotes…" /> : <><div className="grid gap-5 xl:grid-cols-2"><form className="card grid gap-3 p-4 sm:grid-cols-2" onSubmit={(event) => void submitQuote(event)}><h2 className="sm:col-span-2 text-lg font-semibold">New quote</h2><input className="field-input" name="name" placeholder="Guest name" required /><input className="field-input" name="email" type="email" placeholder="Email" required /><input className="field-input" name="phone" placeholder="Phone" /><select className="field-input" value={unitId} onChange={(event) => setUnitId(event.target.value)} required><option value="">Choose unit</option>{board.units.map((unit) => <option key={unit.unitId} value={unit.unitId}>{unit.name}</option>)}</select><select className="field-input" name="ratePlanId" required><option value="">Rate plan</option>{plans.map((plan) => <option key={plan.ratePlanId} value={plan.ratePlanId}>{plan.name}</option>)}</select><input className="field-input" name="checkIn" type="date" required /><input className="field-input" name="checkOut" type="date" required /><input className="field-input" name="adults" type="number" min="1" defaultValue="2" required /><input className="field-input" name="children" type="number" min="0" defaultValue="0" required /><button className="btn-primary sm:col-span-2" type="submit">Create non-blocking quote</button></form><form className="card grid gap-3 p-4 sm:grid-cols-2" onSubmit={(event) => void submitWaitlist(event)}><h2 className="sm:col-span-2 text-lg font-semibold">Add to waitlist</h2><input className="field-input" name="name" placeholder="Guest name" required /><input className="field-input" name="email" type="email" placeholder="Email" required /><input className="field-input" name="phone" placeholder="Phone" /><select className="field-input" name="unitTypeId" required><option value="">Unit type</option>{board.unitTypes.map((type) => <option key={type.unitTypeId} value={type.unitTypeId}>{type.name}</option>)}</select><input className="field-input" name="checkIn" type="date" required /><input className="field-input" name="checkOut" type="date" required /><input className="field-input" name="adults" type="number" min="1" defaultValue="2" required /><input className="field-input" name="children" type="number" min="0" defaultValue="0" required /><input className="field-input sm:col-span-2" name="flexibility" placeholder="Flexible dates, site preferences…" /><button className="btn-primary sm:col-span-2" type="submit">Add to waitlist</button></form></div><section className="grid gap-5 xl:grid-cols-2"><div className="card p-4"><h2 className="font-semibold">Quotes</h2><div className="mt-3 space-y-2">{board.quotes.map((quote) => <div key={quote._id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200 p-3"><div><p className="font-semibold">{quote.guestName}</p><p className="text-xs text-stone-500">{quote.unitName} · {quote.checkIn} → {quote.checkOut} · ${(quote.amountCents / 100).toFixed(2)}</p></div>{['draft', 'sent'].includes(quote.status) ? <button type="button" className="btn-primary px-4 py-2" onClick={() => void acceptQuote({ propertyId: property.propertyId, quoteId: quote._id, expectedVersion: quote.version, requestId: crypto.randomUUID() }).then(() => setMessage('Quote accepted into a 35-minute hold.')).catch((error) => setMessage(error instanceof Error ? error.message : 'Acceptance failed.'))}>Accept & hold</button> : <span className="badge">{quote.status}</span>}</div>)}</div></div><div className="card p-4"><h2 className="font-semibold">Waitlist</h2><div className="mt-3 space-y-2">{board.waitlist.map((entry) => <div key={entry._id} className="rounded-xl border border-stone-200 p-3"><p className="font-semibold">{entry.guestName}</p><p className="text-xs text-stone-500">{entry.unitTypeName} · {entry.desiredCheckIn} → {entry.desiredCheckOut}</p><p className="mt-1 text-sm">{entry.flexibility || 'No flexibility note'}</p></div>)}</div></div></section></>}</div>;
+  const [searchParams] = useSearchParams();
+  const reserveIntent = searchParams.get('intent') === 'reserve';
+  const selectedRecordId = searchParams.get('recordId');
+  const { property, commandCenterEnabled } = useAdminProperty();
+  const board = useQuery(
+    api.operations.quoteBoard,
+    commandCenterEnabled ? { propertyId: property.propertyId } : 'skip',
+  ) as Board | undefined;
+  const createQuote = useMutation(api.operations.createQuote);
+  const acceptQuote = useMutation(api.operations.acceptQuote);
+  const createWaitlist = useMutation(api.operations.createWaitlistEntry);
+  const [unitId, setUnitId] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const selectedUnit = board?.units.find((unit) => unit.unitId === unitId);
+  const plans = useMemo(
+    () => board?.ratePlans.filter((plan) => plan.unitTypeId === selectedUnit?.unitTypeId) ?? [],
+    [board, selectedUnit],
+  );
+
+  async function submitQuote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    try {
+      const created = await createQuote({
+        propertyId: property.propertyId,
+        unitId: unitId as any,
+        ratePlanId: String(data.get('ratePlanId')) as any,
+        checkIn: String(data.get('checkIn')),
+        checkOut: String(data.get('checkOut')),
+        adults: Number(data.get('adults')),
+        children: Number(data.get('children')),
+        guest: {
+          name: String(data.get('name')),
+          email: String(data.get('email')),
+          phone: String(data.get('phone')),
+        },
+        expiresAt: Date.now() + 7 * 86_400_000,
+        requestId: crypto.randomUUID(),
+      });
+      if (reserveIntent) {
+        await acceptQuote({
+          propertyId: property.propertyId,
+          quoteId: created.quoteId,
+          expectedVersion: 0,
+          requestId: crypto.randomUUID(),
+        });
+      }
+      form.reset();
+      setUnitId('');
+      setMessage(
+        reserveIntent
+          ? 'Reservation hold created for 35 minutes.'
+          : 'Quote created without blocking inventory.',
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : reserveIntent
+            ? 'Reservation hold failed.'
+            : 'Quote failed.',
+      );
+    }
+  }
+
+  async function submitWaitlist(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    try {
+      await createWaitlist({
+        propertyId: property.propertyId,
+        unitTypeId: String(data.get('unitTypeId')) as any,
+        desiredCheckIn: String(data.get('checkIn')),
+        desiredCheckOut: String(data.get('checkOut')),
+        adults: Number(data.get('adults')),
+        children: Number(data.get('children')),
+        flexibility: String(data.get('flexibility')),
+        guest: {
+          name: String(data.get('name')),
+          email: String(data.get('email')),
+          phone: String(data.get('phone')),
+        },
+        requestId: crypto.randomUUID(),
+      });
+      form.reset();
+      setMessage('Waitlist entry created. Inventory remains unchanged.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Waitlist entry failed.');
+    }
+  }
+
+  if (!commandCenterEnabled) {
+    return (
+      <div className="card max-w-2xl p-6">
+        <h1 className="text-2xl font-semibold">Quotes & waitlist</h1>
+        <p className="mt-2 text-sm text-stone-600">
+          Installed and protected by the <code>command_center</code> property flag.
+        </p>
+      </div>
+    );
+  }
+
+  if (board === undefined) return <Spinner label="Loading quotes…" />;
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Commerce</p>
+        <h1 className="mt-1 text-2xl font-semibold">
+          {reserveIntent ? 'New reservation hold' : 'Quotes & waitlist'}
+        </h1>
+        <p className="mt-1 text-sm text-stone-600">
+          {reserveIntent
+            ? 'Inventory is rechecked atomically before the normal 35-minute hold is created.'
+            : 'Neither record occupies inventory until a quote is explicitly accepted.'}
+        </p>
+      </div>
+      {message ? <p className="rounded-lg bg-stone-900 px-4 py-3 text-sm text-white" role="status">{message}</p> : null}
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <form className="card grid gap-3 p-4 sm:grid-cols-2" onSubmit={(event) => void submitQuote(event)}>
+          <h2 className="sm:col-span-2 text-lg font-semibold">{reserveIntent ? 'Reserve & hold' : 'New quote'}</h2>
+          <input className="field-input" name="name" placeholder="Guest name" required />
+          <input className="field-input" name="email" type="email" placeholder="Email" required />
+          <input className="field-input" name="phone" placeholder="Phone" />
+          <select className="field-input" value={unitId} onChange={(event) => setUnitId(event.target.value)} required>
+            <option value="">Choose unit</option>
+            {board.units.map((unit) => <option key={unit.unitId} value={unit.unitId}>{unit.name}</option>)}
+          </select>
+          <select className="field-input" name="ratePlanId" required>
+            <option value="">Rate plan</option>
+            {plans.map((plan) => <option key={plan.ratePlanId} value={plan.ratePlanId}>{plan.name}</option>)}
+          </select>
+          <input className="field-input" name="checkIn" type="date" required />
+          <input className="field-input" name="checkOut" type="date" required />
+          <input className="field-input" name="adults" type="number" min="1" defaultValue="2" required />
+          <input className="field-input" name="children" type="number" min="0" defaultValue="0" required />
+          <button className="btn-primary sm:col-span-2" type="submit">
+            {reserveIntent ? 'Create 35-minute hold' : 'Create non-blocking quote'}
+          </button>
+        </form>
+
+        <form className="card grid gap-3 p-4 sm:grid-cols-2" onSubmit={(event) => void submitWaitlist(event)}>
+          <h2 className="sm:col-span-2 text-lg font-semibold">Add to waitlist</h2>
+          <input className="field-input" name="name" placeholder="Guest name" required />
+          <input className="field-input" name="email" type="email" placeholder="Email" required />
+          <input className="field-input" name="phone" placeholder="Phone" />
+          <select className="field-input" name="unitTypeId" required>
+            <option value="">Unit type</option>
+            {board.unitTypes.map((type) => <option key={type.unitTypeId} value={type.unitTypeId}>{type.name}</option>)}
+          </select>
+          <input className="field-input" name="checkIn" type="date" required />
+          <input className="field-input" name="checkOut" type="date" required />
+          <input className="field-input" name="adults" type="number" min="1" defaultValue="2" required />
+          <input className="field-input" name="children" type="number" min="0" defaultValue="0" required />
+          <input className="field-input sm:col-span-2" name="flexibility" placeholder="Flexible dates, site preferences…" />
+          <button className="btn-primary sm:col-span-2" type="submit">Add to waitlist</button>
+        </form>
+      </div>
+
+      <section className="grid gap-5 xl:grid-cols-2">
+        <div className="card p-4">
+          <h2 className="font-semibold">Quotes</h2>
+          <div className="mt-3 space-y-2">
+            {board.quotes.map((quote) => (
+              <div key={quote._id} className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 ${selectedRecordId === quote._id ? 'border-emerald-500 bg-emerald-50' : 'border-stone-200'}`}>
+                <div>
+                  <p className="font-semibold">{quote.guestName}</p>
+                  <p className="text-xs text-stone-500">{quote.unitName} · {quote.checkIn} → {quote.checkOut} · ${(quote.amountCents / 100).toFixed(2)}</p>
+                </div>
+                {['draft', 'sent'].includes(quote.status) ? (
+                  <button type="button" className="btn-primary px-4 py-2" onClick={() => void acceptQuote({ propertyId: property.propertyId, quoteId: quote._id, expectedVersion: quote.version, requestId: crypto.randomUUID() }).then(() => setMessage('Quote accepted into a 35-minute hold.')).catch((error) => setMessage(error instanceof Error ? error.message : 'Acceptance failed.'))}>Accept & hold</button>
+                ) : <span className="badge">{quote.status}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card p-4">
+          <h2 className="font-semibold">Waitlist</h2>
+          <div className="mt-3 space-y-2">
+            {board.waitlist.map((entry) => (
+              <div key={entry._id} className={`rounded-xl border p-3 ${selectedRecordId === entry._id ? 'border-emerald-500 bg-emerald-50' : 'border-stone-200'}`}>
+                <p className="font-semibold">{entry.guestName}</p>
+                <p className="text-xs text-stone-500">{entry.unitTypeName} · {entry.desiredCheckIn} → {entry.desiredCheckOut}</p>
+                <p className="mt-1 text-sm">{entry.flexibility || 'No flexibility note'}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
 }
