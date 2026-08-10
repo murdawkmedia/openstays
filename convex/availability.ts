@@ -135,6 +135,7 @@ export const tapeForProperty = query({
       bookingRows.push({
         bookingId: booking._id,
         unitId: booking.unitId,
+        unitTypeId: booking.unitTypeId,
         checkIn: booking.checkIn,
         checkOut: booking.checkOut,
         status: booking.status,
@@ -145,6 +146,8 @@ export const tapeForProperty = query({
         children: booking.children,
         paymentStatus,
         attention,
+        version: booking.version ?? 0,
+        totalCents: booking.priceBreakdown?.totalCents,
         updatedAt: booking.updatedAt,
       });
     }

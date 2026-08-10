@@ -1,0 +1,15 @@
+import { useState } from 'react';
+import { useQuery } from 'convex/react';
+import { Download } from 'lucide-react';
+import { api } from '../../convex/_generated/api';
+import { addDays } from '../../shared/pricing';
+import { useAdminProperty } from '../components/AdminShell';
+import { todayIso } from '../lib/dates';
+
+type Row = { snapshotId: string; businessDate: string; status: string; summary: Record<string, number> };
+export function AdminReportsPage() {
+  const { property } = useAdminProperty(); const [endDate, setEndDate] = useState(todayIso()); const [startDate, setStartDate] = useState(addDays(todayIso(), -30));
+  const rows = useQuery(api.closeout.report, { propertyId: property.propertyId, startDate, endDate }) as Row[] | undefined;
+  function exportCsv() { const csv = ['Date,Revenue cents,Payments cents,Occupied units,Open folios', ...(rows ?? []).map((row) => [row.businessDate, row.summary.postedRevenueCents, row.summary.paymentsCents, row.summary.occupiedUnits, row.summary.openFolios].join(','))].join('\n'); const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); const a = document.createElement('a'); a.href = url; a.download = `${property.slug}-operations-${startDate}-${endDate}.csv`; a.click(); URL.revokeObjectURL(url); }
+  return <div className="space-y-5"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Oversight</p><h1 className="mt-1 text-2xl font-semibold">Operational reports</h1></div><button type="button" className="btn-secondary" onClick={exportCsv} disabled={!rows?.length}><Download className="h-4 w-4" /> Export accounting CSV</button></div><div className="card flex flex-wrap gap-3 p-4"><label><span className="field-label">From</span><input className="field-input" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label><span className="field-label">To</span><input className="field-input" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div><div className="card overflow-x-auto"><table className="w-full min-w-[44rem] text-left text-sm"><thead className="border-b border-stone-200 bg-stone-50 text-xs uppercase tracking-wide text-stone-500"><tr><th className="p-3">Date</th><th className="p-3">Revenue</th><th className="p-3">Payments</th><th className="p-3">Occupied</th><th className="p-3">Open folios</th><th className="p-3">Exceptions</th></tr></thead><tbody>{rows?.map((row) => <tr key={row.snapshotId} className="border-b border-stone-100"><td className="p-3 font-semibold">{row.businessDate}</td><td className="p-3">${(row.summary.postedRevenueCents / 100).toFixed(2)}</td><td className="p-3">${(row.summary.paymentsCents / 100).toFixed(2)}</td><td className="p-3">{row.summary.occupiedUnits}</td><td className="p-3">{row.summary.openFolios}</td><td className="p-3">{row.summary.openRefundCases + row.summary.channelConflicts}</td></tr>)}</tbody></table>{rows?.length === 0 ? <p className="p-8 text-center text-stone-500">No closed night-audit snapshots in this range.</p> : null}</div></div>;
+}

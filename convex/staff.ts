@@ -71,6 +71,20 @@ export async function requirePropertyCapability(
   return { userId, profile, property, role };
 }
 
+export async function requirePropertyFeature(
+  ctx: QueryCtx | MutationCtx,
+  propertyId: Id<'properties'>,
+  feature: string,
+): Promise<void> {
+  const row = await ctx.db
+    .query('propertyFeatures')
+    .withIndex('by_property_feature', (q) =>
+      q.eq('propertyId', propertyId).eq('feature', feature),
+    )
+    .unique();
+  if (!row?.enabled) throw new ConvexError(`FEATURE_DISABLED:${feature}`);
+}
+
 export const propertyContext = query({
   args: { propertyId: v.id('properties') },
   handler: async (ctx, args) => {

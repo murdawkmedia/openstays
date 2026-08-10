@@ -20,6 +20,10 @@ async function seed(t: ReturnType<typeof convexTest>) {
       taxRateBps: 500, email: 'stay@example.com', phone: '555', address: '1 Test Road',
       checkInTime: '16:00', checkOutTime: '11:00', active: true,
     });
+    await ctx.db.insert('propertyFeatures', {
+      propertyId, feature: 'command_center', enabled: true, version: 1,
+      updatedBy: userId, updatedAt: Date.now(),
+    });
     const unitTypeId = await ctx.db.insert('unitTypes', {
       propertyId, name: 'Site', slug: 'site', kind: 'site', bookingMode: 'nightly', description: '',
       photoUrls: [], maxOccupancy: 6, amenities: [], comingSoon: false, sortOrder: 1,

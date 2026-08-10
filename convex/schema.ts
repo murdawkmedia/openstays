@@ -522,6 +522,7 @@ export default defineSchema({
     postedAt: v.number(),
   })
     .index('by_folio_postedAt', ['folioId', 'postedAt'])
+    .index('by_property_postedAt', ['propertyId', 'postedAt'])
     .index('by_payment', ['paymentId'])
     .index('by_reversal', ['reversesEntryId']),
 
