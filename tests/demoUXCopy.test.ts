@@ -136,6 +136,15 @@ describe('judge-facing checkout copy', () => {
     expect(manage).toContain('The payment timeline above shows whether the refund is complete or requires staff action.');
     expect(manage).not.toContain('Manual providers remain paid until staff records the completed refund.');
   });
+
+  it('uses one booking-email field for conversation, history, and cancellation', () => {
+    const manage = readFileSync(new URL('../src/pages/ManageBookingPage.tsx', import.meta.url), 'utf8');
+    expect(manage.match(/type="email"/g)).toHaveLength(1);
+    expect(manage).toContain('Enter it once to open your conversation, booking history, and available actions.');
+    expect(manage).toContain('Booking details stay hidden until the email matches this reservation.');
+    expect(manage).toContain('Enter the booking email above to enable cancellation.');
+    expect(manage).not.toContain('id="manage-email"');
+  });
 });
 
 describe('staff auth errors', () => {
