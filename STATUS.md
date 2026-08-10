@@ -4,11 +4,29 @@ Updated: 2026-08-10
 
 ## Current branch
 
-- Worktree: `C:\Users\Murphy\.config\superpowers\worktrees\openstays\kokanee-command-center`
-- Branch: `codex/kokanee-command-center`
-- Base: local `main` / `origin/main` at `da81f158f3e53db5a63a9bc1396edc8b764e0c8b`
-- Verified checkpoints: `65b07a8` (foundation), `0e19e43` (audited resort workflows), plus the current final command-center/automation commit.
-- No push, merge, deployment, credential access, or production data change has occurred.
+- Worktree: `C:\Users\Murphy\.config\superpowers\worktrees\openstays\merge-main`
+- Branch: `main`
+- Kokanee checkpoints: `65b07a8` (foundation), `0e19e43` (audited resort workflows), and `0e0ab5f` (final command center/automation pass).
+- `main` was fast-forwarded and pushed on 2026-08-10.
+
+## Live release
+
+- Production Convex `shiny-bison-351` received the additive schema and
+  functions after a dry run confirmed that no indexes would be deleted.
+- Cloudflare Pages production deployment `540c4ccb` is live at
+  `https://openstays-consensus.pages.dev` and preserves Zaprite, Wavelength
+  signet, simulated fallback, Turnstile, and authenticated staff routes.
+- The public operations tour passed desktop and 390 px live-browser checks
+  with no console errors or page-level overflow. The Wavelength runtime and
+  eligibility edge return healthy production responses.
+- Property feature flags remain absent/off. The assignment migration replayed
+  twice with zero inserts because production currently has no staff profiles;
+  controlled owner bootstrap is still required before the private operator
+  workspace can be enabled.
+- The first post-merge CI run passed application, docs, Cloudflare operations,
+  container build, runtime, and recovery tests, then Trivy identified fixable
+  transitive CLI dependencies. The follow-up pins patched releases and must
+  pass the replacement CI run before release closeout.
 
 ## Implemented
 
@@ -46,5 +64,6 @@ Updated: 2026-08-10
 ## Deployment boundary
 
 All new operator workspaces default off. Existing booking/payment/refund/
-channel behavior and the current public deployment remain unchanged. Promotion
-requires an explicit later instruction after final acceptance.
+channel behavior remains unchanged. The fictional public tour and production
+backend schema are deployed, but enabling a private operational workspace is a
+separate, reversible per-property action after owner bootstrap and acceptance.
