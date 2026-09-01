@@ -2,6 +2,7 @@ node_modules/
 .convex/
 .wrangler/
 dist/
+convex-production/
 dist-docs/
 test-results/
 playwright-report/

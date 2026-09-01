@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "frontendForbidden": [
+    "consensus commons",
+    "openstays.consensus-receipt",
+    "opentimestamps",
+    "signet",
+    "treasury",
+    "wavelength",
+    "/tour/operations"
+  ],
+  "convexExcludedModules": [
+    "consensus.ts",
+    "consensusReceipts.ts",
+    "demo.ts",
+    "operationsHealth.ts",
+    "publicMaintenance.ts",
+    "rewardPolicy.ts",
+    "seed.ts",
+    "treasury.ts",
+    "treasuryPolicy.ts",
+    "wavelength.ts",
+    "wavelengthRewards.ts"
+  ],
+  "convexForbidden": [
+    "consensusreceipts",
+    "openstays.consensus-receipt",
+    "opentimestamps",
+    "publicrewardclaims",
+    "signet",
+    "treasurysweeps",
+    "wavelength"
+  ]
+}

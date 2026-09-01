@@ -7,8 +7,9 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/check-public-showcase-env.mjs",
+    "prebuild": "node scripts/check-public-showcase-env.mjs && node scripts/check-production-profile-env.mjs",
     "build": "vite build",
+    "postbuild": "node scripts/verify-production-artifacts.mjs",
     "prepreview": "npm run wavelength:runtime:check -- dist/wavewalletdk",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
@@ -26,7 +27,9 @@
     "wavelength:runtime:check": "node scripts/check-wavelength-runtime.mjs",
     "mailpit:install": "powershell -ExecutionPolicy Bypass -File scripts/install-mailpit.ps1",
     "mailpit:start": "powershell -ExecutionPolicy Bypass -File scripts/start-mailpit.ps1",
-    "mail:bridge": "powershell -ExecutionPolicy Bypass -File scripts/start-mail-bridge.ps1"
+    "mail:bridge": "powershell -ExecutionPolicy Bypass -File scripts/start-mail-bridge.ps1",
+    "production:convex:prepare": "node scripts/prepare-production-convex.mjs",
+    "production:verify": "npm run production:convex:prepare && node scripts/verify-production-artifacts.mjs --convex-only"
   },
   "dependencies": {
     "@auth/core": "0.41.3",

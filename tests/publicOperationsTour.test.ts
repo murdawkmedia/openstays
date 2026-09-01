@@ -123,8 +123,9 @@ describe('public operations tour boundary', () => {
 
   it('keeps account creation out of public showcase builds', () => {
     const source = fs.readFileSync('src/pages/AdminLoginPage.tsx', 'utf8');
-    expect(source).toContain('PUBLIC_SHOWCASE.enabled');
-    expect(source).toContain('PUBLIC_SHOWCASE.enabled ?');
+    expect(source).toContain("import.meta.env.VITE_PUBLIC_SHOWCASE === 'true'");
+    expect(source).toContain("import.meta.env.VITE_OPENSTAYS_PROFILE === 'production'");
+    expect(source).toContain('accountCreationDisabled ?');
     expect(source).toContain('Sign in');
   });
 });
