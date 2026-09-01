@@ -347,3 +347,11 @@ Don't promise otherwise anywhere — docs, UI copy, commit messages.
   bearer-authenticated bounded claims and acknowledgements; the local worker
   is a replaceable SMTP delivery adapter. Mailpit is loopback capture only,
   Resend remains optional, and `DEMO_MODE=true` always forces log-only mail.
+- 2026-09-01 (production downstream boundary): the generic operator release is
+  built only with `VITE_OPENSTAYS_PROFILE=production` and a generated
+  `convex-production/` functions directory. Its release artifacts must not
+  contain Consensus Commons, Wavelength, OpenTimestamps, signet rewards,
+  treasury, public-tour, or demo-seed code. Production inventory and customer
+  configuration remain private data layered onto the public upstream; the
+  public source repository stays reusable and contains no customer records or
+  deployment secrets.

@@ -7,7 +7,6 @@ import { LogIn, ShieldCheck, UserPlus } from 'lucide-react';
 import { api } from '../../convex/_generated/api';
 import { ErrorMessage, extractErrorMessage } from '../components/ErrorMessage';
 import { OAuthButtons } from '../components/OAuthButtons';
-import { PUBLIC_SHOWCASE } from '../lib/publicShowcase';
 
 type Flow = 'signIn' | 'signUp';
 
@@ -26,7 +25,9 @@ export function AdminLoginPage() {
   // password). `undefined` while loading — render password-only until it
   // resolves so the OAuth buttons never flash then disappear.
   const methods = useQuery(api.auth.availableAuthMethods, {});
-  const hasOAuth = !PUBLIC_SHOWCASE.enabled
+  const accountCreationDisabled = import.meta.env.VITE_PUBLIC_SHOWCASE === 'true'
+    || import.meta.env.VITE_OPENSTAYS_PROFILE === 'production';
+  const hasOAuth = !accountCreationDisabled
     && Boolean(methods && (methods.github || methods.google || methods.microsoft));
 
   const [flow, setFlow] = useState<Flow>('signIn');
@@ -36,7 +37,7 @@ export function AdminLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isSignUp = !PUBLIC_SHOWCASE.enabled && flow === 'signUp';
+  const isSignUp = !accountCreationDisabled && flow === 'signUp';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,7 +48,7 @@ export function AdminLoginPage() {
         email,
         password,
         name,
-        flow: PUBLIC_SHOWCASE.enabled ? 'signIn' : flow,
+        flow: accountCreationDisabled ? 'signIn' : flow,
       });
       navigate('/admin');
     } catch (err) {
@@ -76,9 +77,9 @@ export function AdminLoginPage() {
           </>
         ) : null}
 
-        {PUBLIC_SHOWCASE.enabled ? (
+        {accountCreationDisabled ? (
           <p className="mb-5 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600">
-            Existing staff may sign in. Account creation is disabled on the public showcase.
+            Existing staff may sign in. Account creation is disabled on this deployment.
           </p>
         ) : (
           <div className="mb-5 flex rounded-lg bg-stone-100 p-1 text-sm font-medium">

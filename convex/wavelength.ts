@@ -1,6 +1,5 @@
 import { ConvexError, v } from 'convex/values';
 import { internalMutation, mutation, query } from './_generated/server';
-import { timingSafeEqual } from './payments/stripe';
 import {
   DEFAULT_SIGNET_SATS_PER_CURRENCY_UNIT,
   parseWavelengthNetwork,
@@ -13,14 +12,9 @@ import {
   readPublicPolicy,
   verifyEligibilityToken,
 } from './publicPolicy';
+export { bridgeBearerAuthorized } from './bridgeAuth';
 
 const HEALTH_FRESH_MS = 60_000;
-
-export function bridgeBearerAuthorized(authorization: string | undefined, expectedToken: string): boolean {
-  if (!authorization?.startsWith('Bearer ') || !expectedToken) return false;
-  const supplied = authorization.slice('Bearer '.length);
-  return supplied.length === expectedToken.length && timingSafeEqual(supplied, expectedToken);
-}
 
 function configuredRate(): number {
   const raw = process.env.WAVELENGTH_SIGNET_SATS_PER_CURRENCY_UNIT;

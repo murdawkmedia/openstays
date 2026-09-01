@@ -1601,20 +1601,9 @@ describe('Synology operator and container binding contract', () => {
 
     await supervisor.backupNow();
     periodicTick!();
-    for (let attempt = 0; attempt < 50 && backupNumber < 3; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2));
-    }
+    await supervisor.backupNow();
     expect(backupNumber).toBe(3);
-    let latestBytes = (await store.loadLatest()).bytes;
-    for (
-      let attempt = 0;
-      attempt < 50
-        && !latestBytes.equals(Buffer.from('encrypted-wallet-3'));
-      attempt += 1
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 2));
-      latestBytes = (await store.loadLatest()).bytes;
-    }
+    const latestBytes = (await store.loadLatest()).bytes;
     expect(new Set(backupPaths).size).toBe(3);
     for (const outputPath of backupPaths) {
       await expect(access(dirname(outputPath))).rejects.toMatchObject({

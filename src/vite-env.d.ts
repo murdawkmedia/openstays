@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_OPENSTAYS_PROFILE?: string;
   readonly VITE_CONVEX_URL: string;
   readonly VITE_PUBLIC_SHOWCASE?: string;
   readonly VITE_PUBLIC_WAVELENGTH?: string;
