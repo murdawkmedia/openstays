@@ -76,7 +76,7 @@ Updated: 2026-08-31
 
 ## Verification state for this branch
 
-- Root: 84 files / 610 tests, typecheck, and production build are green.
+- Root: 84 files / 612 tests, typecheck, and production build are green.
 - CLI: 8 files / 82 tests, typecheck, and build are green.
 - Cloudflare operations: 9 files / 187 tests, typecheck, and Wrangler dry-run
   build are green.
