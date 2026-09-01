@@ -69,6 +69,17 @@ are never queried by the public tour.
 - Every occupancy mutation dirty-marks channel availability. Channex remains an
   optional, certification-gated channel-manager adapter—not a direct OTA API.
 
+## Daily operations
+
+Operational flags never change booking status, stay dates, payment state, or
+inventory. They record attention items for the front desk and keep their own
+assignment, resolution, version, and audit history.
+
+Housekeeping assignments and checklist history never change sellability.
+Checkout may create one turnover assignment when `housekeeping_checklists` is
+enabled. Only the existing maintenance-block workflow removes inventory.
+Passing inspection changes readiness to `ready` and nothing else.
+
 ## Automation
 
 Accepted workspaces and workflows are available from `/api/v1/operations/*`,

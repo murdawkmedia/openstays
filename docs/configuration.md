@@ -27,7 +27,13 @@ convention:
 The PMS expansion is additive and disabled per property until a row in
 `propertyFeatures` explicitly enables it. Supported flags are
 `command_center`, `front_desk`, `housekeeping`, `maintenance`, `commerce`,
-`night_audit`, `groups`, and `long_term`. An absent row is disabled.
+`night_audit`, `groups`, `long_term`, `front_desk_exceptions`, and
+`housekeeping_checklists`. An absent row is disabled.
+
+| Flag | Enables |
+|---|---|
+| `front_desk_exceptions` | Operational flags, attention filters, and flag mutations |
+| `housekeeping_checklists` | Templates, snapshots, checklist work, inspections, and checkout handoff |
 
 Before enabling a property, run the idempotent
 `staff:backfillPropertyAssignments` migration, inspect its assignments, and
@@ -36,6 +42,20 @@ one workspace at a time and follow the acceptance sequence in
 [Kokanee-first command center](/command-center). Disabling a flag removes its
 operator workspace without changing guest booking, payment reconciliation, or
 existing records.
+
+### Housekeeping checklist migration
+
+Use the exact property slug from the target deployment. Do not run the command
+against an unverified default property.
+
+```powershell
+npx convex run dailyOperationsMigration:preview '{"propertySlug":"test"}'
+npx convex run dailyOperationsMigration:apply '{"propertySlug":"test","cleaningType":"turnover","expectedMinutes":45}'
+```
+
+Inspect the preview before running `apply`. Run `apply` twice and confirm that
+the second run reports `updated: 0`. Enable `housekeeping_checklists` only after
+that replay check passes.
 
 ## Domain objects
 

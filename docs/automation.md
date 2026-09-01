@@ -119,7 +119,11 @@ Views are `search`, `front-desk`, `housekeeping`, `maintenance`, `folios`,
 `quotes`, `contracts`, `night-audit`, and `reports`. Actions include `block`,
 `move`, `quote`, `quote/accept`, `waitlist`, `maintenance`,
 `maintenance/resolve`, `call`, `call/complete`, `complimentary`, `rate-adjustment`,
-`front-desk/transition`, `housekeeping/assign`, `housekeeping/state`,
+`front-desk/transition`, `front-desk/flag/create`, `front-desk/flag/assign`,
+`front-desk/flag/resolve`, `housekeeping/assign`, `housekeeping/state`,
+`housekeeping/assignment/update`, `housekeeping/assignment/start`,
+`housekeeping/checklist/item`, `housekeeping/inspection/submit`,
+`housekeeping/inspection/review`, `housekeeping/assignment/cancel`,
 `folios/retail`, `folios/entry`, `folios/reverse`, `folios/payment`,
 `night-audit/close`, `group`, `seasonal-contract`, `reminder`, and
 `gift-certificate`. A write call receives a random single-use 60-second claim;
@@ -186,6 +190,21 @@ openstays ops-action housekeeping/state --property pinewood-flats \
   --input-json '{"unitId":"<id>","state":"dirty","expectedVersion":0}'
 openstays mcp
 ```
+
+The daily-operations views and actions use the same commands:
+
+```powershell
+openstays ops housekeeping --property kokanee --date 2030-05-03
+$frontDesk = openstays ops front-desk --property kokanee --date 2030-05-03 | ConvertFrom-Json
+$flagId = ($frontDesk.records.openFlags | Select-Object -First 1).flagId
+$inputJson = @{ flagId = $flagId; expectedVersion = 0; resolutionNote = 'Reviewed at desk' } | ConvertTo-Json -Compress
+openstays ops-action front-desk/flag/resolve --property kokanee --request-id req-flag-001 --input-json $inputJson
+```
+
+A write-scoped key inherits its owner's active role for the selected property.
+The HTTP layer gives each accepted request a single-use claim, then calls the
+same mutation as the browser. Role checks, version checks, idempotency, and the
+audit event therefore apply to both paths.
 
 Every command accepts `--json` for raw API output instead of the default
 compact table/summary. `openstays --help` lists commands; `openstays
