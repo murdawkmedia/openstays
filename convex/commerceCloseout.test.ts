@@ -1,12 +1,16 @@
 /// <reference types="vite/client" />
 import { convexTest } from 'convex-test';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/!(*.*.*)*.*s');
 const identityFor = (userId: Id<'users'>) => ({ subject: `${userId}|test-session` });
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 async function seed(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
@@ -33,8 +37,15 @@ describe('commerce closeout', () => {
   });
 
   it('closes a date into one immutable, replay-safe night-audit snapshot', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-01T00:42:00.000Z'));
     const t = convexTest(schema, modules); const f = await seed(t); const asOwner = t.withIdentity(identityFor(f.userId));
-    const businessDate = new Date().toISOString().slice(0, 10);
+    const businessDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Edmonton',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
     await asOwner.mutation((api as any).commerce.postEntry, { propertyId: f.propertyId, folioId: f.folioId, kind: 'charge', description: 'Store sale', amountCents: 2000, taxCents: 100, expectedVersion: 0, requestId: 'req-sale' });
     const preview = await asOwner.query((api as any).closeout.preview, { propertyId: f.propertyId, businessDate });
     expect(preview).toMatchObject({ postedRevenueCents: 2100, openFolios: 1 });
