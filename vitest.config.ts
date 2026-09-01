@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     environment: 'edge-runtime',
     server: { deps: { inline: ['convex-test'] } },
-    include: ['tests/**/*.test.ts', 'shared/**/*.test.ts', 'convex/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'shared/**/*.test.ts', 'convex/**/*.test.ts', 'src/lib/**/*.test.ts'],
   },
 });
