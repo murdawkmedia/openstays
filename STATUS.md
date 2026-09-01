@@ -4,7 +4,7 @@ Updated: 2026-08-31
 
 ## Current branch
 
-- Worktree: `C:\Users\Murphy\.config\superpowers\worktrees\openstays\resnexus-daily-operations`
+- Worktree: isolated local feature worktree
 - Branch: `codex/resnexus-daily-operations`
 - This branch adds the local daily-operations first pass. It has not been
   pushed, merged, deployed, migrated, or enabled on any property.

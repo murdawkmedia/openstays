@@ -1531,7 +1531,7 @@ git log --oneline main..HEAD
 git diff --stat main...HEAD
 ```
 
-Expected: no whitespace errors, a clean worktree, small task-scoped commits, and no credential, customer-data, ResNexus-source, generated-wallet, or unrelated MurphyOS changes.
+Expected: no whitespace errors, a clean worktree, small task-scoped commits, and no credential, customer-data, ResNexus-source, generated-wallet, or unrelated workspace changes.
 
 - [ ] **Step 6: Stop at the local release boundary**
 
