@@ -4,10 +4,13 @@ Updated: 2026-08-31
 
 ## Current branch
 
-- Worktree: isolated local feature worktree
-- Branch: `codex/resnexus-daily-operations`
-- This branch adds the local daily-operations first pass. It has not been
-  pushed, merged, deployed, migrated, or enabled on any property.
+- Worktree: release integration worktree
+- Branch: `main`
+- Release source: `59fc614`; the approved `codex/resnexus-daily-operations`
+  branch remains available on the remote at `24fe8c7` for review.
+- The daily-operations first pass is pushed, fast-forward merged, and deployed.
+  Its two property-specific feature flags remain disabled and its data
+  migration has not been run.
 - Kokanee checkpoints: `65b07a8` (foundation), `0e19e43` (audited resort workflows), and `0e0ab5f` (final command center/automation pass).
 - Pull requests `#3` and `#4` merged as `0fdd834` and `8b9a76f` after their
   complete CI runs passed.
@@ -16,13 +19,17 @@ Updated: 2026-08-31
 ## Live release
 
 - Production Convex `shiny-bison-351` received the additive schema and
-  functions after a dry run confirmed that no indexes would be deleted.
-- Cloudflare Pages production deployment `de964747` is live at
+  functions after a dry run confirmed that no indexes would be deleted. Eight
+  new indexes were added and no existing index was removed.
+- Cloudflare Pages production deployment `d3f81bab` is live at
   `https://openstays-consensus.pages.dev` and preserves Zaprite, Wavelength
   signet, simulated fallback, Turnstile, and authenticated staff routes.
 - The public operations tour passed desktop and 390 px live-browser checks
-  with no console errors or page-level overflow. The Wavelength runtime and
-  eligibility edge return healthy production responses.
+  with no console errors or page-level overflow. The guest inventory page and
+  staff sign-in also passed live smoke checks. The Wavelength wallet route
+  returns the required same-origin and cross-origin-isolation headers.
+- GitHub Actions runs `33464117809` (CI) and `33464117782` (Pages) completed
+  successfully for release source `59fc614`.
 - The paired Convex deployment now distinguishes historical confirmation from
   a booking's current cancelled state and omits reward claims when no reward
   exists.
@@ -74,7 +81,7 @@ Updated: 2026-08-31
   Enabling either flag requires the documented property-specific migration and
   acceptance steps.
 
-## Verification state for this branch
+## Verification state for this release
 
 - Root: 84 files / 612 tests, typecheck, and production build are green.
 - CLI: 8 files / 82 tests, typecheck, and build are green.
@@ -87,6 +94,10 @@ Updated: 2026-08-31
   dependent live-rail checks were intentionally skipped; no live backend or
   payment state was used by this isolated verification run.
 - `git diff --check` is clean.
+- Post-merge root verification is green at 84 files / 612 tests. Production
+  API health returns HTTP 200, and the immutable Pages deployment, production
+  alias, operations tour, staff login, guest page, and wallet headers were
+  verified after promotion.
 
 ## Basic-user usability acceptance
 
