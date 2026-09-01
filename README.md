@@ -28,6 +28,12 @@
 > complete; the existing public showcase and live deployment are unchanged.
 > See [Reservation command center](./docs/command-center.md).
 
+> **Production downstream:** operators can build a deliberately smaller,
+> generic lodging release with `VITE_OPENSTAYS_PROFILE=production`. The
+> profile has a separate frontend/backend artifact boundary and excludes the
+> fictional showcase, Wavelength, OpenTimestamps, rewards, treasury, and demo
+> seed workers. See [Production profile](./docs/production-profile.md).
+
 **Open-source booking engine and property-management system for independent
 lodging — campgrounds, cabins, glamping, yurts, small resorts.**
 
@@ -124,6 +130,13 @@ npm install
 npx convex dev          # creates your free Convex dev deployment
 npm run seed            # loads the fictional Pinewood Flats Campground
 npm run dev             # http://localhost:5173
+```
+
+For an operator deployment, generate and verify the reduced backend first:
+
+```bash
+npm run production:verify
+VITE_OPENSTAYS_PROFILE=production npm run build
 ```
 
 Book a stay at Pinewood Flats, then open the admin tape and watch it appear

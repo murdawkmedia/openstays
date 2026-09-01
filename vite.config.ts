@@ -4,8 +4,10 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const publicShowcaseBuild = process.env.VITE_PUBLIC_SHOWCASE === 'true';
-const includeWavelengthWallet = !publicShowcaseBuild
-  || process.env.VITE_PUBLIC_WAVELENGTH === 'true';
+const productionProfile = process.env.VITE_OPENSTAYS_PROFILE === 'production';
+const includeWavelengthWallet = !productionProfile && (
+  !publicShowcaseBuild || process.env.VITE_PUBLIC_WAVELENGTH === 'true'
+);
 const walletIsolation = () => (
   request: { url?: string },
   response: { setHeader: (name: string, value: string) => void },
@@ -30,6 +32,29 @@ const walletIsolation = () => (
 export default defineConfig({
   plugins: [
     react(),
+    {
+      name: 'openstays-production-entry',
+      transformIndexHtml: {
+        order: 'pre',
+        handler(html) {
+          return productionProfile
+            ? html.replace('/src/main.tsx', '/src/main.production.tsx')
+            : html;
+        },
+      },
+    },
+    {
+      name: 'openstays-production-cleanup',
+      closeBundle() {
+        if (!productionProfile) return;
+        for (const path of [
+          resolve('dist', 'demo'),
+          resolve('dist', 'wavewalletdk'),
+          resolve('dist', 'wavewalletdk-isolated-v1'),
+          resolve('dist', '_headers'),
+        ]) rmSync(path, { recursive: true, force: true });
+      },
+    },
     {
       name: 'public-showcase-omit-wallet-runtime',
       closeBundle() {
@@ -70,5 +95,13 @@ export default defineConfig({
       },
     },
   ],
+  resolve: productionProfile ? {
+    alias: [
+      {
+        find: '../components/StayMedia',
+        replacement: resolve('src', 'components', 'ProductionStayMedia.tsx'),
+      },
+    ],
+  } : undefined,
   base: process.env.VITE_BASE ?? '/',
 });

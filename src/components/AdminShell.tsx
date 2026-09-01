@@ -48,7 +48,9 @@ const NAV_GROUPS = [
       { to: '/admin/front-desk', label: 'Front desk', icon: BedDouble },
       { to: '/admin/housekeeping', label: 'Housekeeping', icon: Sparkles },
       { to: '/admin/maintenance', label: 'Maintenance', icon: Wrench },
-      { to: '/admin/operations', label: 'Messages & refunds', icon: MessageSquareText },
+      ...(import.meta.env.VITE_OPENSTAYS_PROFILE === 'production'
+        ? []
+        : [{ to: '/admin/operations', label: 'Messages & refunds', icon: MessageSquareText }]),
     ],
   },
   {

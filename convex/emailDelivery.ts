@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values';
 import { internalMutation } from './_generated/server';
-import { bridgeBearerAuthorized } from './wavelength';
+import { bridgeBearerAuthorized } from './bridgeAuth';
 
 const LEASE_MS = 30_000;
 const RETRY_DELAYS_MS = [60_000, 300_000, 900_000] as const;
