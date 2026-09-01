@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 
 import { BOOKING_OPERATIONAL_FLAG_KINDS, OPERATIONAL_FLAG_SEVERITIES, RESTRICTED_FLAG_KINDS, type BookingOperationalFlagKind, type OperationalFlagSeverity } from '../../../shared/dailyOperations';
 import type { CreateFlagInput, FrontDeskAssignee, QueueRow } from './types';
+import { useDialogFocus } from '../../lib/useDialogFocus';
 
 export function FrontDeskRecordDrawer(props: {
   row: QueueRow;
@@ -19,12 +20,13 @@ export function FrontDeskRecordDrawer(props: {
   const [kind, setKind] = useState<BookingOperationalFlagKind>('late_checkout');
   const [severity, setSeverity] = useState<OperationalFlagSeverity>('attention');
   const [summary, setSummary] = useState('');
+  const dialog = useDialogFocus<HTMLElement>(props.onClose);
   const restricted = (RESTRICTED_FLAG_KINDS as readonly string[]).includes(kind);
   const canCreate = props.canWriteFlags && (!restricted || props.canWriteRestrictedFlags);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-stone-950/30" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) props.onClose(); }}>
-      <aside className="h-full w-full max-w-xl overflow-y-auto bg-white p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="front-desk-record-title">
+      <aside ref={dialog.dialogRef} tabIndex={-1} onKeyDown={dialog.onKeyDown} className="h-full w-full max-w-xl overflow-y-auto bg-white p-5 shadow-2xl focus:outline-none" role="dialog" aria-modal="true" aria-labelledby="front-desk-record-title">
         <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Front desk record</p><h2 id="front-desk-record-title" className="mt-1 text-2xl font-semibold">{props.row.guestName}</h2><p className="text-sm text-stone-500">{props.row.confirmationCode} · {props.row.unitName}</p></div><button type="button" className="btn-secondary px-3 py-2" onClick={props.onClose} aria-label="Close record"><X className="h-4 w-4" /></button></div>
         <div className="mt-5 grid grid-cols-2 gap-3 rounded-xl bg-stone-50 p-4 text-sm"><div><span className="text-stone-500">Stay</span><p className="font-semibold">{props.row.checkIn} → {props.row.checkOut}</p></div><div><span className="text-stone-500">Balance</span><p className="font-semibold">${(props.row.balanceCents / 100).toFixed(2)}</p></div><div><span className="text-stone-500">Unit readiness</span><p className="font-semibold">{props.row.readiness.replaceAll('_', ' ')}</p></div><div><span className="text-stone-500">Party</span><p className="font-semibold">{props.row.partySize}</p></div></div>
         <div className="mt-5 flex flex-wrap gap-2">
