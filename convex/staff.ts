@@ -180,6 +180,7 @@ export const assignedProperties = query({
         propertyId: property._id,
         name: property.name,
         slug: property.slug,
+        timezone: property.timezone,
         role,
         capabilities: capabilitiesForRole(role),
       }));
@@ -193,11 +194,39 @@ export const assignedProperties = query({
         propertyId: property._id,
         name: property.name,
         slug: property.slug,
+        timezone: property.timezone,
         role: assignment.role,
         capabilities: capabilitiesForRole(assignment.role),
       });
     }
     return result;
+  },
+});
+
+/** Minimal property-scoped roster for operational assignment pickers. */
+export const propertyAssignees = query({
+  args: { propertyId: v.id('properties') },
+  handler: async (ctx, args) => {
+    await requirePropertyCapability(ctx, args.propertyId, 'property.read');
+    const assignments = await ctx.db
+      .query('staffPropertyAssignments')
+      .withIndex('by_property', (q) => q.eq('propertyId', args.propertyId))
+      .collect();
+    const result: Array<{
+      staffProfileId: Id<'staffProfiles'>;
+      name: string;
+      role: OperationalRole;
+    }> = [];
+    for (const assignment of assignments.filter((row) => row.active)) {
+      const profile = await ctx.db.get(assignment.staffProfileId);
+      if (!profile?.active) continue;
+      result.push({
+        staffProfileId: profile._id,
+        name: profile.name,
+        role: assignment.role,
+      });
+    }
+    return result.sort((left, right) => left.name.localeCompare(right.name));
   },
 });
 

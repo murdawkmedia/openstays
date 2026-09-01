@@ -29,6 +29,7 @@ interface AssignedProperty {
   propertyId: Id<'properties'>;
   name: string;
   slug: string;
+  timezone: string;
   role: string;
   capabilities: string[];
 }

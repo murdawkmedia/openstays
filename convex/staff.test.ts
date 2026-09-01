@@ -575,7 +575,28 @@ describe('per-property operational access', () => {
 
     const rows = await t.withIdentity(identityFor(ownerId)).query((api as any).staff.assignedProperties, {});
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ propertyId: secondPropertyId, role: 'manager' });
+    expect(rows[0]).toMatchObject({
+      propertyId: secondPropertyId,
+      role: 'manager',
+      timezone: 'America/Edmonton',
+    });
     expect(rows[0].propertyId).not.toBe(firstPropertyId);
+  });
+
+  it('returns only active property assignees without contact fields', async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await seedOwner(t);
+    const propertyId = await seedProperty(t);
+    await t.mutation((internal as any).staff.backfillPropertyAssignments, {});
+
+    const rows = await t.withIdentity(identityFor(ownerId)).query(
+      (api as any).staff.propertyAssignees,
+      { propertyId },
+    );
+
+    expect(rows).toEqual([
+      expect.objectContaining({ name: 'Owner', role: 'owner' }),
+    ]);
+    expect(JSON.stringify(rows)).not.toMatch(/email|userId/i);
   });
 });
