@@ -254,7 +254,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     tool: {
       name: 'openstays_operations_action',
-      description: 'Run one accepted, idempotent PMS workflow through the same audited backend mutation as staff UI. Requires a write-scoped API key.',
+      description: 'Run one accepted, idempotent PMS workflow, including front-desk flags and housekeeping assignments, checklists, and inspections, through the same audited backend mutation as staff UI. Requires a write-scoped API key.',
       inputSchema: {
         type: 'object',
         properties: {

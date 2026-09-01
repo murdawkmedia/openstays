@@ -1,11 +1,13 @@
 # OpenStays status
 
-Updated: 2026-08-10
+Updated: 2026-08-31
 
 ## Current branch
 
-- Worktree: `C:\Users\Murphy\.config\superpowers\worktrees\openstays\merge-main`
-- Branch: `main`
+- Worktree: `C:\Users\Murphy\.config\superpowers\worktrees\openstays\resnexus-daily-operations`
+- Branch: `codex/resnexus-daily-operations`
+- This branch adds the local daily-operations first pass. It has not been
+  pushed, merged, deployed, migrated, or enabled on any property.
 - Kokanee checkpoints: `65b07a8` (foundation), `0e19e43` (audited resort workflows), and `0e0ab5f` (final command center/automation pass).
 - Pull requests `#3` and `#4` merged as `0fdd834` and `8b9a76f` after their
   complete CI runs passed.
@@ -53,16 +55,35 @@ Updated: 2026-08-10
 - Expanded source-controlled public operations tour with fictional PMS data and
   no live queries or mutations.
 
-## Verification state
+## Daily-operations first pass
 
-- Root: 75 files / 572 tests, typecheck, and production build are green.
+- Front-desk queues now include operational exceptions, attention filters,
+  housekeeping progress, policy context, record drawers, and audited flag
+  create, assignment, and resolution workflows.
+- Housekeeping now has template snapshots, assignee and priority updates,
+  checklist work, required-item exceptions, inspection submission and review,
+  cancellation, audit history, and replay-safe checkout turnover handoff.
+- Front-desk and housekeeping state remains separate from booking occupancy,
+  payment settlement, and sellable inventory. Only the existing maintenance
+  block workflow removes inventory.
+- The browser, `/api/v1`, CLI, and MCP paths call the same property-scoped,
+  role-checked, versioned, idempotent mutations.
+- The fictional operations tour includes five new daily-operation examples and
+  still has no live staff queries or mutation hooks.
+- `front_desk_exceptions` and `housekeeping_checklists` are disabled by default.
+  Enabling either flag requires the documented property-specific migration and
+  acceptance steps.
+
+## Verification state for this branch
+
+- Root: 84 files / 610 tests, typecheck, and production build are green.
 - CLI: 8 files / 82 tests, typecheck, and build are green.
 - Cloudflare operations: 9 files / 187 tests, typecheck, and Wrangler dry-run
   build are green.
 - Documentation build, reviewed runtime dependency audit, and the version-
   matched Wavelength browser-runtime check are green.
 - Hermetic Playwright acceptance is green on desktop and mobile: four public
-  showcase/operations-tour checks passed. Six credential- or fresh-booking-
+  showcase and operations-tour checks passed. Six credential- or fresh-booking-
   dependent live-rail checks were intentionally skipped; no live backend or
   payment state was used by this isolated verification run.
 - `git diff --check` is clean.
