@@ -208,6 +208,8 @@ describe('OpenStaysClient', () => {
     expect(fetchImpl.mock.calls[0][0]).toBe('https://example.convex.site/api/v1/operations/front-desk?property=kokanee&date=2030-08-10&limit=25');
     await client.operationsAction('front-desk/transition', { property: 'kokanee', requestId: 'req-1', bookingId: 'b1', transition: 'check_in', expectedVersion: 0 });
     expect(fetchImpl.mock.calls[1][0]).toBe('https://example.convex.site/api/v1/operations/front-desk/transition');
+    await client.operationsAction('housekeeping/checklist/item', { property: 'kokanee', requestId: 'req-2', assignmentId: 'a1', itemId: 'i1', status: 'completed', expectedItemVersion: 0, expectedAssignmentVersion: 0 });
+    expect(fetchImpl.mock.calls[2][0]).toBe('https://example.convex.site/api/v1/operations/housekeeping/checklist/item');
   });
 
   it('listRatePlans returns the {unitTypeId, ratePlans} wire shape unchanged', async () => {

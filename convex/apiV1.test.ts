@@ -238,6 +238,67 @@ describe('scope enforcement', () => {
 });
 
 describe('staff operations automation', () => {
+  it('routes daily-operation flag and checklist actions through single-use automation claims', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert('users', { email: 'daily@example.com', name: 'Daily Owner' });
+      await ctx.db.insert('staffProfiles', { userId, name: 'Daily Owner', role: 'owner', active: true, createdAt: 1 });
+      for (const feature of ['front_desk', 'front_desk_exceptions', 'housekeeping', 'housekeeping_checklists']) {
+        await ctx.db.insert('propertyFeatures', { propertyId: fx.propertyId, feature, enabled: true, version: 1, updatedBy: userId, updatedAt: 1 });
+      }
+      const guestId = await ctx.db.insert('guests', { propertyId: fx.propertyId, name: 'Private Guest', email: 'guest@example.com', normalizedEmail: 'guest@example.com', phone: '', normalizedPhone: '', marketingOptIn: false, notes: [] });
+      const bookingId = await ctx.db.insert('bookings', { propertyId: fx.propertyId, unitId: fx.unitId, unitTypeId: fx.unitTypeId, guestId, checkIn: D(1), checkOut: D(3), nights: 2, adults: 1, children: 0, status: 'confirmed', source: 'phone', confirmationCode: 'OS-PRIVATE', statusHistory: [{ status: 'confirmed', ts: 1 }], notes: [], createdAt: 1, updatedAt: 1, version: 0 });
+      const assignmentId = await ctx.db.insert('housekeepingAssignments', { propertyId: fx.propertyId, unitId: fx.unitId, serviceDate: D(3), priority: 1, status: 'assigned', cleaningType: 'turnover', expectedMinutes: 45, version: 0, createdBy: userId, createdAt: 1, updatedAt: 1 });
+      const itemId = await ctx.db.insert('housekeepingChecklistItems', { propertyId: fx.propertyId, assignmentId, itemKey: 'linen', label: 'Replace linen', required: true, sortOrder: 1, status: 'pending', version: 0, updatedBy: userId, updatedAt: 1 });
+      return { userId, bookingId, assignmentId, itemId };
+    });
+    const token = await seedKey(t, 'write', seeded.userId);
+    const createFlag = await t.fetch('/api/v1/operations/front-desk/flag/create', { method: 'POST', headers: { ...bearer(token), 'Content-Type': 'application/json' }, body: JSON.stringify({ property: 'test-grounds', requestId: 'api-flag-1', bookingId: seeded.bookingId, kind: 'late_checkout', severity: 'attention', summary: 'Approved', expectedBookingVersion: 0 }) });
+    const createFlagBody = await jsonOf(createFlag);
+    expect(createFlag.status, JSON.stringify(createFlagBody)).toBe(200);
+    const item = await t.fetch('/api/v1/operations/housekeeping/checklist/item', { method: 'POST', headers: { ...bearer(token), 'Content-Type': 'application/json' }, body: JSON.stringify({ property: 'test-grounds', requestId: 'api-item-1', assignmentId: seeded.assignmentId, itemId: seeded.itemId, status: 'completed', expectedItemVersion: 0, expectedAssignmentVersion: 0 }) });
+    expect(item.status).toBe(200);
+    expect(await t.run(async (ctx) => ctx.db.query('automationClaims').collect())).toHaveLength(0);
+  });
+
+  it('keeps housekeeping operational reads free of guest contacts and confirmation credentials', async () => {
+    const t = makeT();
+    const fx = await seedFixture(t);
+    const userId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert('users', { email: 'reader@example.com', name: 'Read Owner' });
+      await ctx.db.insert('staffProfiles', { userId, name: 'Read Owner', role: 'owner', active: true, createdAt: 1 });
+      for (const feature of ['housekeeping', 'housekeeping_checklists']) await ctx.db.insert('propertyFeatures', { propertyId: fx.propertyId, feature, enabled: true, version: 1, updatedBy: userId, updatedAt: 1 });
+      await ctx.db.insert('housekeepingAssignments', { propertyId: fx.propertyId, unitId: fx.unitId, serviceDate: D(3), priority: 1, status: 'assigned', cleaningType: 'turnover', expectedMinutes: 45, assignmentNote: 'No guest details here', version: 0, createdBy: userId, createdAt: 1, updatedAt: 1 });
+      return userId;
+    });
+    const token = await seedKey(t, 'read', userId);
+    const response = await t.fetch(`/api/v1/operations/housekeeping?property=test-grounds&date=${D(3)}`, { method: 'GET', headers: bearer(token) });
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await response.json())).not.toMatch(/guest@example|confirmationCode|bolt11|paymentHash/i);
+  });
+
+  it('derives an omitted operations date in the property timezone rather than UTC', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-05-03T05:30:00.000Z'));
+    try {
+      const t = makeT();
+      const fx = await seedFixture(t);
+      const userId = await t.run(async (ctx) => {
+        const userId = await ctx.db.insert('users', { email: 'timezone@example.com', name: 'Timezone Owner' });
+        await ctx.db.insert('staffProfiles', { userId, name: 'Timezone Owner', role: 'owner', active: true, createdAt: 1 });
+        await ctx.db.insert('propertyFeatures', { propertyId: fx.propertyId, feature: 'housekeeping', enabled: true, version: 1, updatedBy: userId, updatedAt: 1 });
+        return userId;
+      });
+      const token = await seedKey(t, 'read', userId);
+      const response = await t.fetch('/api/v1/operations/housekeeping?property=test-grounds', { method: 'GET', headers: bearer(token) });
+      expect(response.status).toBe(200);
+      expect((await jsonOf(response)).data).toMatchObject({ businessDate: '2030-05-02' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uses a short-lived API claim to run the same audited block mutation', async () => {
     const t = makeT();
     const fx = await seedFixture(t);
