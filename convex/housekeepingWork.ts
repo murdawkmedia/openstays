@@ -204,7 +204,7 @@ export const listAssignments = query({
       .unique();
     const result = [];
     for (const assignment of assignments) {
-      const [unit, profile, items] = await Promise.all([
+      const [unit, profile, items, service] = await Promise.all([
         ctx.db.get(assignment.unitId),
         assignment.assignedStaffProfileId ? ctx.db.get(assignment.assignedStaffProfileId) : null,
         checklistFeature?.enabled
@@ -212,12 +212,15 @@ export const listAssignments = query({
               .withIndex('by_assignment_order', (q) => q.eq('assignmentId', assignment._id))
               .collect()
           : Promise.resolve([]),
+        ctx.db.query('unitServiceStates').withIndex('by_unit', (q) => q.eq('unitId', assignment.unitId)).unique(),
       ]);
       result.push({
         ...assignment,
         unitName: unit?.name ?? 'Unknown unit',
         assigneeName: profile?.name,
         checklist: items,
+        serviceState: service?.state ?? 'ready',
+        serviceVersion: service?.version ?? 0,
       });
     }
     return result.sort((left, right) =>

@@ -1,0 +1,14 @@
+import type { HousekeepingUnitRow } from './types';
+
+export function HousekeepingBoard(props: {
+  units: HousekeepingUnitRow[];
+  selectedId?: string;
+  canAssign: boolean;
+  checklistsEnabled: boolean;
+  onSelect(assignmentId: string): void;
+  onCreate(unit: HousekeepingUnitRow): void;
+  onAdvance(unit: HousekeepingUnitRow, state: string): void;
+}) {
+  if (!props.units.length) return <div className="card p-8 text-center text-stone-500">No units match these filters.</div>;
+  return <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{props.units.map((unit) => <article key={unit.unitId} className={`card p-4 ${unit.assignmentId === props.selectedId ? 'ring-2 ring-emerald-600' : ''}`}><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-stone-950">{unit.unitName}</h2><p className="mt-1 text-sm text-stone-500">{unit.unitTypeName}{unit.unitGroups.length ? ` · ${unit.unitGroups.map((group) => group.name).join(', ')}` : ''}</p></div><span className={`rounded-full px-2 py-1 text-xs font-semibold ${unit.state === 'ready' ? 'bg-emerald-100 text-emerald-800' : unit.state === 'out_of_service' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>{unit.state.replaceAll('_', ' ')}</span></div><dl className="mt-4 grid grid-cols-2 gap-3 text-sm"><div><dt className="text-stone-500">Assignment</dt><dd className="font-semibold">{unit.assignmentStatus?.replaceAll('_', ' ') ?? 'Unassigned'}</dd></div><div><dt className="text-stone-500">Checklist</dt><dd className="font-semibold">{unit.checklist.completed}/{unit.checklist.total}{unit.checklist.requiredRemaining ? ` · ${unit.checklist.requiredRemaining} required` : ''}</dd></div><div><dt className="text-stone-500">Cleaning</dt><dd className="font-semibold">{unit.cleaningType?.replaceAll('_', ' ') ?? '—'}</dd></div><div><dt className="text-stone-500">Expected</dt><dd className="font-semibold">{unit.expectedMinutes ? `${unit.expectedMinutes} min` : '—'}</dd></div></dl><div className="mt-4 flex flex-wrap gap-2">{props.checklistsEnabled ? unit.assignmentId ? <button type="button" className="btn-primary" onClick={() => props.onSelect(unit.assignmentId!)}>Open work</button> : props.canAssign ? <button type="button" className="btn-secondary" onClick={() => props.onCreate(unit)}>Create assignment</button> : null : unit.state === 'dirty' ? <button type="button" className="btn-primary" onClick={() => props.onAdvance(unit, 'cleaning')}>Start cleaning</button> : unit.state === 'cleaning' ? <button type="button" className="btn-primary" onClick={() => props.onAdvance(unit, 'inspection')}>Ready for inspection</button> : unit.state === 'inspection' ? <button type="button" className="btn-primary" onClick={() => props.onAdvance(unit, 'ready')}>Verify ready</button> : null}</div></article>)}</div>;
+}
