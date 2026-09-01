@@ -492,9 +492,26 @@ export default defineSchema({
     assignedStaffProfileId: v.optional(v.id('staffProfiles')),
     priority: v.number(),
     status: v.union(v.literal('assigned'), v.literal('in_progress'), v.literal('ready_for_inspection'), v.literal('verified'), v.literal('cancelled')),
+    cleaningType: v.optional(v.union(
+      v.literal('turnover'),
+      v.literal('stayover'),
+      v.literal('inspection'),
+      v.literal('deep_clean'),
+      v.literal('custom'),
+    )),
+    customCleaningLabel: v.optional(v.string()),
+    expectedMinutes: v.optional(v.number()),
+    checklistTemplateId: v.optional(v.id('housekeepingChecklistTemplates')),
+    checklistTemplateVersion: v.optional(v.number()),
+    assignmentNote: v.optional(v.string()),
+    inspectionResult: v.optional(v.union(v.literal('passed'), v.literal('failed'))),
+    inspectionNote: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     verifiedAt: v.optional(v.number()),
+    verifiedBy: v.optional(v.id('users')),
+    cancelledBy: v.optional(v.id('users')),
+    sourceCheckoutRequestId: v.optional(v.string()),
     version: v.number(),
     createdBy: v.id('users'),
     createdAt: v.number(),
@@ -503,6 +520,86 @@ export default defineSchema({
     .index('by_property_date', ['propertyId', 'serviceDate'])
     .index('by_assignee_date', ['assignedStaffProfileId', 'serviceDate'])
     .index('by_unit_date', ['unitId', 'serviceDate']),
+
+  bookingOperationalFlags: defineTable({
+    propertyId: v.id('properties'),
+    bookingId: v.id('bookings'),
+    unitId: v.id('units'),
+    kind: v.union(
+      v.literal('late_checkout'),
+      v.literal('due_out'),
+      v.literal('departure_overdue'),
+      v.literal('lockout'),
+      v.literal('sleep_out'),
+      v.literal('payment_concern'),
+    ),
+    severity: v.union(v.literal('info'), v.literal('attention'), v.literal('urgent')),
+    state: v.union(v.literal('open'), v.literal('resolved')),
+    summary: v.string(),
+    note: v.optional(v.string()),
+    dueAt: v.optional(v.number()),
+    assignedStaffProfileId: v.optional(v.id('staffProfiles')),
+    version: v.number(),
+    createdBy: v.id('users'),
+    createdAt: v.number(),
+    updatedBy: v.id('users'),
+    updatedAt: v.number(),
+    resolvedBy: v.optional(v.id('users')),
+    resolvedAt: v.optional(v.number()),
+    resolutionNote: v.optional(v.string()),
+  })
+    .index('by_property_state', ['propertyId', 'state'])
+    .index('by_booking_state', ['bookingId', 'state'])
+    .index('by_assignee_state', ['assignedStaffProfileId', 'state'])
+    .index('by_property_due', ['propertyId', 'dueAt']),
+
+  housekeepingChecklistTemplates: defineTable({
+    propertyId: v.id('properties'),
+    name: v.string(),
+    cleaningType: v.union(
+      v.literal('turnover'),
+      v.literal('stayover'),
+      v.literal('inspection'),
+      v.literal('deep_clean'),
+      v.literal('custom'),
+    ),
+    active: v.boolean(),
+    version: v.number(),
+    itemDefinitions: v.array(v.object({
+      key: v.string(),
+      label: v.string(),
+      required: v.boolean(),
+      sortOrder: v.number(),
+    })),
+    createdBy: v.id('users'),
+    updatedBy: v.id('users'),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_property_active', ['propertyId', 'active'])
+    .index('by_property_type', ['propertyId', 'cleaningType']),
+
+  housekeepingChecklistItems: defineTable({
+    propertyId: v.id('properties'),
+    assignmentId: v.id('housekeepingAssignments'),
+    itemKey: v.string(),
+    label: v.string(),
+    required: v.boolean(),
+    sortOrder: v.number(),
+    status: v.union(
+      v.literal('pending'),
+      v.literal('completed'),
+      v.literal('failed'),
+      v.literal('not_applicable'),
+    ),
+    note: v.optional(v.string()),
+    version: v.number(),
+    updatedBy: v.id('users'),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index('by_assignment_order', ['assignmentId', 'sortOrder'])
+    .index('by_property_status', ['propertyId', 'status']),
 
   folios: defineTable({
     propertyId: v.id('properties'),
