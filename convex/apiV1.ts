@@ -6,6 +6,8 @@ import { addDays, daysBetween } from '../shared/pricing';
 import { sha256HexOf } from './apiKeys';
 import { requireAutomationPropertyCapability } from './staff';
 import type { OperationalCapability } from '../shared/operations';
+import { buildFrontDeskQueues } from './frontDesk';
+import { buildHousekeepingBoard } from './housekeeping';
 
 // ---------------------------------------------------------------------------
 // HTTP API v1 (M1.5) — the automation surface consumed by the openstays CLI,
@@ -83,6 +85,7 @@ const CONFLICT_CODES = new Set([
   'PROMO_ALREADY_USED',
   'UNIT_UNAVAILABLE',
   'UNIT_NOT_YET_BOOKABLE',
+  'VERSION_CONFLICT',
 ]);
 const NOT_FOUND_CODES = new Set(['NOT_FOUND', 'BOOKING_NOT_FOUND']);
 const FORBIDDEN_CODES = new Set(['OWNER_ONLY', 'NOT_STAFF', 'CAPABILITY_DENIED', 'PROPERTY_ACCESS_DENIED', 'AUTOMATION_ACTOR_INACTIVE', 'AUTOMATION_KEY_INVALID', 'AUTOMATION_ACTOR_REQUIRED']);
@@ -621,26 +624,14 @@ export const operationalView = internalQuery({
       return { view: args.view, enabledFeatures, records: rows.filter((row) => terms.length === 0 || terms.every((term) => row.normalizedText.includes(term))).slice(0, limit).map(({ normalizedText, propertyId: _propertyId, ...row }) => row) };
     }
     if (args.view === 'front-desk') {
-      const businessDate = args.businessDate ?? new Date().toISOString().slice(0, 10);
-      const bookings = await ctx.db.query('bookings').withIndex('by_property_checkIn', (q) => q.eq('propertyId', propertyId)).collect();
-      const relevant = bookings.filter((booking) => booking.checkIn === businessDate || booking.checkOut === businessDate || (booking.checkIn < businessDate && booking.checkOut > businessDate));
-      const records = [];
-      for (const booking of relevant.slice(0, limit)) {
-        const [guest, unit, service] = await Promise.all([booking.guestId ? ctx.db.get(booking.guestId) : null, ctx.db.get(booking.unitId), ctx.db.query('unitServiceStates').withIndex('by_unit', (q) => q.eq('unitId', booking.unitId)).unique()]);
-        records.push({ bookingId: booking._id, confirmationCode: booking.confirmationCode, guestName: guest?.name ?? 'External guest', unitName: unit?.name ?? 'Unknown unit', checkIn: booking.checkIn, checkOut: booking.checkOut, status: booking.status, partySize: booking.adults + booking.children, readiness: service?.state ?? 'ready', version: booking.version ?? 0 });
-      }
-      return { view: args.view, enabledFeatures, businessDate, records };
+      const businessDate = args.businessDate ?? new Intl.DateTimeFormat('en-CA', { timeZone: property.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const queues = await buildFrontDeskQueues(ctx, { propertyId, businessDate });
+      return { view: args.view, enabledFeatures, businessDate, ...queues };
     }
     if (args.view === 'housekeeping') {
-      const serviceDate = args.businessDate ?? new Date().toISOString().slice(0, 10);
-      const [units, assignments] = await Promise.all([ctx.db.query('units').withIndex('by_property', (q) => q.eq('propertyId', propertyId)).take(limit), ctx.db.query('housekeepingAssignments').withIndex('by_property_date', (q) => q.eq('propertyId', propertyId).eq('serviceDate', serviceDate)).collect()]);
-      const records = [];
-      for (const unit of units) {
-        const state = await ctx.db.query('unitServiceStates').withIndex('by_unit', (q) => q.eq('unitId', unit._id)).unique();
-        const assignment = assignments.find((row) => row.unitId === unit._id);
-        records.push({ unitId: unit._id, unitName: unit.name, sellableStatus: unit.status, state: state?.state ?? 'ready', stateVersion: state?.version ?? 0, assignmentId: assignment?._id, assignmentStatus: assignment?.status, priority: assignment?.priority });
-      }
-      return { view: args.view, enabledFeatures, businessDate: serviceDate, records };
+      const serviceDate = args.businessDate ?? new Intl.DateTimeFormat('en-CA', { timeZone: property.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const board = await buildHousekeepingBoard(ctx, { propertyId, serviceDate });
+      return { view: args.view, enabledFeatures, businessDate: serviceDate, records: board.units };
     }
     if (args.view === 'maintenance') {
       return { view: args.view, enabledFeatures, records: await ctx.db.query('maintenanceTasks').withIndex('by_property_status', (q) => q.eq('propertyId', propertyId)).take(limit) };
@@ -892,8 +883,17 @@ export const handle = httpAction(async (ctx, request) => {
           complimentary: { action: 'complimentary.approve', mutation: api.operations.authorizeComplimentary },
           'rate-adjustment': { action: 'rate.adjust', mutation: api.operations.adjustBookingRate },
           'front-desk/transition': { action: 'front_desk.dynamic', mutation: api.frontDesk.transition },
+          'front-desk/flag/create': { action: 'front_desk.flag.create', mutation: (api as any).operationalFlags.create },
+          'front-desk/flag/assign': { action: 'front_desk.flag.assign', mutation: (api as any).operationalFlags.assign },
+          'front-desk/flag/resolve': { action: 'front_desk.flag.resolve', mutation: (api as any).operationalFlags.resolve },
           'housekeeping/assign': { action: 'housekeeping.assign', mutation: api.housekeeping.assign },
           'housekeeping/state': { action: 'housekeeping.state.transition', mutation: api.housekeeping.transitionState },
+          'housekeeping/assignment/update': { action: 'housekeeping.assignment.update', mutation: (api as any).housekeepingWork.updateAssignment },
+          'housekeeping/assignment/start': { action: 'housekeeping.assignment.start', mutation: (api as any).housekeepingWork.start },
+          'housekeeping/checklist/item': { action: 'housekeeping.checklist.item', mutation: (api as any).housekeepingWork.updateChecklistItem },
+          'housekeeping/inspection/submit': { action: 'housekeeping.inspection.submit', mutation: (api as any).housekeepingWork.submitForInspection },
+          'housekeeping/inspection/review': { action: 'housekeeping.inspection.review', mutation: (api as any).housekeepingWork.reviewInspection },
+          'housekeeping/assignment/cancel': { action: 'housekeeping.assignment.cancel', mutation: (api as any).housekeepingWork.cancel },
           'maintenance/resolve': { action: 'maintenance.resolve', mutation: api.housekeeping.resolveMaintenance },
           'folios/retail': { action: 'folio.retail.create', mutation: api.commerce.createRetailFolio },
           'folios/entry': { action: 'folio.entry.post', mutation: api.commerce.postEntry },

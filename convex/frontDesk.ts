@@ -23,11 +23,9 @@ async function featureEnabled(
   return row?.enabled === true;
 }
 
-export const queues = query({
-  args: { propertyId: v.id('properties'), businessDate: v.string() },
-  handler: async (ctx, args) => {
-    const access = await requirePropertyCapability(ctx, args.propertyId, 'booking.read');
-    await requirePropertyFeature(ctx, args.propertyId, 'front_desk');
+export async function buildFrontDeskQueues(ctx: QueryCtx, args: { propertyId: Id<'properties'>; businessDate: string }) {
+    const property = await ctx.db.get(args.propertyId);
+    if (!property?.active) throw new ConvexError('PROPERTY_RECORD_MISMATCH');
     const [candidates, exceptionsEnabled, checklistsEnabled, recentAuditRows] = await Promise.all([
       ctx.db.query('bookings').withIndex('by_property_checkIn', (q) => q.eq('propertyId', args.propertyId)).collect(),
       featureEnabled(ctx, args.propertyId, 'front_desk_exceptions'),
@@ -41,7 +39,7 @@ export const queues = query({
       ((booking.status === 'no_show' || booking.status === 'checked_out') && booking.statusHistory.at(-1)?.ts),
     );
     const rows = [];
-    for (const booking of relevant) {
+    for (const booking of relevant.slice(0, 200)) {
       const [guest, unit, payments, service, flags, assignment] = await Promise.all([
         booking.guestId ? ctx.db.get(booking.guestId) : null,
         ctx.db.get(booking.unitId),
@@ -86,8 +84,8 @@ export const queues = query({
         } : undefined,
         expectedDepartureAt: lateCheckout?.dueAt,
         policySummary: {
-          standardCheckInTime: access.property.checkInTime,
-          standardCheckOutTime: access.property.checkOutTime,
+          standardCheckInTime: property.checkInTime,
+          standardCheckOutTime: property.checkOutTime,
         },
         recentEvents: recentAuditRows
           .filter((event) => event.entityType === 'booking' && event.entityId === booking._id)
@@ -109,6 +107,14 @@ export const queues = query({
       checkedOut: rows.filter((row) => row.status === 'checked_out' && row.checkOut === args.businessDate),
       needsAttention,
     };
+}
+
+export const queues = query({
+  args: { propertyId: v.id('properties'), businessDate: v.string() },
+  handler: async (ctx, args) => {
+    await requirePropertyCapability(ctx, args.propertyId, 'booking.read');
+    await requirePropertyFeature(ctx, args.propertyId, 'front_desk');
+    return await buildFrontDeskQueues(ctx, args);
   },
 });
 

@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
-import type { MutationCtx } from './_generated/server';
+import type { MutationCtx, QueryCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import { markPropertyDirtyInline } from './channel/ari';
 import { requireMutationPropertyCapability, requirePropertyCapability, requirePropertyFeature } from './staff';
@@ -28,12 +28,8 @@ async function finish(ctx: MutationCtx, args: { propertyId: Id<'properties'>; re
   await ctx.db.insert('auditLog', { actorUserId: args.userId, actorName: args.name, propertyId: args.propertyId, action: args.action, detail: args.detail, entityType: args.entityType, entityId: args.entityId, requestId: args.requestId, ts: now });
 }
 
-export const board = query({
-  args: { propertyId: v.id('properties'), serviceDate: v.string() },
-  handler: async (ctx, args) => {
-    await requirePropertyCapability(ctx, args.propertyId, 'housekeeping.read');
-    await requirePropertyFeature(ctx, args.propertyId, 'housekeeping');
-    const units = await ctx.db.query('units').withIndex('by_property', (q) => q.eq('propertyId', args.propertyId)).collect();
+export async function buildHousekeepingBoard(ctx: QueryCtx, args: { propertyId: Id<'properties'>; serviceDate: string }) {
+    const units = await ctx.db.query('units').withIndex('by_property', (q) => q.eq('propertyId', args.propertyId)).take(200);
     const assignments = await ctx.db.query('housekeepingAssignments').withIndex('by_property_date', (q) => q.eq('propertyId', args.propertyId).eq('serviceDate', args.serviceDate)).collect();
     const checklistFeature = await ctx.db.query('propertyFeatures').withIndex('by_property_feature', (q) => q.eq('propertyId', args.propertyId).eq('feature', 'housekeeping_checklists')).unique();
     const result = [];
@@ -73,6 +69,14 @@ export const board = query({
       });
     }
     return { serviceDate: args.serviceDate, units: result };
+}
+
+export const board = query({
+  args: { propertyId: v.id('properties'), serviceDate: v.string() },
+  handler: async (ctx, args) => {
+    await requirePropertyCapability(ctx, args.propertyId, 'housekeeping.read');
+    await requirePropertyFeature(ctx, args.propertyId, 'housekeeping');
+    return await buildHousekeepingBoard(ctx, args);
   },
 });
 

@@ -128,6 +128,8 @@ describe('MCP tool registry', () => {
     expect(operationsView).toHaveBeenCalledWith(expect.objectContaining({ property: 'kokanee', view: 'front-desk', date: '2030-08-10' }));
     await actionDef.run(client, { property: 'kokanee', action: 'front-desk/transition', requestId: 'req-1', input: { bookingId: 'b1', transition: 'check_in', expectedVersion: 0 } });
     expect(operationsAction).toHaveBeenCalledWith('front-desk/transition', { property: 'kokanee', requestId: 'req-1', bookingId: 'b1', transition: 'check_in', expectedVersion: 0 });
+    await actionDef.run(client, { property: 'kokanee', action: 'housekeeping/inspection/review', requestId: 'req-2', input: { assignmentId: 'a1', outcome: 'passed', expectedAssignmentVersion: 3, expectedServiceVersion: 2 } });
+    expect(operationsAction).toHaveBeenCalledWith('housekeeping/inspection/review', { property: 'kokanee', requestId: 'req-2', assignmentId: 'a1', outcome: 'passed', expectedAssignmentVersion: 3, expectedServiceVersion: 2 });
   });
 
   it('a tool run rejecting with ApiError propagates it (server maps to isError)', async () => {
