@@ -35,15 +35,41 @@ export const board = query({
     await requirePropertyFeature(ctx, args.propertyId, 'housekeeping');
     const units = await ctx.db.query('units').withIndex('by_property', (q) => q.eq('propertyId', args.propertyId)).collect();
     const assignments = await ctx.db.query('housekeepingAssignments').withIndex('by_property_date', (q) => q.eq('propertyId', args.propertyId).eq('serviceDate', args.serviceDate)).collect();
+    const checklistFeature = await ctx.db.query('propertyFeatures').withIndex('by_property_feature', (q) => q.eq('propertyId', args.propertyId).eq('feature', 'housekeeping_checklists')).unique();
     const result = [];
     for (const unit of units) {
       const state = await ctx.db.query('unitServiceStates').withIndex('by_unit', (q) => q.eq('unitId', unit._id)).unique();
       const assignment = assignments.find((row) => row.unitId === unit._id);
+      const unitType = await ctx.db.get(unit.unitTypeId);
+      const groupMembers = await ctx.db.query('unitGroupMembers').withIndex('by_unit', (q) => q.eq('unitId', unit._id)).collect();
+      const unitGroups = [];
+      for (const member of groupMembers) {
+        if (member.propertyId !== args.propertyId) continue;
+        const group = await ctx.db.get(member.unitGroupId);
+        if (group?.propertyId === args.propertyId && group.active) unitGroups.push({ unitGroupId: group._id, name: group.name });
+      }
+      const checklistItems = checklistFeature?.enabled && assignment
+        ? await ctx.db.query('housekeepingChecklistItems').withIndex('by_assignment_order', (q) => q.eq('assignmentId', assignment._id)).collect()
+        : [];
+      const completed = checklistItems.filter((item) => item.status === 'completed').length;
+      const requiredRemaining = checklistItems.filter((item) => item.required && !['completed', 'not_applicable'].includes(item.status)).length;
+      const unitAssignments = await ctx.db.query('housekeepingAssignments').withIndex('by_unit_date', (q) => q.eq('unitId', unit._id)).collect();
+      const lastCleanedAt = unitAssignments.reduce<number | undefined>((latest, row) => {
+        if (!row.verifiedAt) return latest;
+        return latest === undefined || row.verifiedAt > latest ? row.verifiedAt : latest;
+      }, undefined);
       result.push({
         unitId: unit._id, unitName: unit.name, sellableStatus: unit.status,
+        unitTypeId: unit.unitTypeId, unitTypeName: unitType?.propertyId === args.propertyId ? unitType.name : 'Unknown type',
+        unitGroups,
         state: state?.state ?? 'ready', stateVersion: state?.version ?? 0,
         assignmentId: assignment?._id, assignedStaffProfileId: assignment?.assignedStaffProfileId,
         assignmentStatus: assignment?.status, priority: assignment?.priority,
+        cleaningType: assignment?.cleaningType,
+        expectedMinutes: assignment?.expectedMinutes,
+        assignmentVersion: assignment?.version,
+        checklist: { completed, total: checklistItems.length, requiredRemaining },
+        lastCleanedAt,
       });
     }
     return { serviceDate: args.serviceDate, units: result };
@@ -51,7 +77,14 @@ export const board = query({
 });
 
 export const assign = mutation({
-  args: { propertyId: v.id('properties'), unitId: v.id('units'), serviceDate: v.string(), assignedStaffProfileId: v.optional(v.id('staffProfiles')), priority: v.number(), requestId: v.string(), automationToken: v.optional(v.string()) },
+  args: {
+    propertyId: v.id('properties'), unitId: v.id('units'), serviceDate: v.string(),
+    assignedStaffProfileId: v.optional(v.id('staffProfiles')), priority: v.number(),
+    cleaningType: v.optional(v.union(v.literal('turnover'), v.literal('stayover'), v.literal('inspection'), v.literal('deep_clean'), v.literal('custom'))),
+    customCleaningLabel: v.optional(v.string()), expectedMinutes: v.optional(v.number()),
+    assignmentNote: v.optional(v.string()), expectedVersion: v.optional(v.number()),
+    requestId: v.string(), automationToken: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const access = await requireMutationPropertyCapability(ctx, args.propertyId, 'housekeeping.assign', 'housekeeping.assign', args.automationToken);
     await requirePropertyFeature(ctx, args.propertyId, 'housekeeping');
@@ -64,13 +97,33 @@ export const assign = mutation({
       if (!profile?.active) throw new ConvexError('ASSIGNEE_UNAVAILABLE');
     }
     const existing = await ctx.db.query('housekeepingAssignments').withIndex('by_unit_date', (q) => q.eq('unitId', args.unitId).eq('serviceDate', args.serviceDate)).unique();
+    if (args.expectedMinutes !== undefined && (!Number.isInteger(args.expectedMinutes) || args.expectedMinutes < 5 || args.expectedMinutes > 480)) throw new ConvexError('INVALID_EXPECTED_MINUTES');
+    const customCleaningLabel = args.customCleaningLabel?.trim() || undefined;
+    if (args.cleaningType === 'custom' && !customCleaningLabel) throw new ConvexError('CUSTOM_CLEANING_LABEL_REQUIRED');
+    const assignmentNote = args.assignmentNote?.trim() || undefined;
     const now = Date.now();
     let assignmentId: Id<'housekeepingAssignments'>;
     if (existing) {
+      if (args.expectedVersion !== undefined && existing.version !== args.expectedVersion) throw new ConvexError(`VERSION_CONFLICT:${existing.version}`);
+      if (existing.status === 'verified' || existing.status === 'cancelled') throw new ConvexError('ASSIGNMENT_CLOSED');
       assignmentId = existing._id;
-      await ctx.db.patch(existing._id, { assignedStaffProfileId: args.assignedStaffProfileId, priority: args.priority, status: 'assigned', version: existing.version + 1, updatedAt: now });
+      await ctx.db.patch(existing._id, {
+        assignedStaffProfileId: args.assignedStaffProfileId, priority: args.priority,
+        cleaningType: args.cleaningType ?? existing.cleaningType,
+        customCleaningLabel: args.cleaningType === 'custom' ? customCleaningLabel : args.cleaningType ? undefined : existing.customCleaningLabel,
+        expectedMinutes: args.expectedMinutes ?? existing.expectedMinutes,
+        assignmentNote: args.assignmentNote === undefined ? existing.assignmentNote : assignmentNote,
+        version: existing.version + 1, updatedAt: now,
+      });
     } else {
-      assignmentId = await ctx.db.insert('housekeepingAssignments', { propertyId: args.propertyId, unitId: args.unitId, serviceDate: args.serviceDate, assignedStaffProfileId: args.assignedStaffProfileId, priority: args.priority, status: 'assigned', version: 0, createdBy: access.userId, createdAt: now, updatedAt: now });
+      if (args.expectedVersion !== undefined && args.expectedVersion !== 0) throw new ConvexError('VERSION_CONFLICT:0');
+      assignmentId = await ctx.db.insert('housekeepingAssignments', {
+        propertyId: args.propertyId, unitId: args.unitId, serviceDate: args.serviceDate,
+        assignedStaffProfileId: args.assignedStaffProfileId, priority: args.priority, status: 'assigned',
+        cleaningType: args.cleaningType ?? 'turnover', customCleaningLabel,
+        expectedMinutes: args.expectedMinutes ?? 45, assignmentNote,
+        version: 0, createdBy: access.userId, createdAt: now, updatedAt: now,
+      });
     }
     const result = { assignmentId };
     await finish(ctx, { propertyId: args.propertyId, requestId: args.requestId, action: 'housekeeping.assign', userId: access.userId, name: access.profile.name, entityType: 'housekeeping_assignment', entityId: assignmentId, detail: `assigned housekeeping for ${unit.name}`, result });

@@ -31,7 +31,63 @@ describe('housekeeping and maintenance', () => {
     await asOwner.mutation((api as any).housekeeping.transitionState, { propertyId: f.propertyId, unitId: f.unitId, state: 'inspection', expectedVersion: 1, requestId: 'req-inspect' });
     await asOwner.mutation((api as any).housekeeping.transitionState, { propertyId: f.propertyId, unitId: f.unitId, state: 'ready', expectedVersion: 2, requestId: 'req-ready' });
     const board = await asOwner.query((api as any).housekeeping.board, { propertyId: f.propertyId, serviceDate: '2030-05-03' });
-    expect(board.units[0]).toMatchObject({ state: 'ready', assignedStaffProfileId: f.profileId });
+    expect(board.units[0]).toMatchObject({
+      state: 'ready',
+      assignedStaffProfileId: f.profileId,
+      unitTypeId: f.unitTypeId,
+      unitTypeName: 'Cabin',
+      unitGroups: [],
+      checklist: { completed: 0, total: 0, requiredRemaining: 0 },
+    });
+  });
+
+  it('adds assignment metadata, active unit groups, and checklist progress to the board', async () => {
+    const t = convexTest(schema, modules); const f = await seed(t); const asOwner = t.withIdentity(identityFor(f.userId));
+    await t.run(async (ctx) => {
+      await ctx.db.insert('propertyFeatures', { propertyId: f.propertyId, feature: 'housekeeping_checklists', enabled: true, version: 1, updatedBy: f.userId, updatedAt: 1 });
+      const activeGroupId = await ctx.db.insert('unitGroups', { propertyId: f.propertyId, name: 'Lake loop', slug: 'lake-loop', active: true, createdAt: 1, updatedAt: 1 });
+      const inactiveGroupId = await ctx.db.insert('unitGroups', { propertyId: f.propertyId, name: 'Old loop', slug: 'old-loop', active: false, createdAt: 1, updatedAt: 1 });
+      await ctx.db.insert('unitGroupMembers', { propertyId: f.propertyId, unitGroupId: activeGroupId, unitId: f.unitId, addedBy: f.userId, addedAt: 1 });
+      await ctx.db.insert('unitGroupMembers', { propertyId: f.propertyId, unitGroupId: inactiveGroupId, unitId: f.unitId, addedBy: f.userId, addedAt: 1 });
+    });
+    const assigned = await asOwner.mutation((api as any).housekeeping.assign, {
+      propertyId: f.propertyId,
+      unitId: f.unitId,
+      serviceDate: '2030-05-03',
+      assignedStaffProfileId: f.profileId,
+      priority: 2,
+      cleaningType: 'deep_clean',
+      expectedMinutes: 75,
+      assignmentNote: 'Focus on windows',
+      requestId: 'req-rich-assign',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert('housekeepingChecklistItems', {
+        propertyId: f.propertyId, assignmentId: assigned.assignmentId, itemKey: 'linen', label: 'Replace linen',
+        required: true, sortOrder: 1, status: 'completed', version: 1, updatedBy: f.userId, updatedAt: 2, completedAt: 2,
+      });
+      await ctx.db.insert('housekeepingChecklistItems', {
+        propertyId: f.propertyId, assignmentId: assigned.assignmentId, itemKey: 'coffee', label: 'Restock coffee',
+        required: true, sortOrder: 2, status: 'pending', version: 0, updatedBy: f.userId, updatedAt: 2,
+      });
+    });
+    const board = await asOwner.query((api as any).housekeeping.board, { propertyId: f.propertyId, serviceDate: '2030-05-03' });
+    expect(board.units[0]).toMatchObject({
+      cleaningType: 'deep_clean', expectedMinutes: 75, assignmentVersion: 0,
+      unitGroups: [{ name: 'Lake loop' }],
+      checklist: { completed: 1, total: 2, requiredRemaining: 1 },
+    });
+  });
+
+  it('preserves old assign calls while rejecting an explicitly stale assignment edit', async () => {
+    const t = convexTest(schema, modules); const f = await seed(t); const asOwner = t.withIdentity(identityFor(f.userId));
+    await asOwner.mutation((api as any).housekeeping.assign, {
+      propertyId: f.propertyId, unitId: f.unitId, serviceDate: '2030-05-03', priority: 1, requestId: 'req-old-call',
+    });
+    await expect(asOwner.mutation((api as any).housekeeping.assign, {
+      propertyId: f.propertyId, unitId: f.unitId, serviceDate: '2030-05-03', priority: 2,
+      expectedVersion: 9, requestId: 'req-stale-edit',
+    })).rejects.toThrow(/VERSION_CONFLICT/);
   });
 
   it('resolving maintenance releases only its linked inventory block', async () => {
