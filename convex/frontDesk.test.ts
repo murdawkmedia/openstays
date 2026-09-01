@@ -36,6 +36,69 @@ describe('front desk', () => {
     expect(stayOver.stayingOver).toHaveLength(1);
   });
 
+  it('returns open flags, housekeeping progress, and a needs-attention queue', async () => {
+    const t = convexTest(schema, modules);
+    const f = await seed(t);
+    const asOwner = t.withIdentity(identityFor(f.userId));
+    await t.run(async (ctx) => {
+      await ctx.db.insert('propertyFeatures', { propertyId: f.propertyId, feature: 'front_desk_exceptions', enabled: true, version: 1, updatedBy: f.userId, updatedAt: 1 });
+      await ctx.db.insert('propertyFeatures', { propertyId: f.propertyId, feature: 'housekeeping_checklists', enabled: true, version: 1, updatedBy: f.userId, updatedAt: 1 });
+      await ctx.db.insert('bookingOperationalFlags', {
+        propertyId: f.propertyId, bookingId: f.bookingId, unitId: f.unitId,
+        kind: 'departure_overdue', severity: 'urgent', state: 'open', summary: 'Guest has not departed',
+        version: 0, createdBy: f.userId, createdAt: 1, updatedBy: f.userId, updatedAt: 1,
+      });
+      const assignmentId = await ctx.db.insert('housekeepingAssignments', {
+        propertyId: f.propertyId, unitId: f.unitId, serviceDate: '2030-05-03', priority: 1,
+        status: 'in_progress', cleaningType: 'turnover', expectedMinutes: 45,
+        version: 1, createdBy: f.userId, createdAt: 1, updatedAt: 1,
+      });
+      await ctx.db.insert('housekeepingChecklistItems', {
+        propertyId: f.propertyId, assignmentId, itemKey: 'linen', label: 'Replace linen', required: true,
+        sortOrder: 1, status: 'completed', version: 1, updatedBy: f.userId, updatedAt: 1, completedAt: 1,
+      });
+      await ctx.db.insert('housekeepingChecklistItems', {
+        propertyId: f.propertyId, assignmentId, itemKey: 'bath', label: 'Clean bath', required: true,
+        sortOrder: 2, status: 'pending', version: 0, updatedBy: f.userId, updatedAt: 1,
+      });
+    });
+    const queues = await asOwner.query((api as any).frontDesk.queues, { propertyId: f.propertyId, businessDate: '2030-05-03' });
+    expect(queues.needsAttention).toHaveLength(1);
+    expect(queues.needsAttention[0]).toMatchObject({
+      bookingId: f.bookingId,
+      openFlags: [{ kind: 'departure_overdue', severity: 'urgent' }],
+      housekeepingProgress: { status: 'in_progress', completed: 1, total: 2 },
+      policySummary: { standardCheckInTime: '16:00', standardCheckOutTime: '11:00' },
+    });
+  });
+
+  it('keeps exception flags operational and does not alter stay dates or inventory', async () => {
+    const t = convexTest(schema, modules);
+    const f = await seed(t);
+    const before = await t.run(async (ctx) => ({
+      booking: await ctx.db.get(f.bookingId),
+      nights: await ctx.db.query('unitNights').withIndex('by_booking', (q) => q.eq('bookingId', f.bookingId)).collect(),
+    }));
+    await t.run(async (ctx) => {
+      await ctx.db.insert('bookingOperationalFlags', {
+        propertyId: f.propertyId, bookingId: f.bookingId, unitId: f.unitId,
+        kind: 'late_checkout', severity: 'attention', state: 'open', summary: 'Approved until 1 PM',
+        dueAt: Date.parse('2030-05-03T19:00:00Z'), version: 0,
+        createdBy: f.userId, createdAt: 1, updatedBy: f.userId, updatedAt: 1,
+      });
+      await ctx.db.insert('bookingOperationalFlags', {
+        propertyId: f.propertyId, bookingId: f.bookingId, unitId: f.unitId,
+        kind: 'sleep_out', severity: 'info', state: 'open', summary: 'Guest away overnight', version: 0,
+        createdBy: f.userId, createdAt: 1, updatedBy: f.userId, updatedAt: 1,
+      });
+    });
+    const after = await t.run(async (ctx) => ({
+      booking: await ctx.db.get(f.bookingId),
+      nights: await ctx.db.query('unitNights').withIndex('by_booking', (q) => q.eq('bookingId', f.bookingId)).collect(),
+    }));
+    expect(after).toEqual(before);
+  });
+
   it('checks in, checks out, releases occupancy, and marks the unit dirty', async () => {
     const t = convexTest(schema, modules);
     const f = await seed(t);
@@ -46,6 +109,24 @@ describe('front desk', () => {
     expect(await t.run(async (ctx) => ctx.db.query('unitNights').withIndex('by_booking', (q) => q.eq('bookingId', f.bookingId)).collect())).toHaveLength(0);
     const service = await t.run(async (ctx) => ctx.db.query('unitServiceStates').withIndex('by_unit', (q) => q.eq('unitId', f.unitId)).unique());
     expect(service).toMatchObject({ state: 'dirty', version: 1 });
+  });
+
+  it('creates exactly one turnover assignment when the checklist handoff is enabled', async () => {
+    const t = convexTest(schema, modules);
+    const f = await seed(t);
+    const asOwner = t.withIdentity(identityFor(f.userId));
+    await t.run(async (ctx) => {
+      await ctx.db.insert('propertyFeatures', { propertyId: f.propertyId, feature: 'housekeeping_checklists', enabled: true, version: 1, updatedBy: f.userId, updatedAt: 1 });
+    });
+    await asOwner.mutation((api as any).frontDesk.transition, { propertyId: f.propertyId, bookingId: f.bookingId, transition: 'check_in', expectedVersion: 0, requestId: 'handoff-checkin' });
+    const first = await asOwner.mutation((api as any).frontDesk.transition, { propertyId: f.propertyId, bookingId: f.bookingId, transition: 'check_out', expectedVersion: 1, requestId: 'handoff-checkout' });
+    const replay = await asOwner.mutation((api as any).frontDesk.transition, { propertyId: f.propertyId, bookingId: f.bookingId, transition: 'check_out', expectedVersion: 1, requestId: 'handoff-checkout' });
+    expect(first.replayed).toBe(false);
+    expect(replay.replayed).toBe(true);
+    const assignments = await t.run(async (ctx) => ctx.db.query('housekeepingAssignments')
+      .withIndex('by_unit_date', (q) => q.eq('unitId', f.unitId).eq('serviceDate', '2030-05-03')).collect());
+    expect(assignments).toHaveLength(1);
+    expect(assignments[0]).toMatchObject({ cleaningType: 'turnover', sourceCheckoutRequestId: 'handoff-checkout' });
   });
 
   it('marks a no-show only from confirmed and keeps stale retries from changing state', async () => {
