@@ -58,6 +58,7 @@ describe('production Convex artifact', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(resolve(generatedConvex, 'schema.ts'))).toBe(true);
     expect(existsSync(resolve(generatedConvex, 'bookings.ts'))).toBe(true);
+    expect(existsSync(resolve(generatedConvex, 'tsconfig.json'))).toBe(true);
 
     const productionBookings = readFileSync(resolve(generatedConvex, 'bookings.ts'), 'utf8');
     expect(productionBookings).not.toContain("payment.provider === 'zaprite' ||\n      )");

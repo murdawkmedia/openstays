@@ -118,6 +118,7 @@ function copyDirectory(directory) {
 rmSync(outputRoot, { recursive: true, force: true });
 mkdirSync(outputRoot, { recursive: true });
 copyDirectory(sourceRoot);
+copyFileSync(resolve(sourceRoot, 'tsconfig.json'), resolve(outputRoot, 'tsconfig.json'));
 
 for (const file of ['http.ts', 'crons.ts', 'publicPolicy.ts']) {
   copyFileSync(resolve(templateRoot, file), resolve(outputRoot, file));
