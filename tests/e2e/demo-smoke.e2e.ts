@@ -38,7 +38,7 @@ test('fictional operations tour is interactive, read-only, and responsive', asyn
   await expect(disabledAction).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Front desk' })).toBeVisible();
   await page.getByRole('button', { name: 'Housekeeping' }).click();
-  await expect(page.getByText('Turnaround board')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Turnaround board' })).toBeVisible();
 
   expect(await page.evaluate(() => document.querySelectorAll('main').length)).toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
