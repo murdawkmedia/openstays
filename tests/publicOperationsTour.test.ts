@@ -34,6 +34,17 @@ function collectKeys(value: unknown, keys: string[] = []): string[] {
 }
 
 describe('public operations fixture', () => {
+  it('shows the accepted daily operations examples', () => {
+    const titles = PUBLIC_OPERATIONS_FIXTURE.records.map((record) => record.title);
+    expect(titles).toEqual(expect.arrayContaining([
+      'Late checkout notice',
+      'Departure overdue',
+      'Turnover checklist',
+      'Inspection correction',
+      'Verified ready unit',
+    ]));
+  });
+
   it('contains a realistic cross-section of fictional operations', () => {
     expect(PUBLIC_OPERATIONS_FIXTURE.notice).toBe('Read-only fictional demo');
     expect(PUBLIC_OPERATIONS_FIXTURE.records.map((record) => record.kind)).toEqual(
