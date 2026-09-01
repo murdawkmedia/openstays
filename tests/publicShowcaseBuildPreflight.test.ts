@@ -44,8 +44,11 @@ describe('public showcase build preflight', () => {
       scripts: Record<string, string>;
     };
 
-    expect(packageJson.scripts.prebuild).toBe(
+    expect(packageJson.scripts.prebuild).toContain(
       'node scripts/check-public-showcase-env.mjs',
+    );
+    expect(packageJson.scripts.prebuild).toContain(
+      'node scripts/check-production-profile-env.mjs',
     );
   });
 });
