@@ -41,7 +41,10 @@ function transformBookings(source) {
     "payment.provider !== 'zaprite'",
   );
   result = result.replace(/^\s*await ctx\.scheduler\.runAfter\(0, \(internal as any\)\.consensusReceipts\.ensureForBooking, \{ bookingId: booking\._id \}\);\r?\n/gm, '');
-  result = result.replace(/^\s*payment\.provider === 'wavelength'\r?\n/gm, '');
+  result = result.replace(
+    /payment\.provider === 'zaprite' \|\|\r?\n\s*payment\.provider === 'wavelength'/g,
+    "payment.provider === 'zaprite'",
+  );
   result = result.replace(/, v\.literal\('wavelength'\)/g, '');
   invariant(!/wavelength|consensusReceipts/i.test(result), 'PRODUCTION_BOOKINGS_TRANSFORM_INCOMPLETE');
   return result;
