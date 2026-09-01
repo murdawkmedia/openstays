@@ -35,8 +35,7 @@ export async function buildFrontDeskQueues(ctx: QueryCtx, args: { propertyId: Id
     const relevant = candidates.filter((booking) =>
       booking.checkIn === args.businessDate ||
       booking.checkOut === args.businessDate ||
-      (booking.checkIn < args.businessDate && booking.checkOut > args.businessDate) ||
-      ((booking.status === 'no_show' || booking.status === 'checked_out') && booking.statusHistory.at(-1)?.ts),
+      (booking.checkIn < args.businessDate && booking.checkOut > args.businessDate),
     );
     const rows = [];
     for (const booking of relevant.slice(0, 200)) {

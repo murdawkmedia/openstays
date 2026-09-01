@@ -28,6 +28,26 @@ async function finish(ctx: MutationCtx, args: { propertyId: Id<'properties'>; re
   await ctx.db.insert('auditLog', { actorUserId: args.userId, actorName: args.name, propertyId: args.propertyId, action: args.action, detail: args.detail, entityType: args.entityType, entityId: args.entityId, requestId: args.requestId, ts: now });
 }
 
+async function validateAssignee(
+  ctx: MutationCtx,
+  propertyId: Id<'properties'>,
+  staffProfileId: Id<'staffProfiles'>,
+) {
+  const [profile, assignments] = await Promise.all([
+    ctx.db.get(staffProfileId),
+    ctx.db.query('staffPropertyAssignments')
+      .withIndex('by_profile', (q) => q.eq('staffProfileId', staffProfileId))
+      .collect(),
+  ]);
+  if (!profile?.active) throw new ConvexError('ASSIGNEE_UNAVAILABLE');
+  if (
+    assignments.length > 0 &&
+    !assignments.some((assignment) => assignment.propertyId === propertyId && assignment.active)
+  ) {
+    throw new ConvexError('ASSIGNEE_PROPERTY_MISMATCH');
+  }
+}
+
 export async function buildHousekeepingBoard(ctx: QueryCtx, args: { propertyId: Id<'properties'>; serviceDate: string }) {
     const units = await ctx.db.query('units').withIndex('by_property', (q) => q.eq('propertyId', args.propertyId)).take(200);
     const assignments = await ctx.db.query('housekeepingAssignments').withIndex('by_property_date', (q) => q.eq('propertyId', args.propertyId).eq('serviceDate', args.serviceDate)).collect();
@@ -97,8 +117,7 @@ export const assign = mutation({
     const unit = await ctx.db.get(args.unitId);
     if (!unit || unit.propertyId !== args.propertyId) throw new ConvexError('PROPERTY_RECORD_MISMATCH');
     if (args.assignedStaffProfileId) {
-      const profile = await ctx.db.get(args.assignedStaffProfileId);
-      if (!profile?.active) throw new ConvexError('ASSIGNEE_UNAVAILABLE');
+      await validateAssignee(ctx, args.propertyId, args.assignedStaffProfileId);
     }
     const existing = await ctx.db.query('housekeepingAssignments').withIndex('by_unit_date', (q) => q.eq('unitId', args.unitId).eq('serviceDate', args.serviceDate)).unique();
     if (args.expectedMinutes !== undefined && (!Number.isInteger(args.expectedMinutes) || args.expectedMinutes < 5 || args.expectedMinutes > 480)) throw new ConvexError('INVALID_EXPECTED_MINUTES');
