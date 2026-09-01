@@ -72,6 +72,42 @@ describe('front desk', () => {
     });
   });
 
+  it('does not let historical terminal stays crowd the selected business date', async () => {
+    const t = convexTest(schema, modules);
+    const f = await seed(t);
+    const asOwner = t.withIdentity(identityFor(f.userId));
+    await t.run(async (ctx) => {
+      const target = await ctx.db.get(f.bookingId);
+      for (let index = 0; index < 201; index += 1) {
+        await ctx.db.insert('bookings', {
+          propertyId: f.propertyId,
+          unitId: f.unitId,
+          unitTypeId: target!.unitTypeId,
+          checkIn: '2029-01-01',
+          checkOut: '2029-01-02',
+          nights: 1,
+          adults: 1,
+          children: 0,
+          status: 'checked_out',
+          source: 'phone',
+          confirmationCode: `OS-OLD${index.toString().padStart(3, '0')}`,
+          statusHistory: [{ status: 'checked_out', ts: index + 1 }],
+          notes: [],
+          createdAt: index + 1,
+          updatedAt: index + 1,
+          version: 1,
+        });
+      }
+    });
+
+    const queues = await asOwner.query((api as any).frontDesk.queues, {
+      propertyId: f.propertyId,
+      businessDate: '2030-05-03',
+    });
+    expect(queues.departing).toHaveLength(1);
+    expect(queues.departing[0].bookingId).toBe(f.bookingId);
+  });
+
   it('keeps exception flags operational and does not alter stay dates or inventory', async () => {
     const t = convexTest(schema, modules);
     const f = await seed(t);
