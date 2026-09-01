@@ -36,6 +36,15 @@ describe('operational role capabilities', () => {
     expect(roleCan('accounting', 'booking.write')).toBe(false);
   });
 
+  it('grants focused daily-operations capabilities without widening roles', () => {
+    expect(roleCan('front_desk', 'front_desk.flag.write')).toBe(true);
+    expect(roleCan('front_desk', 'front_desk.restricted_flag.write')).toBe(false);
+    expect(roleCan('housekeeping', 'housekeeping.checklist.update')).toBe(true);
+    expect(roleCan('housekeeping', 'housekeeping.verify')).toBe(false);
+    expect(roleCan('manager', 'housekeeping.template.manage')).toBe(true);
+    expect(roleCan('accounting', 'front_desk.restricted_flag.write')).toBe(false);
+  });
+
   it('returns an immutable capability collection', () => {
     const capabilities = capabilitiesForRole('front_desk');
     expect(capabilities).toContain('booking.read');
