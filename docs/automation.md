@@ -1,12 +1,11 @@
 # Automation (API / CLI / MCP)
 
-Everything a guest or staff member can do through the app, a script or agent
-can do through the **same** HTTP API — the `/api/v1` routes call the same
-Convex queries and mutations the UI does (`createHold`, `cancelByGuest`,
+The versioned `/api/v1` interface exposes the booking and property operations
+listed below. For those operations, its routes call the same Convex queries
+and mutations as the UI (`createHold`, `cancelByGuest`,
 `availability.forUnitType`, `tapeForProperty`, and so on). No separate
-business logic, no separate money math: the API gets every double-booking,
-pricing, GST, and cancellation-policy guarantee the app gets, because it's
-the same code path.
+business logic or money math: booking routes reuse the server-side hold,
+pricing, tax and cancellation validation.
 
 This page covers three layers built on top of that API:
 
@@ -17,15 +16,16 @@ This page covers three layers built on top of that API:
 
 ## Honest scope
 
-- Every route requires an API key — **including on the public demo
-  deployment**. `DEMO_MODE` relaxes staff auth for the browser app; it grants
-  nothing to `/api/v1` callers, so automations behave identically everywhere.
+- Data and operation routes require an API key, including on the public demo
+  deployment. The health route is unauthenticated. `DEMO_MODE` relaxes staff
+  auth for the browser app; it does not grant access to API-key-protected routes.
 - A key's **scope** (`read` or `write`) is enforced server-side per route.
   Read keys can list properties, check availability, and read bookings;
   write keys can additionally create holds and cancel bookings. There is no
   scope that can bypass a guest's own confirmation-code + email match for
   cancellation, and no route that skips the conflict-checked, serializable
-  hold transaction — the API cannot double-book any more than the UI can.
+  hold transaction. External calendar imports can still reveal conflicts
+  requiring staff review; polling does not create a lock across platforms.
 - Feature-gated PMS workspaces are exposed under `/api/v1/operations/*`.
   Operational keys inherit the property assignments and role capabilities of
   the owner who minted the key. They cannot cross into a property that owner
