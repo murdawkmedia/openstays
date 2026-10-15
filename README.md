@@ -39,10 +39,10 @@ lodging — campgrounds, cabins, glamping, yurts, small resorts.**
 
 Built by **[SebaHub](https://www.sebahub.com)** — a lakeside community hub in
 Seba Beach, Alberta, Canada — after getting tired of legacy reservation systems
-with no API, no iCal, and seven clicks to book a cabin. OpenStays is dogfooded
-in production on SebaHub's own lodge, cabins, geodomes, yurts, and RV park.
+with no API, no iCal, and seven clicks to book a cabin. Operator deployments
+require their own configuration, migration and acceptance checks.
 
-> **Status: early & moving fast.** M1's conflict-proof booking core, Stripe and
+> **Status: early & moving fast.** M1's booking conflict checks, Stripe and
 > Square checkout, staff auth, guest email, and two-way iCal sync are shipped
 > and test-covered. Consensus Commons is an experimental hackathon layer.
 
@@ -50,10 +50,11 @@ in production on SebaHub's own lodge, cabins, geodomes, yurts, and RV park.
 
 - **Guest booking flow** — availability calendar → date-range checkout →
   payment → email confirmation. No guest accounts required.
-- **Double-booking-proof by construction** — reservations are written inside
+- **Transactional booking conflict checks** — reservations are written inside
   serializable ACID transactions ([Convex](https://convex.dev)) against a
-  derived per-night occupancy table. Two guests can't take the same night,
-  even clicking Pay at the same instant.
+  derived per-night occupancy table. The hold mutation rejects overlapping
+  occupied nights. External calendar imports can still reveal conflicts that
+  staff need to resolve; iCal polling is not an instant lock across platforms.
 - **Real-world lodging rules** — seasonal rates, min/max stay, lead time,
   booking windows, prep/turnover buffer nights, deposits (full / percent /
   flat / first-night), time-windowed cancellation policies, promo codes,
@@ -116,8 +117,9 @@ released independently through a reversible property feature flag.
   env var, object mapping, and Channex-side certification — to distribute to the
   OTAs *through* Channex. It is **not** a direct-OTA-API integration and is
   **not live in v1 by default**. See [docs/channels.md](./docs/channels.md).
-- No SaaS — each operator runs their own deployment (that's a feature: your
-  guest data lives in your own project, and the free tiers make it ~$0/month).
+- Each operator runs their own deployment. Booking records are stored in that
+  operator's project; configured payment and email providers also process the
+  data needed for those services. Costs depend on usage and provider plans.
 - No card-present / POS hardware integration (record-only cash / e-transfer /
   terminal entries cover the front desk).
 
@@ -144,10 +146,9 @@ live. Your real inventory is **data, not code** — see `docs/configuration.md`.
 
 ## Automation (API / CLI / MCP)
 
-Everything the guest and staff UI can do is also available over a versioned
-HTTP API (`/api/v1`, API-key auth) backed by the same Convex queries and
-mutations — no parallel business logic, so every booking guarantee holds for
-automations too. A standalone CLI + MCP server ship in [`cli/`](./cli) as a
+The versioned HTTP API (`/api/v1`, API-key auth) exposes booking and property
+operations backed by the same Convex queries and mutations. See the API guide
+for the supported operations and permissions. A standalone CLI + MCP server ship in [`cli/`](./cli) as a
 thin, well-tested client over that API: `openstays health|properties|
 availability|bookings|hold|cancel|...`, plus `openstays mcp` for MCP clients
 like Claude. See [docs/automation.md](./docs/automation.md) for the full
@@ -164,7 +165,8 @@ guide (getting a key, every command, MCP client config).
 
 ## Project principles
 
-1. **Never lose a booking, never double-book.** Correctness over features.
+1. **Protect booking integrity.** Use transactional conflict checks, audit logs
+   and tested recovery procedures; validate each deployment before taking bookings.
 2. **Simple for the end user** — guests book in a couple of clicks; front-desk
    staff shouldn't need a manual.
 3. **Your data is yours.** Own deployment, own database, exportable.
@@ -172,7 +174,7 @@ guide (getting a key, every command, MCP client config).
 
 ## Built by SebaHub
 
-OpenStays is built and run in production by [SebaHub](https://www.sebahub.com),
+OpenStays is developed by [SebaHub](https://www.sebahub.com),
 a lakeside community hub in Seba Beach, Alberta, Canada. If you're visiting
 lake country west of Edmonton — come say hi.
 
