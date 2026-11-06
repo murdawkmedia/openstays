@@ -15,11 +15,11 @@ an explicit separate operator task.
 The separate studio website imports the reviewed output with
 `node scripts/import-openstays.mjs <reviewed-dist>`. It keeps the app's source
 independent, records SHA-256 hashes and scopes every security/runtime header.
-Two identical generated HTML shells support deep links: ordinary showcase
-routes and isolated wallet routes have separate header policies. Static asset
-exceptions must precede the catchall proxy so JavaScript and runtime files are
-served unchanged. Do not proxy the catchall to an index inside its own prefix:
-Cloudflare HTML normalization rejects that loop.
+The existing studio Worker serves matching static assets first. A small ASSETS
+handler serves the app directory shell for missing OpenStays navigation paths,
+with COOP/COEP added only on wallet paths. Missing JavaScript, demo media and
+runtime assets remain real 404s. The studio's other navigation uses its own shell.
+Do not add a catchall static proxy: it can turn live asset responses into HTML.
 
 Verify real deep-link reloads, unknown routes, local media, JavaScript, wallet
 runtime bytes, wallet-only COOP/COEP, property/unit read queries and the static
