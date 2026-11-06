@@ -225,7 +225,7 @@ export function UnitTypePage() {
         </div>
       ) : (
         <div className="grid gap-8 lg:grid-cols-2">
-          <div className="card p-6">
+          <div className="card min-w-0 p-6">
             <h2 className="mb-4 text-lg font-semibold text-stone-900">Choose your dates</h2>
             {availability === undefined ? (
               <Spinner label="Loading availability…" />
@@ -237,7 +237,7 @@ export function UnitTypePage() {
             ) : null}
           </div>
 
-          <div className="space-y-6">
+          <div className="min-w-0 space-y-6">
             <div className="card p-6">
               <AddOnPicker
                 addOns={addOns}
@@ -254,7 +254,7 @@ export function UnitTypePage() {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  className="field-input flex-1"
+                  className="field-input min-w-0 flex-1"
                   placeholder={`e.g. ${promoPlaceholder}`}
                   aria-label="Discount code"
                   value={promoInput}

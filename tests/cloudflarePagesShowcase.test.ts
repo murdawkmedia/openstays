@@ -74,9 +74,9 @@ describe("Cloudflare Pages public showcase contract", () => {
     );
     expect(viteConfig).toContain("public-showcase-version-wallet-runtime");
     expect(viteConfig).toContain("resolve('dist', 'wavewalletdk-isolated-v1')");
-    expect(viteConfig).toContain("request.url?.startsWith('/wallet/')");
-    expect(viteConfig).toContain("request.url?.startsWith('/wavewalletdk/')");
-    expect(viteConfig).toContain("request.url?.includes('wavewalletdk-worker')");
+    expect(viteConfig).toContain("appPath.startsWith('/wallet/')");
+    expect(viteConfig).toContain("appPath.startsWith('/wavewalletdk/')");
+    expect(viteConfig).toContain("appPath.includes('wavewalletdk-worker')");
     expect(viteConfig).not.toContain("server: {\n    headers:");
   });
 });

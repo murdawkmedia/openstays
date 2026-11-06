@@ -6,18 +6,22 @@ import react from '@vitejs/plugin-react';
 const publicShowcaseBuild = process.env.VITE_PUBLIC_SHOWCASE === 'true';
 const includeWavelengthWallet = !publicShowcaseBuild
   || process.env.VITE_PUBLIC_WAVELENGTH === 'true';
+const appBase = process.env.VITE_BASE ?? '/';
 const walletIsolation = () => (
   request: { url?: string },
   response: { setHeader: (name: string, value: string) => void },
   next: () => void,
 ) => {
-  if (request.url?.startsWith('/wallet/')) {
+  const pathname = request.url?.split('?')[0] ?? '/';
+  const appPath = pathname.startsWith(appBase) ? `/${pathname.slice(appBase.length)}` : pathname;
+  if (appPath.startsWith('/wallet/')) {
     response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
   }
   if (
-    request.url?.startsWith('/wavewalletdk/')
-    || request.url?.includes('wavewalletdk-worker')
+    appPath.startsWith('/wavewalletdk/')
+    || appPath.startsWith('/wavewalletdk-isolated-v1/')
+    || appPath.includes('wavewalletdk-worker')
   ) {
     response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
     response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
@@ -25,8 +29,7 @@ const walletIsolation = () => (
   next();
 };
 
-// base is '/' locally and on Cloudflare Pages; the GH Pages demo build
-// overrides it via VITE_BASE (see .github/workflows/pages.yml).
+// The showcase release uses VITE_BASE=/openstays/ under the studio domain.
 export default defineConfig({
   plugins: [
     react(),
@@ -70,5 +73,5 @@ export default defineConfig({
       },
     },
   ],
-  base: process.env.VITE_BASE ?? '/',
+  base: appBase,
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   OPENSTAYS_WAVELENGTH_DATA_DIR,
@@ -7,6 +7,15 @@ import {
 } from '../src/lib/wavelengthRuntime.js';
 
 describe('wavelengthRuntimeUrl', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('keeps production wallet assets inside the configured app path', () => {
+    vi.stubEnv('BASE_URL', '/openstays/');
+    expect(wavelengthRuntimeUrl(
+      'https://www.murdawkmedia.com/openstays/wallet/pay/booking_1', true,
+    )).toBe('https://www.murdawkmedia.com/openstays/wavewalletdk-isolated-v1/');
+  });
+
   it('anchors runtime assets at the site root from nested wallet routes', () => {
     expect(wavelengthRuntimeUrl('http://127.0.0.1:5173/wallet/pay/booking_1?confirmation=OS-1'))
       .toBe('http://127.0.0.1:5173/wavewalletdk/');

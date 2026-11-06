@@ -7,10 +7,10 @@ export function wavelengthRuntimeUrl(
     && import.meta.env.VITE_PUBLIC_SHOWCASE === 'true',
 ): string {
   const runtimePath = versioned
-    ? '/wavewalletdk-isolated-v1/'
-    : '/wavewalletdk/';
+    ? 'wavewalletdk-isolated-v1/'
+    : 'wavewalletdk/';
 
-  return new URL(runtimePath, pageUrl).toString();
+  return new URL(`${import.meta.env.BASE_URL}${runtimePath}`, pageUrl).toString();
 }
 
 function isolatedWorkerUrl(workerURL: string): string {

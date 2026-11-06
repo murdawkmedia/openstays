@@ -1,3 +1,22 @@
+## Hosted showcase release — 2026-11-06
+
+This release branch serves https://www.murdawkmedia.com/openstays/.
+Nostr is the maintained source; the existing Murdawk Media GitHub repository
+is a passive mirror. The original Pages address remains available for possible
+browser-wallet recovery. No saved wallet data is automatically moved between
+origins, and this release does not read or upload recovery material.
+
+`hosting/murdawk-subpath` starts from sanitized public revision
+`342cefcc52e680eeea2fa4b83859d7bd8b593f91`, whose runtime matches the accepted
+showcase. Later main/private production candidates remain separate. The changes
+cover the public asset base, seeded media, wallet runtime paths, canonical URL
+and scoped headers. See [subpath deployment](docs/subpath-deployment.md).
+
+Existing booking data, authentication, provider settings and incomplete live
+payment verification are unchanged. A hosting move does not activate a payment
+rail, create bookings, send messages or promote a private deployment. Earlier
+Pages hosting notes below describe the original release.
+
 # OpenStays
 
 > **Bitcoin++ Toronto 2026 hackathon branch:** “Consensus Commons” adds

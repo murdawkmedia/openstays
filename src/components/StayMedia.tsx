@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, Expand, X } from 'lucide-react';
+import { appAssetUrl } from '../lib/appAssetUrl';
 import {
   consensusCommonsMedia,
   getConsensusAmenityAction,
@@ -15,9 +16,9 @@ type StayMediaProps = {
 export function StayMedia({ propertySlug, propertyName, amenities, photoUrls }: StayMediaProps) {
   const isConsensusCommons = propertySlug === 'consensus-commons';
   const media = isConsensusCommons
-    ? consensusCommonsMedia.map((image, index) => ({ ...image, src: photoUrls[index] ?? image.src }))
+    ? consensusCommonsMedia.map((image, index) => ({ ...image, src: appAssetUrl(photoUrls[index] ?? image.src) }))
     : photoUrls.map((src, index) => ({
-      src,
+      src: appAssetUrl(src),
       alt: `${propertyName} property photo ${index + 1}`,
       caption: `${propertyName} — photo ${index + 1}`,
     }));

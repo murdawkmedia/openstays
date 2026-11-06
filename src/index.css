@@ -49,6 +49,15 @@ h4 {
   background-color: theme('colors.emerald.50');
 }
 
+@media (max-width: 389px) {
+  .rdp-root {
+    --rdp-day-height: 2rem;
+    --rdp-day-width: 2rem;
+    --rdp-day_button-height: 2rem;
+    --rdp-day_button-width: 2rem;
+  }
+}
+
 .card {
   @apply rounded-2xl border border-stone-200 bg-white shadow-sm;
 }
