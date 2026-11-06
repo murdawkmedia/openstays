@@ -1,5 +1,10 @@
 # OpenStays
 
+> **Hosted showcase:** https://www.murdawkmedia.com/openstays/ uses the
+> `hosting/murdawk-subpath` release branch at
+> `b13d71fd5a6c491b006e290055804cd9bb52b5dc`. Main retains later development
+> and is not the deployed showcase. See [hosting and recovery](HOSTING.md).
+
 > **Bitcoin++ Toronto 2026 hackathon branch:** “Consensus Commons” adds
 > authoritative Zaprite sandbox reconciliation, Wavelength signet payments,
 > privacy-safe OpenTimestamps receipts, one-time 1,000 signet-sat rewards,
