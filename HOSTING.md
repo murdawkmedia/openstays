@@ -4,7 +4,7 @@ Primary: https://www.murdawkmedia.com/openstays/
 Original recovery address: https://openstays-consensus.pages.dev/
 
 The accepted showcase uses Nostr branch `hosting/murdawk-subpath`, commit
-`b13d71fd5a6c491b006e290055804cd9bb52b5dc`. It starts from the sanitized
+`4051a65ae335e2ad3420cd666bcbb50398ad6a21`. It starts from the sanitized
 public equivalent of the previously deployed showcase and adds asset-path,
 wallet-header and narrow-screen fixes. Main's later production candidate and
 separate private staging are not promoted.

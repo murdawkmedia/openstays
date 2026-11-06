@@ -2,7 +2,7 @@
 
 > **Hosted showcase:** https://www.murdawkmedia.com/openstays/ uses the
 > `hosting/murdawk-subpath` release branch at
-> `b13d71fd5a6c491b006e290055804cd9bb52b5dc`. Main retains later development
+> `4051a65ae335e2ad3420cd666bcbb50398ad6a21`. Main retains later development
 > and is not the deployed showcase. See [hosting and recovery](HOSTING.md).
 
 > **Bitcoin++ Toronto 2026 hackathon branch:** “Consensus Commons” adds
