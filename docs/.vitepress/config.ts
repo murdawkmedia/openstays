@@ -19,6 +19,7 @@ export default defineConfig({
       {
         text: 'Guide',
         items: [
+          { text: 'Restart & hosting', link: '/restart' },
           { text: 'Quickstart', link: '/quickstart' },
           { text: 'Configuration', link: '/configuration' },
           { text: 'Self-hosting & deployment', link: '/self-hosting' },

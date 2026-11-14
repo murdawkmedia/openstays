@@ -1,5 +1,9 @@
 # Quickstart
 
+> The public project site is now static. These instructions describe a fresh
+> application deployment, not access to a shared hosted backend. See
+> [Restarting OpenStays](restart.md) for the current hosting paths.
+
 OpenStays is a normal npm project on top of [Convex](https://convex.dev). There's
 no separate database to install and no Docker Compose file — `npx convex dev`
 provisions a free cloud dev deployment for you and wires up your local `.env.local`.
@@ -32,12 +36,16 @@ CONVEX_AGENT_MODE=anonymous npx convex dev
 ```
 
 This spins up an anonymous local dev deployment. It's fine for exploring the
-codebase; you'll want a real account (still free) once you're ready to deploy
-somewhere others can reach.
+codebase. For online use, choose a managed or self-hosted backend as described
+in [Restarting OpenStays](restart.md).
 
-## 3. Seed the demo inventory
+## 3. Configure disposable demo mode and seed inventory
+
+Use only the new development backend selected above:
 
 ```bash
+npx convex env set DEMO_MODE true
+npx convex env set EMAIL_PROVIDER log_only
 npm run seed
 ```
 
@@ -52,6 +60,9 @@ already exists.
 
 ## 4. Run the app
 
+For a wallet-free fictional showcase, set the public flags listed in
+[Restarting OpenStays](restart.md), then run:
+
 ```bash
 npm run dev
 ```
@@ -61,11 +72,10 @@ Open `http://localhost:5173`.
 ## 5. Book a stay at Pinewood Flats
 
 Pick a unit type (try the Lakeview Cabin), choose dates, and go through the
-guest checkout flow. In local dev there's no live payment provider yet
-(Stripe/Square land in M1), so the booking flow uses the simulated
-confirmation path. Once you confirm, open the admin booking tape and watch
-the reservation appear live — it's the same reactive Convex query, so no
-refresh is needed.
+guest checkout flow. The disposable backend's demo mode provides simulated
+confirmation; keep real provider credentials out of this installation. Staff
+routes are hidden by the public-showcase flags. Real operator access and
+payment acceptance require the separate production-profile setup.
 
 ## Next steps
 

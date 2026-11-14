@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en" data-openstays-static>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Host OpenStays — Static Site & Booking App Setup</title>
+<meta name="description" content="Keep the OpenStays project site static, or restart the booking application with a fresh backend. Frontend hosting, configuration, safety checks and source links.">
+<meta name="theme-color" content="#173e31">
+<link rel="canonical" href="https://www.murdawkmedia.com/openstays/hosting/">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="stylesheet" href="../styles.css">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="OpenStays">
+<meta property="og:title" content="Host OpenStays — Static Site & Booking App Setup">
+<meta property="og:description" content="Keep the OpenStays project site static, or restart the booking application with a fresh backend. Frontend hosting, configuration, safety checks and source links.">
+<meta property="og:url" content="https://www.murdawkmedia.com/openstays/hosting/">
+<meta property="og:image" content="https://www.murdawkmedia.com/openstays/social.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="OpenStays: good stays, open systems. Open-source booking software for independent lodging.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Host OpenStays — Static Site & Booking App Setup">
+<meta name="twitter:description" content="Keep the OpenStays project site static, or restart the booking application with a fresh backend. Frontend hosting, configuration, safety checks and source links.">
+<meta name="twitter:image" content="https://www.murdawkmedia.com/openstays/social.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Host OpenStays: static site or your own booking application", "description": "A restart guide for the MIT-licensed OpenStays source.", "url": "https://www.murdawkmedia.com/openstays/hosting/", "isPartOf": {"@id": "https://www.murdawkmedia.com/openstays/#website"}}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="topline">A STATIC PROJECT SHOWCASE · NO LIVE BOOKINGS OR PAYMENTS</div>
+<header class="wrap nav">
+<a class="brand" href="../" aria-label="OpenStays home"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="m3 18 15-13 15 13M7 15v17h22V15M15 32V21h7v11M2 33h32" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="30" cy="6" r="3" fill="#b74625"/></svg>OpenStays</a>
+<nav class="nav-links" aria-label="Main navigation">
+<a class="optional" href="../#examples">Examples</a>
+<a href="../hosting/">Host it</a>
+<a class="code-link" href="https://github.com/murdawkmedia/openstays">Source code <span aria-hidden="true">↗</span></a>
+</nav>
+</header><main id="main"><div class="wrap guide-hero"><p class="eyebrow">Your code. Your deployment.</p><h1>Keep it static.<br>Or give it a new home.</h1><p>OpenStays has two different hosting paths: this lightweight project site, and the full booking application preserved in the source. Choose the one you actually need.</p></div>
+<div class="wrap guide-layout"><aside class="toc"><nav aria-label="Hosting guide contents"><a href="#choose">01 / Choose a path</a><a href="#static">02 / Static project site</a><a href="#explore">03 / Explore the app</a><a href="#operator">04 / Operator deployment</a><a href="#self-hosted">05 / Self-hosted backend</a><a href="#acceptance">06 / Before real bookings</a></nav></aside>
+<div class="guide-content">
+<section id="choose"><h2>Two paths. Different responsibilities.</h2><div class="choices"><div class="choice"><h3>A project showcase</h3><p>Publish the <code>static-site/</code> directory. It needs no build, JavaScript, database, authentication or payment service. All examples remain fictional.</p></div><div class="choice"><h3>An operational booking app</h3><p>Run the React frontend with a fresh Convex backend. Add property data and configure staff access, optional providers, backups and acceptance checks.</p></div></div><div class="callout"><p>The former hosted booking service is no longer offered. Historical deployment URLs and keys are not a starting point for a new installation. The code remains available; each new operator owns a separate deployment.</p></div></section>
+<section id="static"><h2>Publish the static site.</h2><p>The <code>static-site/</code> folder is already the finished output. Upload it to Cloudflare Pages, Workers static assets, or any host that serves HTML and CSS. Use no application build command and provision no Convex project.</p>
+<pre><code>git clone --branch nostr-main https://github.com/murdawkmedia/openstays.git
+cd openstays
+python3 scripts/check-static-site.py</code></pre>
+<p>The GitHub repository is a passive public mirror of the maintained Nostr source. Check the latest source and release notes before choosing a revision.</p><ul><li><strong>Publish directory:</strong> <code>static-site</code>.</li><li><strong>Primary path:</strong> <code>/openstays/</code>, with <code>/openstays/hosting/</code> as this guide.</li><li><strong>Backend variables and secrets:</strong> none.</li><li><strong>Portability:</strong> assets and navigation use relative paths. On another domain, update both HTML canonical/social URLs and structured data, then run the contract checker with the matching canonical base.</li><li><strong>Search discovery:</strong> include both page URLs in the host’s sitemap and keep the pages crawlable. Structured data describes visible content; it does not guarantee search features or AI citations.</li></ul></section>
+<section id="explore"><h2>Explore the booking app first.</h2><p>For a disposable test installation, install a supported Node.js version that meets the pinned Vite engine requirement, then use the lockfile. The commands below create or select your own backend; verify that selection before pushing functions.</p>
+<pre><code>npm ci
+npx convex dev</code></pre>
+<p>Follow the CLI to create a new, dedicated development project and leave it running. In a second terminal, configure only this disposable backend and seed its fictional inventory:</p>
+<pre><code>npx convex env set DEMO_MODE true
+npx convex env set EMAIL_PROVIDER log_only
+npm run seed</code></pre>
+<p>Add these non-secret frontend flags to the generated local environment file. They keep the experimental wallet and real payment rails out of this test view:</p>
+<pre><code>VITE_PUBLIC_SHOWCASE=true
+VITE_PUBLIC_STAFF=false
+VITE_PUBLIC_WAVELENGTH=false
+VITE_PUBLIC_ZAPRITE=false
+VITE_PUBLIC_SIMULATED=true</code></pre>
+<pre><code>npm run dev</code></pre>
+<p>The CLI supplies the development <code>VITE_CONVEX_URL</code>. The seed contains fictional Pinewood Flats inventory. Demo mode enables simulated behavior and reset tasks: never enable it on a backend with real guest or payment data.</p><p>For account-free local exploration, the source quickstart also documents <code>CONVEX_AGENT_MODE=anonymous npx convex dev</code>. This is a development path, not a production hosting recipe.</p>
+<div class="reference-links"><a href="https://github.com/murdawkmedia/openstays/blob/nostr-main/docs/quickstart.md">Source quickstart ↗</a><a href="https://github.com/murdawkmedia/openstays/blob/nostr-main/docs/configuration.md">Configuration reference ↗</a></div></section>
+<section id="operator"><h2>Restart for a real operator.</h2><p>Use the reduced production profile. It preserves lodging and staff foundations while excluding the experimental hackathon, wallet, reward, treasury and demo surfaces. Keep operator data and deployment secrets outside the public repository.</p>
+<ol><li>Create separate development/staging and production backends. Never reuse an old showcase endpoint or copy an old deployment credential.</li><li>Generate the reduced function tree: <code>npm run production:verify</code>. In your deployment checkout, set <code>convex.json</code> to use <code>"functions": "convex-production/"</code>. Code generation and deployment must target this generated directory, not the full showcase <code>convex/</code> tree.</li><li>Set <code>VITE_OPENSTAYS_PROFILE=production</code> and the new backend’s public <code>VITE_CONVEX_URL</code>. Keep demo/public-simulation flags disabled. Generate deployment-specific bindings before release.</li><li>Configure staff authentication and bootstrap the first authorized owner using the source runbook. An account alone does not grant staff access. Load reviewed property inventory, then enable and accept staff workspaces one at a time.</li><li>Configure only the providers you need. Keep payment keys, email credentials, signing keys and deploy keys in backend or host secret stores. A <code>VITE_</code> variable is public browser configuration, never a safe place for secrets.</li></ol>
+<p>For the frontend, build the production profile and serve the resulting <code>dist/</code> on a static host. Configure navigation fallbacks for application deep links. Backend functions and frontend must be released together against the same target.</p>
+<pre><code>npm run production:verify
+npm run typecheck
+VITE_OPENSTAYS_PROFILE=production npm run build</code></pre>
+<p>With the generated backend directory configured and a fresh deployment key stored privately in the host, a paired release can use:</p>
+<pre><code>VITE_OPENSTAYS_PROFILE=production npx convex deploy --cmd 'npm run build'</code></pre>
+<p>Configure <code>SITE_URL</code> for the new frontend origin, deployment-specific auth keys and callback URLs, provider webhooks, and backup/retention behavior. Old URLs are historical records, not reusable service identities. Hosting and provider costs depend on your usage and plans.</p>
+<div class="reference-links"><a href="https://github.com/murdawkmedia/openstays/blob/nostr-main/docs/production-profile.md">Production boundary ↗</a><a href="https://github.com/murdawkmedia/openstays/blob/nostr-main/docs/self-hosting.md">Authentication &amp; provider setup ↗</a><a href="https://github.com/murdawkmedia/openstays/blob/nostr-main/docs/command-center.md">Staff acceptance ↗</a></div></section>
+<section id="self-hosted"><h2>Run the backend yourself.</h2><p>Self-hosting the frontend does not remove the booking app’s backend requirement. To avoid Convex Cloud, use the open-source Convex backend on infrastructure you operate. Follow its current official setup instructions and use your own backend URL and admin/deployment credentials.</p><p>The application still depends on Convex’s transactional and reactive semantics. This is not a database swap. The backend has separate license terms from the MIT-licensed OpenStays app; review them for your intended use. You own storage, TLS, authentication configuration, upgrades, file storage, scheduled work, backups and restoration tests. The repository does not provide a fully packaged production self-hosted deployment.</p><p>Use the same reduced production function tree and operator acceptance boundary. Validate compatibility and deployment behavior against the backend version you choose; do not connect a new frontend to a historical hosted instance.</p><div class="reference-links"><a href="https://github.com/convex/convex-backend">Convex backend source ↗</a><a href="https://docs.convex.dev/self-hosting">Official self-hosting documentation ↗</a></div></section>
+<section id="acceptance"><h2>Before you accept real stays.</h2><p>A successful build is one check. An operating lodging system needs the complete guest and staff paths verified against your own configuration.</p><ul class="checklist"><li>Run the source tests and typecheck. Verify that the release artifacts contain only the intended production profile.</li><li>Test overlapping holds, cancelled stays, local dates, rates, taxes, deposits, minimum stays and turnover buffers.</li><li>Verify staff roles and property scope, account recovery, and access to guest and payment information.</li><li>Test provider sandbox payments, verified webhooks, retries and refunds. Browser redirects alone never establish payment success.</li><li>Verify confirmation delivery and cancellation notices, iCal imports/exports and manual conflict handling.</li><li>Review security, privacy, retention, monitoring, backups and an isolated restore. Keep customer data and sensitive archives out of public Git.</li><li>For channel connectivity, obtain provider access and complete certification and property mapping. iCal polling is not instant OTA inventory locking.</li></ul><p>The public source contains historical experiments and release notes. Prefer the production-profile runbook for a real lodging deployment, and treat every provider activation as a separate acceptance step.</p><div class="actions"><a class="button" href="https://github.com/murdawkmedia/openstays">Browse the source <span aria-hidden="true">↗</span></a><a class="button secondary" href="../">Back to OpenStays <span aria-hidden="true">←</span></a></div></section>
+</div></div></main>
+<footer class="footer"><div class="wrap">
+<div class="footer-inner"><div><a class="brand" href="../"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="m3 18 15-13 15 13M7 15v17h22V15M15 32V21h7v11M2 33h32" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="30" cy="6" r="3" fill="#b74625"/></svg>OpenStays</a><p>Open booking infrastructure. Room for your ideas.</p></div>
+<nav class="footer-links" aria-label="Project links"><a href="https://github.com/murdawkmedia/openstays">GitHub mirror</a><a href="https://gitworkshop.dev/npub17j3f7cuhcvjqnf7d80x6rt9hmkkhdguwg4l2th0h4qnhqketr63s6xakwv/git.shakespeare.diy/openstays">Nostr source</a><a href="../hosting/">Hosting guide</a></nav></div>
+<div class="footer-bottom"><span>MIT-licensed software · A <a href="https://www.murdawkmedia.com/">Murdawk Media</a> project · Built with SebaHub</span><span>Fictional examples. Your deployment, your responsibility.</span></div>
+</div></footer>
+</body>
+</html>

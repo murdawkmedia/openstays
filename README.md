@@ -1,9 +1,14 @@
 # OpenStays
 
-> **Hosted showcase:** https://www.murdawkmedia.com/openstays/ uses the
-> `hosting/murdawk-subpath` release branch at
-> `4051a65ae335e2ad3420cd666bcbb50398ad6a21`. Main retains later development
-> and is not the deployed showcase. See [hosting and recovery](HOSTING.md).
+> **Project site:** https://www.murdawkmedia.com/openstays/ is a static,
+> backend-free showcase with fictional examples and a hosting guide. There is
+> no shared hosted booking service. The full application remains in this
+> repository for fresh independent deployments. Start with
+> [restart and hosting instructions](docs/restart.md) or
+> [static-site publishing](HOSTING.md).
+>
+> Historical showcase releases and experiments below describe source features,
+> not services available on the current project site.
 
 > **Bitcoin++ Toronto 2026 hackathon branch:** “Consensus Commons” adds
 > authoritative Zaprite sandbox reconciliation, Wavelength signet payments,
@@ -47,7 +52,7 @@ Seba Beach, Alberta, Canada — after getting tired of legacy reservation system
 with no API, no iCal, and seven clicks to book a cabin. Operator deployments
 require their own configuration, migration and acceptance checks.
 
-> **Status: early & moving fast.** M1's booking conflict checks, Stripe and
+> **Status: reference implementation; operator deployment required.** M1's booking conflict checks, Stripe and
 > Square checkout, staff auth, guest email, and two-way iCal sync are shipped
 > and test-covered. Consensus Commons is an experimental hackathon layer.
 
@@ -76,7 +81,7 @@ require their own configuration, migration and acceptance checks.
 ### M1 — shipped; hackathon rails experimental
 
 Shipped in the source tree; operator configuration and live acceptance remain deployment-specific. See the
-[roadmap](https://murdawkmedia.github.io/openstays/roadmap) for status:
+[roadmap](./docs/roadmap.md) for status:
 
 - **Real payments via Stripe & Square** — Stripe Checkout and Square Payment
   Links behind one `PaymentProvider` interface, confirmation driven by

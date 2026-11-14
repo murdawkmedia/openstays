@@ -6,18 +6,19 @@ hero:
   tagline: Open-source booking engine & PMS for independent lodging
   actions:
     - theme: brand
-      text: Quickstart
-      link: /quickstart
+      text: Restart & hosting
+      link: /restart
     - theme: alt
       text: View on GitHub
       link: https://github.com/murdawkmedia/openstays
 
 features:
-  - title: Double-booking-proof by construction
+  - title: Transactional booking-conflict checks
     details: >-
       Reservations are written inside serializable ACID transactions
       (Convex) against a derived per-night occupancy table. Two guests
-      can't take the same night, even clicking Pay at the same instant.
+      overlapping internal holds are rejected atomically. External calendar
+      conflicts still need operator resolution.
   - title: Real-world lodging rules
     details: >-
       Seasonal rates, min/max stay, lead time, booking windows, prep/turnover
@@ -29,9 +30,9 @@ features:
       calendars and legacy PMS bridges stay in sync.
   - title: Your own deployment, your own data
     details: >-
-      No SaaS — each operator runs their own Convex deployment. Free tiers
-      get you to ~$0/month, and self-hosting is possible with the open-source
-      convex-backend if you want everything on your own infrastructure.
+      Each operator runs a fresh backend and supplies their own inventory.
+      The project site is static; managed and self-hosted Convex are options
+      for the application. Hosting and providers have their own costs.
   - title: Campground-first command center
     details: >-
       Property-scoped staff roles, a 30/45/60/90-day reservation grid,

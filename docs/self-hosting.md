@@ -1,5 +1,9 @@
 # Self-hosting & deployment
 
+> The public project site is now static. These instructions describe a fresh
+> application deployment, not access to a shared hosted backend. See
+> [Restarting OpenStays](restart.md) for the current hosting paths.
+
 OpenStays has two independently-deployable pieces: the **Convex backend**
 (schema, mutations, queries, crons, HTTP endpoints) and the **static
 frontend** (React + Vite build output). This split is what makes "your own
@@ -14,7 +18,7 @@ This is what `npx convex dev` gives you, and what the [Quickstart](/quickstart)
 walks through. Convex hosts your deployment; you get serializable
 transactions, realtime queries, scheduled functions (crons), file storage,
 and HTTP endpoints without running any infrastructure yourself. The free
-tier is generous enough that a single-property deployment costs ~$0/month.
+tier and paid plans have usage limits; verify current pricing for your workload.
 
 Your data lives in Convex's cloud, scoped entirely to your own project — it
 is not shared with, or visible to, other OpenStays deployments. You can
@@ -24,7 +28,7 @@ export it at any time from the dashboard.
 
 If you want the backend running on infrastructure you control end to end,
 Convex publishes an open-source backend you can self-host:
-[github.com/get-convex/convex-backend](https://github.com/get-convex/convex-backend).
+[github.com/get-convex/convex-backend](https://github.com/convex/convex-backend).
 This gets you the same transactional/query semantics OpenStays depends on,
 with no dependency on Convex's hosted service. This path is more involved to
 operate (you're responsible for the database, backups, and uptime) and isn't
@@ -63,13 +67,13 @@ Example for a Cloudflare Pages project:
 The same pattern applies to any static host that lets you set a custom
 build command and a secret environment variable.
 
-### GitHub Pages demo build
+### Historical GitHub Pages demo workflow
 
-This repo's own `.github/workflows/pages.yml` publishes two things to GitHub
-Pages on every push to `main`: the docs site (this site, at the root) and a
-public read/write **demo** deployment of the app itself, under `/demo/`. See
-that workflow for the exact `VITE_BASE` / `VITE_CONVEX_URL` wiring if you
-want to replicate a similar split-publish setup for your own fork.
+The retained `.github/workflows/pages.yml` describes a former docs-and-demo
+publication path. The passive GitHub mirror has Actions disabled. The current
+project site is the backend-free `static-site/` artifact; do not reactivate
+old demo variables or deploy a historical backend as a routine documentation
+update. A new operator follows [Restarting OpenStays](restart.md).
 
 ## Demo mode
 
@@ -89,7 +93,7 @@ Never set `DEMO_MODE=true` on a deployment holding real guest data — it
 exists solely for the public demo instance and for kicking the tires
 locally without a payment provider configured.
 
-## Payment providers (M1 — in progress)
+## Payment providers (deployment-specific configuration)
 
 Configure Stripe, Square, or both — whichever a deployment has env vars for
 is what the guest checkout UI offers. Neither is required; a deployment with
